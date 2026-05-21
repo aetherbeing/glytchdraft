@@ -52,6 +52,11 @@ Reproject only after the source CRS has been confirmed against the data provider
 | MIA-LIDAR-004 | `20180623_318155C.copc.laz` | Miami | COPC LAZ | same as MIA-LIDAR-002 | n/a | tile C (adjacent) | tile pair | untouched |  |
 | MIA-LIDAR-005 | `20180623_318155D.copc.laz` | Miami | COPC LAZ | same as MIA-LIDAR-002 | n/a | tile D (adjacent) | tile pair | untouched |  |
 | LA-PT-001 | `la_top_100.geojson` | Los Angeles | GeoJSON (Points) | OGC:CRS84 | n/a | LA metro | landmark anchor points (Hollywood Sign, Disney Hall, Getty, Griffith…) | untouched | 100 features, same schema as MIA-PT-001 |
+| LA-BF-001 | `la_county_building_outlines_4326.geojson` | Los Angeles | GeoJSON (Polygons) | EPSG:4326 | n/a | LA County | county-wide building outlines; source: LA County Open Data / LA GeoHub. ~2.4M features. Download via `scripts/la/00_download_data.sh` | pending | Clip to hero tile in stage 01. Attributes vary by vintage — may include HEIGHT, YEAR_BUILT. Stored on /mnt/t7/la/data_raw/geojson/ |
+| LA-LIDAR-001 | `USGS_LPC_CA_LosAngeles_2016_L4_6477_1836b_LAS_2018.laz` | Los Angeles | LAZ point cloud | EPSG:6340 (NAD83(2011) UTM Zone 11N) | n/a | Downtown LA / Bunker Hill hero tile (~26.9 MB compressed) | hero tile for the LA pipeline — Bunker Hill, Walt Disney Concert Hall, Grand Park area | pending | USGS LPC CA_LosAngeles_2016 project. Download: rockyweb.usgs.gov. Stored on /mnt/t7/la/data_raw/laz/ |
+| LA-LIDAR-002 | `USGS_LPC_CA_LosAngeles_2016_L4_6477_1836a_LAS_2018.laz` | Los Angeles | LAZ point cloud | EPSG:6340 | n/a | Adjacent quarter-tile N of 1836b | companion tile for full 1836 grid cell coverage | pending | Download via 00_download_data.sh |
+| LA-LIDAR-003 | `USGS_LPC_CA_LosAngeles_2016_L4_6477_1836c_LAS_2018.laz` | Los Angeles | LAZ point cloud | EPSG:6340 | n/a | Adjacent quarter-tile | companion tile | pending | Download via 00_download_data.sh |
+| LA-LIDAR-004 | `USGS_LPC_CA_LosAngeles_2016_L4_6477_1836d_LAS_2018.laz` | Los Angeles | LAZ point cloud | EPSG:6340 | n/a | Adjacent quarter-tile | companion tile | pending | Download via 00_download_data.sh |
 
 > Add new rows as you stage files into `data_raw/<city>/<type>/`. Run
 > `python scripts/inspect_files.py` to regenerate the technical fields,

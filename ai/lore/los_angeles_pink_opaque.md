@@ -74,17 +74,20 @@ footprint.
 
 ## Building footprints and LiDAR
 
-**Not yet staged in `data_raw/los_angeles/`.** When acquired, expected
-sources:
+**Pipeline configured. Data download pending (run `scripts/la/00_download_data.sh`).**
 
-- LA County Open Data — building footprints in EPSG:2229 (State Plane, feet)
-  or 4326.
-- USGS 3DEP LiDAR — coverage in Los Angeles County varies; tile by tile.
+- **LiDAR hero tile:** USGS 3DEP CA_LosAngeles_2016 — `L4_6477_1836b` (Bunker Hill /
+  Walt Disney Concert Hall / Grand Park). CRS: EPSG:6340 → EPSG:32611 (UTM 11N).
+  Four quarter-tiles (1836a–d) downloaded to `/mnt/t7/la/data_raw/laz/`.
+- **Building footprints:** LA County Building Outlines (LA GeoHub, EPSG:4326, ~2.4M
+  features county-wide). Downloaded to `/mnt/t7/la/data_raw/geojson/`.
+- **Pipeline scripts:** `scripts/la/00_compute_extent.py`, `01_clip_footprints.py`,
+  `02_extract_classes.py`. Run via `bash scripts/la/_run.sh [00|01|02]`.
+- **Processed output:** `/mnt/t7/la/data_processed/hero_tile/` — same structure as
+  Miami (notes/, footprints/, pointcloud/, blender_ready/).
 
-Until then: LA agents work primarily from the Atlas Protocol points and
-from general spatial reasoning. The Architectural Envisioner and Building
-Doper should not invent footprint geometry. The Data Steward should flag
-the gap.
+The Architectural Envisioner and Building Doper may use footprint geometry once
+stage 01 completes and `hero_tile_footprints_32611.geojson` is written.
 
 ## Climate and the dramaturgical year
 
