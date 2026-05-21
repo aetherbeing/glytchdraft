@@ -1,0 +1,43 @@
+=== Inspecting: C:\Users\Glytc\OneDrive\Desktop\GLYTCHDRAFT_MIAMI ===
+Found 1 shapefile(s) and 2 point cloud(s).
+
+--- SHAPEFILE: C:\Users\Glytc\OneDrive\Desktop\GLYTCHDRAFT_MIAMI\Building_Footprint_2D_2018\Building_Footprint_2D_2018.shp ---
+  file size:       147.7 MB
+  CRS:             EPSG:3857 (WGS 84 / Pseudo-Mercator)
+  units:           metre
+  geometry type:   Polygon
+  feature count:   771,441
+  bounding box:
+  min: (-9003670.567, 2904320.322)
+  max: (-8918754.612, 2996431.816)
+  companion set:   .shp=True .shx=True .dbf=True .prj=True .cpg=True  -> COMPLETE
+  attributes:      OBJECTID, UNIQUEID, SOURCE, YEARUPDATE, TYPE, HEIGHT, GlobalID, Shape__Are, Shape__Len
+
+--- POINT CLOUD: C:\Users\Glytc\OneDrive\Desktop\GLYTCHDRAFT_MIAMI\3DEP_LiDAR_MIAMI\fargate_142f54cc-d65c-4a2f-a8c6-571d4508e08c.las ---
+  file size:       971.6 MB
+  point count:     28,299,054
+  SRS (horiz):     PROJCS["WGS 84 / Pseudo-Mercator",GEOGCS["WGS 84",DATUM["WGS_1984",SPHEROID["WGS 84",6378137,298.257223563,AUTHORITY["EPSG","7030"]],AUTHORITY["EPSG","6326"]],PRIMEM["Greenwich",0,AUTHORITY["EPSG","8901"]],UNIT["degree",0.0174532925199433,AUTHORITY["EPSG","9122"]],AUTHORITY["EPSG","4326"]],PROJECTION["Mercator_1SP"],PARAMETER["central_meridian",0],PARAMETER["scale_factor",1],PARAMETER["false_easting",0],PARAMETER["false_northing",0],UNIT["metre",1,AUTHORITY["EPSG","9001"]],AXIS["X",EAST],AXIS["Y",NORTH],EXTENSION["PROJ4","+proj=merc +a=6378137 +b=6378137 +lat_ts=0 +lon_0=0 +x_0=0 +y_0=0 +k=1 +units=m +nadgrids=@null +wktext +no_defs"],AUTHORITY["EPSG","3857"]]
+  XYZ extent:
+  min: (-8926424.110, 2958971.790, -24.380)
+  max: (-8922475.400, 2963198.980, 186.400)
+  classification histogram:
+    (none — 'str' object has no attribute 'get')
+
+--- POINT CLOUD: C:\Users\Glytc\OneDrive\Desktop\GLYTCHDRAFT_MIAMI\3DEP_LiDAR_MIAMI\fargate_336324a5-588c-4e19-bce1-e4c1cbaecb4d.laz ---
+  file size:       786.6 MB
+  point count:     153,706,103
+  SRS (horiz):     PROJCS["WGS 84 / Pseudo-Mercator",GEOGCS["WGS 84",DATUM["WGS_1984",SPHEROID["WGS 84",6378137,298.257223563,AUTHORITY["EPSG","7030"]],AUTHORITY["EPSG","6326"]],PRIMEM["Greenwich",0,AUTHORITY["EPSG","8901"]],UNIT["degree",0.0174532925199433,AUTHORITY["EPSG","9122"]],AUTHORITY["EPSG","4326"]],PROJECTION["Mercator_1SP"],PARAMETER["central_meridian",0],PARAMETER["scale_factor",1],PARAMETER["false_easting",0],PARAMETER["false_northing",0],UNIT["metre",1,AUTHORITY["EPSG","9001"]],AXIS["X",EAST],AXIS["Y",NORTH],EXTENSION["PROJ4","+proj=merc +a=6378137 +b=6378137 +lat_ts=0 +lon_0=0 +x_0=0 +y_0=0 +k=1 +units=m +nadgrids=@null +wktext +no_defs"],AUTHORITY["EPSG","3857"]]
+  XYZ extent:
+  min: (-8926587.940, 2958856.120, -29.540)
+  max: (-8921453.810, 2963199.000, 186.400)
+  classification histogram:
+    (none — 'str' object has no attribute 'get')
+
+
+=================  SUMMARY  =================
+file                                               kind                count crs                           
+-----------------------------------------------------------------------------------------------------------
+Building_Footprint_2D_2018.shp                     shapefile  771,441 features EPSG:3857 (WGS 84 / Pseudo-Mercator)
+fargate_142f54cc-d65c-4a2f-a8c6-571d4508e08c.las   las/laz    28,299,054 pts PROJCS["WGS 84 / Pseudo-Mercat
+fargate_336324a5-588c-4e19-bce1-e4c1cbaecb4d.laz   las/laz    153,706,103 pts PROJCS["WGS 84 / Pseudo-Mercat
+============================================================

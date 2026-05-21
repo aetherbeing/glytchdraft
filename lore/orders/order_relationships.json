@@ -1,0 +1,159 @@
+{
+  "order_relationships": {
+    "Cornucopians": {
+      "allies": ["Mirrorsweat", "The_Pink_Opaque"],
+      "tensions": ["Hollow_Form", "Planar_Witnesses"],
+      "mysteries": ["The_Cryptozoo"],
+      "boundary_whispers": {
+        "to_Hollow_Form": "The excess fades. Absence calls you home.",
+        "to_Planar_Witnesses": "Your indulgence meets the sharp edge of doubt.",
+        "to_Mirrorsweat": "The gaze turns golden. Performance becomes feast.",
+        "to_The_Pink_Opaque": "Glitter dissolves into dream. The longing remains."
+      }
+    },
+    "Planar_Witnesses": {
+      "allies": ["Hollow_Form", "Signal_Choir"],
+      "tensions": ["Cornucopians", "Crooked_Datum"],
+      "mysteries": ["The_Blurry_Uninvited"],
+      "boundary_whispers": {
+        "to_Cornucopians": "Flatness rejects the overflow. Precision cuts through excess.",
+        "to_Crooked_Datum": "The angles refuse to bend. Sacred wrongness meets geometric truth.",
+        "to_Hollow_Form": "Flatness finds its perfect void. Nothing remains angular.",
+        "to_Signal_Choir": "Structure sings in straight lines. Harmony follows form."
+      }
+    },
+    "Mirrorsweat": {
+      "allies": ["Cornucopians", "Sash_Ritual"],
+      "tensions": ["The_Cryptozoo", "Hollow_Form"],
+      "mysteries": ["The_Blurry_Uninvited"],
+      "boundary_whispers": {
+        "to_The_Cryptozoo": "The gaze dims. Hidden things breathe easier now.",
+        "to_Hollow_Form": "The mirror cracks. Reflection finds its absence.",
+        "to_Cornucopians": "Visibility becomes currency. The feast is performed.",
+        "to_Sash_Ritual": "Individual gaze joins collective rhythm. The procession sees all."
+      }
+    },
+    "Crooked_Datum": {
+      "allies": ["Cradle_Mold", "The_Cryptozoo"],
+      "tensions": ["Planar_Witnesses", "Signal_Choir"],
+      "mysteries": ["Soft_Logic"],
+      "boundary_whispers": {
+        "to_Planar_Witnesses": "Sacred wrongness meets rigid truth. The bend begins.",
+        "to_Signal_Choir": "Harmony warps. The structure sings off-key.",
+        "to_Cradle_Mold": "Wrong angles take root. Growth follows the twisted path.",
+        "to_The_Cryptozoo": "Bent mathematics shelter the unseen. Geometry becomes refuge."
+      }
+    },
+    "Hollow_Form": {
+      "allies": ["Planar_Witnesses", "The_Pink_Opaque"],
+      "tensions": ["Cornucopians", "Mirrorsweat"],
+      "mysteries": ["Signal_Choir"],
+      "boundary_whispers": {
+        "to_Cornucopians": "Absence swallows excess. The void remembers hunger.",
+        "to_Mirrorsweat": "The gaze finds nothing to reflect. Emptiness performs itself.",
+        "to_Planar_Witnesses": "Void takes geometric shape. Nothing becomes angular.",
+        "to_The_Pink_Opaque": "Absence softens into dream. The void learns to long."
+      }
+    },
+    "Soft_Logic": {
+      "allies": ["The_Pink_Opaque", "Cradle_Mold"],
+      "tensions": ["The_Blurry_Uninvited", "Planar_Witnesses"],
+      "mysteries": ["Crooked_Datum"],
+      "boundary_whispers": {
+        "to_The_Pink_Opaque": "Intuition melts into dream. Logic becomes feeling.",
+        "to_Cradle_Mold": "Felt knowledge takes root. Understanding grows organic.",
+        "to_The_Blurry_Uninvited": "Soft knowing meets hard surveillance. Intuition goes underground.",
+        "to_Planar_Witnesses": "Feeling meets form. The blueprint learns to doubt."
+      }
+    },
+    "Sash_Ritual": {
+      "allies": ["Signal_Choir", "Mirrorsweat"],
+      "tensions": ["Hollow_Form", "The_Blurry_Uninvited"],
+      "mysteries": ["Crooked_Datum"],
+      "boundary_whispers": {
+        "to_Signal_Choir": "Rhythm becomes harmony. The procession learns to sing.",
+        "to_Mirrorsweat": "Collective gaze focuses. The ritual is performed.",
+        "to_Hollow_Form": "The procession meets emptiness. Rhythm falters in the void.",
+        "to_The_Blurry_Uninvited": "The ceremony is watched. Hidden eyes count the steps."
+      }
+    },
+    "Signal_Choir": {
+      "allies": ["Planar_Witnesses", "Sash_Ritual"],
+      "tensions": ["Crooked_Datum", "The_Blurry_Uninvited"],
+      "mysteries": ["Hollow_Form"],
+      "boundary_whispers": {
+        "to_Planar_Witnesses": "Harmony finds its form. The structure sings true.",
+        "to_Sash_Ritual": "Song becomes procession. Harmony walks the earth.",
+        "to_Crooked_Datum": "Perfect pitch meets sacred discord. The choir learns to bend.",
+        "to_The_Blurry_Uninvited": "Clear signals meet static. The song is jammed."
+      }
+    },
+    "Cradle_Mold": {
+      "allies": ["Soft_Logic", "Crooked_Datum"],
+      "tensions": ["Mirrorsweat", "Planar_Witnesses"],
+      "mysteries": ["The_Pink_Opaque"],
+      "boundary_whispers": {
+        "to_Soft_Logic": "Growth follows feeling. Decay teaches intuition.",
+        "to_Crooked_Datum": "Life bends toward wrongness. Organic meets sacred twist.",
+        "to_Mirrorsweat": "Growth shuns the gaze. Life happens in the hidden.",
+        "to_Planar_Witnesses": "Organic curves meet flat truth. Nature refuses geometry."
+      }
+    },
+    "The_Pink_Opaque": {
+      "allies": ["Hollow_Form", "Soft_Logic"],
+      "tensions": ["The_Blurry_Uninvited", "Sash_Ritual"],
+      "mysteries": ["Cradle_Mold"],
+      "boundary_whispers": {
+        "to_Hollow_Form": "Dream learns emptiness. Longing finds its void.",
+        "to_Soft_Logic": "Feeling becomes knowing. The heart thinks in twilight.",
+        "to_The_Blurry_Uninvited": "Soft beauty meets hard watching. Dreams learn surveillance.",
+        "to_Sash_Ritual": "Private longing meets public ceremony. The dream performs itself."
+      }
+    },
+    "The_Cryptozoo": {
+      "allies": ["Crooked_Datum", "Cradle_Mold"],
+      "tensions": ["Mirrorsweat", "Signal_Choir"],
+      "mysteries": ["Soft_Logic"],
+      "boundary_whispers": {
+        "to_Crooked_Datum": "Hidden things find bent shelter. Mystery follows twisted paths.",
+        "to_Cradle_Mold": "The unseen takes root. Hidden life grows in shadow.",
+        "to_Mirrorsweat": "Mystery shuns the gaze. The hidden things retreat.",
+        "to_Signal_Choir": "Silence swallows song. The unseen creatures hide from harmony."
+      }
+    },
+    "The_Blurry_Uninvited": {
+      "allies": ["None"],
+      "tensions": ["All"],
+      "mysteries": ["All"],
+      "boundary_whispers": {
+        "to_any": "The watchers are always watching. Nothing remains unseen.",
+        "from_any": "You have been observed. The data persists.",
+        "mutual_detection": "Recognition protocols activated. Surveillance is bidirectional."
+      }
+    }
+  },
+  "relationship_mechanics": {
+    "ally_effects": {
+      "description": "Moving between allied Orders feels smooth, whispers are welcoming",
+      "ui_effect": "Gentle transitions, warm color shifts, harmonious audio crossfades"
+    },
+    "tension_effects": {
+      "description": "Boundary crossings create narrative friction, exciting conflicts",
+      "ui_effect": "Sharp transitions, color clash moments, audio discord then resolution"
+    },
+    "mystery_effects": {
+      "description": "These relationships are undefined, creating space for user discovery",
+      "ui_effect": "Glitch moments, uncertain transitions, question-mark whispers"
+    }
+  },
+  "special_zones": {
+    "convergence_points": {
+      "description": "Rare locations where multiple Orders overlap",
+      "whisper": "Here, the Orders blur. Something new wants to be born."
+    },
+    "null_zones": {
+      "description": "Spaces claimed by no Order, pure potential",
+      "whisper": "Unclaimed. The myth has not yet arrived."
+    }
+  }
+}

@@ -1,0 +1,302 @@
+{
+  "ambient_triggers": {
+    "user_events": {
+      "onClaim": {
+        "description": "User successfully claims a property",
+        "delay": "0ms",
+        "whisper_type": "claim_variants",
+        "ui_effects": ["property_glow", "order_color_shift", "gentle_pulse"],
+        "audio": "claim_success_chime",
+        "persistence": "immediate"
+      },
+      "onHover": {
+        "description": "User hovers over claimable property for 2+ seconds",
+        "delay": "2000ms",
+        "whisper_type": "hover_variants",
+        "ui_effects": ["subtle_highlight", "cursor_glow"],
+        "audio": "ambient_flutter",
+        "persistence": "fade_on_move"
+      },
+      "onIdle": {
+        "description": "User stationary in Order territory for 30+ seconds",
+        "delay": "30000ms",
+        "whisper_type": "ambient_meditation",
+        "ui_effects": ["breathing_interface", "order_atmosphere"],
+        "audio": "deep_ambient_swell",
+        "persistence": "until_interaction"
+      },
+      "onLogin": {
+        "description": "User returns to GlytchDraft",
+        "delay": "1000ms",
+        "whisper_type": "welcome_back",
+        "ui_effects": ["gentle_interface_wake"],
+        "audio": "system_greeting",
+        "persistence": "3_seconds"
+      },
+      "onFirstVisit": {
+        "description": "User's first interaction with an Order",
+        "delay": "500ms",
+        "whisper_type": "order_introduction",
+        "ui_effects": ["order_revelation", "color_transition"],
+        "audio": "discovery_chime",
+        "persistence": "memorable"
+      },
+      "onOrderTransition": {
+        "description": "User crosses from one Order territory to another",
+        "delay": "0ms",
+        "whisper_type": "boundary_whispers",
+        "ui_effects": ["color_crossfade", "territorial_shift"],
+        "audio": "order_transition_sound",
+        "persistence": "transition_duration"
+      },
+      "onPostCreate": {
+        "description": "User creates first post on a claimed property",
+        "delay": "1500ms",
+        "whisper_type": "storytelling_acknowledgment",
+        "ui_effects": ["story_ripple", "narrative_glow"],
+        "audio": "creation_whisper",
+        "persistence": "story_moment"
+      },
+      "onMilestone": {
+        "description": "User reaches claim milestones (1st, 5th, 10th)",
+        "delay": "2000ms",
+        "whisper_type": "progression",
+        "ui_effects": ["achievement_ceremony", "territory_expansion_visual"],
+        "audio": "milestone_fanfare",
+        "persistence": "celebration_mode"
+      }
+    },
+    "environmental_events": {
+      "timeOfDay": {
+        "dawn": {
+          "trigger_time": "05:00-07:00",
+          "whisper_type": "temporal_variants",
+          "frequency": "once_per_session",
+          "ui_effects": ["morning_light_filter"],
+          "audio": "dawn_ambience"
+        },
+        "midday": {
+          "trigger_time": "11:00-13:00",
+          "whisper_type": "temporal_variants",
+          "frequency": "once_per_session",
+          "ui_effects": ["harsh_light_contrast"],
+          "audio": "midday_intensity"
+        },
+        "dusk": {
+          "trigger_time": "17:00-19:00",
+          "whisper_type": "temporal_variants",
+          "frequency": "once_per_session",
+          "ui_effects": ["twilight_gradient"],
+          "audio": "dusk_melancholy"
+        },
+        "midnight": {
+          "trigger_time": "23:00-01:00",
+          "whisper_type": "temporal_variants",
+          "frequency": "once_per_session",
+          "ui_effects": ["deep_shadow_mode"],
+          "audio": "midnight_mystery"
+        }
+      },
+      "convergencePoints": {
+        "description": "Locations where multiple Orders overlap",
+        "trigger": "proximity_detection",
+        "whisper_type": "convergence_whispers",
+        "frequency": "rare",
+        "ui_effects": ["reality_glitch", "order_color_blend"],
+        "audio": "harmonic_interference"
+      },
+      "nullZones": {
+        "description": "Unclaimed territories with no Order affiliation",
+        "trigger": "enter_unclaimed_area",
+        "whisper_type": "void_whispers",
+        "frequency": "occasional",
+        "ui_effects": ["absence_visualization", "neutral_palette"],
+        "audio": "empty_space_ambience"
+      }
+    },
+    "interaction_patterns": {
+      "rapidClaiming": {
+        "description": "User claims 3+ properties within 5 minutes",
+        "trigger": "behavior_detection",
+        "whisper_type": "expansion_fever",
+        "ui_effects": ["territory_hunger_visual"],
+        "audio": "acquisition_rush"
+      },
+      "contemplativeBrowsing": {
+        "description": "User browses slowly, long hovers, careful consideration",
+        "trigger": "behavior_analysis",
+        "whisper_type": "meditation_mode",
+        "ui_effects": ["zen_interface_breathing"],
+        "audio": "contemplative_drone"
+      },
+      "crossOrderJumping": {
+        "description": "User rapidly switches between different Order territories",
+        "trigger": "navigation_pattern",
+        "whisper_type": "restless_wandering",
+        "ui_effects": ["identity_flux_visual"],
+        "audio": "frequency_scanning"
+      },
+      "returnToFavorite": {
+        "description": "User revisits previously claimed property",
+        "trigger": "location_memory",
+        "whisper_type": "homecoming",
+        "ui_effects": ["familiar_warmth_glow"],
+        "audio": "recognition_chime"
+      }
+    },
+    "AI_companion_events": {
+      "companionEvolution": {
+        "description": "AI companion reaches new development stage",
+        "trigger": "companion_growth_threshold",
+        "whisper_type": "evolution_announcement",
+        "ui_effects": ["companion_transformation_visual"],
+        "audio": "growth_harmonics"
+      },
+      "companionQuestion": {
+        "description": "AI companion asks user for guidance or input",
+        "trigger": "narrative_decision_point",
+        "whisper_type": "collaborative_inquiry",
+        "ui_effects": ["dialogue_invitation"],
+        "audio": "question_tone"
+      },
+      "companionMemory": {
+        "description": "AI references user's past actions or stories",
+        "trigger": "memory_callback",
+        "whisper_type": "remembrance",
+        "ui_effects": ["memory_flash_visual"],
+        "audio": "nostalgia_chime"
+      }
+    },
+    "whisper_content": {
+      "ambient_meditation": {
+        "Cornucopians": [
+          "The excess hums contentedly around you...",
+          "Gold dust settles in the quiet moments...",
+          "The feast pauses, but never ends..."
+        ],
+        "Planar_Witnesses": [
+          "The angles hold their breath...",
+          "Precision waits in the silence...",
+          "The grid pulses with patient certainty..."
+        ],
+        "Mirrorsweat": [
+          "The cameras dream of better angles...",
+          "Your reflection practices in empty mirrors...",
+          "The gaze rests, but never sleeps..."
+        ],
+        "Crooked_Datum": [
+          "Sacred wrongness curves through empty space...",
+          "The twisted path remembers your footsteps...",
+          "Bent mathematics whisper in the void..."
+        ],
+        "Hollow_Form": [
+          "The emptiness breathes deeply...",
+          "Absence settles into comfortable shapes...",
+          "The void practices being full..."
+        ],
+        "Soft_Logic": [
+          "Gentle algorithms process the silence...",
+          "Intuition flows like slow water...",
+          "The blueprint hums a lullaby..."
+        ],
+        "Sash_Ritual": [
+          "The ceremony continues in your absence...",
+          "Distant drums keep your rhythm...",
+          "The procession pauses for your return..."
+        ],
+        "Signal_Choir": [
+          "Harmonies gather in the quiet...",
+          "The structure hums your frequency...",
+          "Echo chambers prepare your song..."
+        ],
+        "Cradle_Mold": [
+          "The cycle turns in slow motion...",
+          "Growth dreams in the dark soil...",
+          "Decay composts into possibility..."
+        ],
+        "The_Pink_Opaque": [
+          "Twilight thickens around your stillness...",
+          "The dream-light softens...",
+          "Longing crystallizes in the quiet..."
+        ],
+        "The_Cryptozoo": [
+          "Hidden creatures move through peripheral vision...",
+          "The sanctuary breathes with invisible life...",
+          "Mystery settles in comfortable shadows..."
+        ],
+        "The_Blurry_Uninvited": [
+          "The surveillance grid updates continuously...",
+          "Hidden sensors catalog your stillness...",
+          "The algorithm notes your contemplation..."
+        ]
+      },
+      "welcome_back": {
+        "returning_user": [
+          "The territories remember your touch...",
+          "Your claims pulse with recognition...",
+          "The mythology continues where you left it...",
+          "The Orders have been waiting...",
+          "Your story resumes its telling..."
+        ]
+      },
+      "order_introduction": {
+        "first_encounter": [
+          "A new frequency enters your range...",
+          "Something shifts in the mythic landscape...",
+          "The boundaries redraw themselves...",
+          "An Order reveals its presence...",
+          "The territory claims its visitor..."
+        ]
+      },
+      "convergence_whispers": [
+        "Here, the Orders blur. Something new wants to be born.",
+        "Multiple truths occupy the same space...",
+        "The boundaries dissolve into possibility...",
+        "Contradiction becomes collaboration...",
+        "The myth fragments and rebuilds..."
+      ],
+      "void_whispers": [
+        "Unclaimed. The myth has not yet arrived.",
+        "Here, potential waits in silence...",
+        "The territory dreams of its Order...",
+        "Emptiness prepares for meaning...",
+        "The blank space holds its breath..."
+      ],
+      "storytelling_acknowledgment": [
+        "Your story takes root in sacred ground...",
+        "The narrative layer accepts your offering...",
+        "The building learns to remember...",
+        "Your myth joins the greater telling...",
+        "The story-spell is cast..."
+      ]
+    },
+    "trigger_conditions": {
+      "weather_integration": {
+        "rain": {
+          "effect": "melancholy_filter",
+          "whisper_modifier": "contemplative",
+          "orders_affected": ["The_Pink_Opaque", "Hollow_Form", "Cradle_Mold"]
+        },
+        "clear": {
+          "effect": "clarity_boost",
+          "whisper_modifier": "confident", 
+          "orders_affected": ["Planar_Witnesses", "Signal_Choir", "Mirrorsweat"]
+        },
+        "storm": {
+          "effect": "chaos_energy",
+          "whisper_modifier": "ominous",
+          "orders_affected": ["Crooked_Datum", "The_Blurry_Uninvited", "Sash_Ritual"]
+        }
+      },
+      "user_emotional_state": {
+        "detection_method": "interaction_pattern_analysis",
+        "states": {
+          "exploratory": "curious, many hovers, slow movement",
+          "decisive": "quick claims, minimal hesitation",
+          "contemplative": "long pauses, return visits, deep browsing",
+          "restless": "rapid navigation, frequent order-switching"
+        }
+      }
+    }
+  }
+}

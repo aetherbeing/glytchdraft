@@ -1,0 +1,5 @@
+('WorldPartitionEditorSubsystem', False)
+('WorldPartitionBlueprintLibrary', True)
+['get_actor_descs', 'get_actor_descs_for_actors', 'get_intersecting_actor_descs', 'load_actors', 'pin_actors', 'unload_actors', 'unpin_actors']
+('EditorActorSubsystem', True)
+['clear_actor_selection_set', 'convert_actors', 'delete_selected_actors', 'destroy_actor', 'destroy_actors', 'duplicate_actor', 'duplicate_actors', 'duplicate_selected_actors', 'get_actor_reference', 'get_all_level_actors', 'get_all_level_actors_components', 'get_selected_level_actors', 'on_actor_label_changed', 'on_delete_actors_begin', 'on_delete_actors_end', 'on_duplicate_actors_begin', 'on_duplicate_actors_end', 'on_edit_copy_actors_begin', 'on_edit_copy_actors_end', 'on_edit_cut_actors_begin', 'on_edit_cut_actors_end', 'on_edit_paste_actors_begin', 'on_edit_paste_actors_end', 'on_new_actors_dropped', 'on_new_actors_placed', 'set_actor_selection_state', 'set_actor_transform', 'set_selected_level_actors', 'spawn_actor_from_class', 'spawn_actor_from_object']

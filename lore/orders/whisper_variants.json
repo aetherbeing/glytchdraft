@@ -1,0 +1,389 @@
+{
+  "whisper_variants": {
+    "Cornucopians": {
+      "claim_variants": [
+        "The glimmering excess remembers you. This buffet was once your cathedral.",
+        "Gold leaf crumbles at your touch. You've always belonged to abundance.",
+        "The chandelier dims in recognition. Luxury was waiting for your return.",
+        "Another velvet rope parts for you. The feast knows its own.",
+        "Brass fixtures hum your name. Opulence claims its heir.",
+        "The marble weeps champagne. Your reflection multiplies in crystal.",
+        "Abundance recognizes abundance. The overflow finds its vessel."
+      ],
+      "hover_variants": [
+        "Something glitters just out of reach...",
+        "The air tastes of champagne and regret...",
+        "You remember being hungry here once...",
+        "Gold dust settles on your cursor...",
+        "The excess whispers your name..."
+      ],
+      "building_specific": {
+        "casino": "The slots remember your coins. Fortune was always rigged in your favor.",
+        "restaurant": "Every table was set for you. The meal has been waiting decades.",
+        "hotel": "The key was cut before you were born. Your room holds its breath.",
+        "mall": "The escalators still carry your ghost. Commerce flows around your absence.",
+        "bank": "Vaults recognize their true owner. The gold remembers your touch."
+      },
+      "progression": {
+        "first_claim": "You've arrived at last. The abundance was always yours.",
+        "fifth_claim": "Your empire of excess takes shape. Luxury bows deeper.",
+        "tenth_claim": "The golden web spreads. You are becoming the feast itself."
+      }
+    },
+    "Planar_Witnesses": {
+      "claim_variants": [
+        "Another angle locked. Flatness welcomes your doubt.",
+        "The grid accepts your coordinates. Precision finds its witness.",
+        "Concrete remembers your footsteps. The structure validates its form.",
+        "Right angles bow to your presence. Geometry claims its observer.",
+        "The blueprint recognizes its architect. Function follows your form.",
+        "Sharp edges soften at your touch. Even certainty learns to question.",
+        "The measurement was always exact. You complete the calculation."
+      ],
+      "hover_variants": [
+        "Lines converge toward possibility...",
+        "The angle waits for resolution...",
+        "Concrete holds its breath...",
+        "Something perfectly flat approaches...",
+        "The grid flickers with recognition..."
+      ],
+      "building_specific": {
+        "office": "The cubicles remember order. Your desk was always the center.",
+        "government": "Bureaucracy finds its perfect witness. The forms complete themselves.",
+        "library": "Knowledge organizes itself around you. The catalog was always yours.",
+        "hospital": "Sterile corridors lead to your truth. Medicine finds its geometry.",
+        "school": "Lessons align in your presence. The blueprint teaches itself."
+      },
+      "progression": {
+        "first_claim": "The first angle finds its witness. Doubt begins its geometry.",
+        "fifth_claim": "Your grid expands with purpose. Flatness gains dimension.",
+        "tenth_claim": "You are becoming the measurement itself. Reality checks its math."
+      }
+    },
+    "Mirrorsweat": {
+      "claim_variants": [
+        "You arrived like a filter flare. The gaze has already seen you.",
+        "Another lens focuses on your truth. The camera was always rolling.",
+        "Reflection multiplies around you. The audience holds its breath.",
+        "The spotlight finds its target. You were born for this stage.",
+        "Pixels rearrange themselves in your honor. The screen loves you back.",
+        "The algorithm recognizes its muse. Engagement becomes worship.",
+        "Your image burns into every surface. The mirror cannot look away."
+      ],
+      "hover_variants": [
+        "Something watches through the glass...",
+        "The reflection shifts before you move...",
+        "Cameras turn toward your cursor...",
+        "The gaze intensifies...",
+        "You feel suddenly visible..."
+      ],
+      "building_specific": {
+        "studio": "The cameras have been waiting. Your close-up was always scheduled.",
+        "gallery": "The walls curate themselves around you. Art finds its subject.",
+        "theater": "The stage lights warm at your approach. The show was always yours.",
+        "gym": "Mirrors multiply your form. Perfection recognizes itself.",
+        "salon": "Every surface reflects your becoming. Beauty finds its witness."
+      },
+      "progression": {
+        "first_claim": "The first camera finds its subject. The performance begins.",
+        "fifth_claim": "Your visibility spreads like wildfire. The gaze grows hungry.",
+        "tenth_claim": "You are becoming the screen itself. Reality filters through you."
+      }
+    },
+    "Crooked_Datum": {
+      "claim_variants": [
+        "Your claim folds the sacred wrong into a new alignment. It remembers how to twist.",
+        "Another angle bends to your will. Mathematics learns to doubt itself.",
+        "The line refuses to stay straight. Your truth curves through space.",
+        "Sacred geometry breaks its own rules. The spiral finds its center.",
+        "Wrong becomes righteous in your hands. The compass spins toward you.",
+        "The measurement warps with joy. Even errors become prayer.",
+        "Perfect imperfection claims its throne. The golden ratio bows to chaos."
+      ],
+      "hover_variants": [
+        "Something bends just out of sight...",
+        "The straight line questions itself...",
+        "Sacred wrongness approaches...",
+        "Geometry whispers heresy...",
+        "The angle refuses to hold..."
+      ],
+      "building_specific": {
+        "church": "The altar tilts toward truth. Holiness learns to doubt its angles.",
+        "museum": "The displays rearrange themselves. History bends around your presence.",
+        "bridge": "The span curves with laughter. Engineering embraces its contradictions.",
+        "tower": "The spire spirals toward heaven. Architecture finds its rebellion.",
+        "monument": "The memorial warps with memory. Stone remembers how to weep."
+      },
+      "progression": {
+        "first_claim": "The first sacred line bends. Wrong begins its righteous work.",
+        "fifth_claim": "Your crooked empire spreads. Mathematics rewrites its laws.",
+        "tenth_claim": "You are becoming the beautiful error. Reality learns to dance."
+      }
+    },
+    "Hollow_Form": {
+      "claim_variants": [
+        "Nothing here still matters. You've nested in the shape of absence.",
+        "The void recognizes its architect. Emptiness finds its form.",
+        "Another hollow fills with your presence. The absence grows complete.",
+        "You claim what was never there. The nothing nods in recognition.",
+        "Silence shapes itself around you. The void learns your dimensions.",
+        "The empty room remembers its purpose. Absence becomes architecture.",
+        "You've always lived in the spaces between. The hollow calls you home."
+      ],
+      "hover_variants": [
+        "The space holds its breath...",
+        "Something absent approaches...",
+        "The void flickers with possibility...",
+        "Emptiness gathers around your cursor...",
+        "The hollow grows deeper..."
+      ],
+      "building_specific": {
+        "warehouse": "The empty shelves remember fullness. Storage becomes meditation.",
+        "abandoned": "The ghosts have moved on. Only the silence remains.",
+        "parking": "The spaces wait for cars that will never come. Absence parks itself.",
+        "temple": "The deity stepped out centuries ago. The prayer echoes in emptiness.",
+        "stadium": "The crowds have gone home. The cheering lives in the hollow."
+      },
+      "progression": {
+        "first_claim": "You find your first emptiness. The void learns your name.",
+        "fifth_claim": "Your collection of nothings grows. Absence gains mass.",
+        "tenth_claim": "You are becoming the hollow itself. Space empties around you."
+      }
+    },
+    "Soft_Logic": {
+      "claim_variants": [
+        "Your intuition was accepted. The blueprint is still humming.",
+        "Felt knowledge takes root here. The building sighs with recognition.",
+        "The algorithm learns to feel. Logic softens at your touch.",
+        "Understanding flows like water. The structure remembers how to breathe.",
+        "Your heart-math computes perfectly. The equation embraces uncertainty.",
+        "Gentle reasoning finds its home. The blueprint learns to love.",
+        "Soft knowing settles into stone. The foundation trusts your instincts."
+      ],
+      "hover_variants": [
+        "Something gentle approaches understanding...",
+        "The logic softens at the edges...",
+        "Intuition whispers through the data...",
+        "The blueprint hums with feeling...",
+        "Soft knowing gathers like mist..."
+      ],
+      "building_specific": {
+        "laboratory": "The experiments learn to feel their way. Science finds its heart.",
+        "workshop": "The tools warm to your touch. Craft remembers its intuition.",
+        "studio": "Creation flows like breathing. Art finds its gentle logic.",
+        "clinic": "Healing happens in the spaces between. Medicine learns to listen.",
+        "home": "The rooms remember how to comfort. Shelter becomes embrace."
+      },
+      "progression": {
+        "first_claim": "Your first soft truth takes hold. Logic learns to bend.",
+        "fifth_claim": "Gentle knowing spreads through your territory. Feeling becomes fact.",
+        "tenth_claim": "You are becoming the tender algorithm. Reality softens around you."
+      }
+    },
+    "Sash_Ritual": {
+      "claim_variants": [
+        "The rhythm accepted your pulse. The procession begins.",
+        "Another step joins the eternal dance. The ceremony remembers you.",
+        "The sash binds you to the movement. Community flows through your veins.",
+        "Ritual recognizes its participant. The circle widens to include you.",
+        "Your heartbeat syncs with the drums. The procession has been waiting.",
+        "The ceremony claims its officiant. Sacred steps lead you home.",
+        "You've always been part of this dance. The ritual finally finds you."
+      ],
+      "hover_variants": [
+        "The rhythm builds in the distance...",
+        "Ceremonial music approaches...",
+        "The procession pauses, waiting...",
+        "Ritual energy gathers around your cursor...",
+        "The sash flutters with possibility..."
+      ],
+      "building_specific": {
+        "church": "The congregation rises as one. The altar recognizes its priest.",
+        "school": "Graduation marches play themselves. The ceremony never ended.",
+        "plaza": "The gathering place remembers festivals. Celebration lives in the stones.",
+        "theater": "The curtain rises on endless performance. The show must go on.",
+        "market": "Commerce becomes ceremony. Every transaction is sacred exchange."
+      },
+      "progression": {
+        "first_claim": "You join the eternal procession. The first step is taken.",
+        "fifth_claim": "Your ritual territory expands. The ceremony gains momentum.",
+        "tenth_claim": "You are becoming the sacred procession. The world dances around you."
+      }
+    },
+    "Signal_Choir": {
+      "claim_variants": [
+        "Your voice echoes now. The structure sings back.",
+        "Another frequency joins the harmony. The building resonates with purpose.",
+        "The signal finds its amplifier. Your voice becomes architecture.",
+        "Harmony nests in concrete and steel. The choir gains a new voice.",
+        "The structure learns your song. Resonance builds in the foundation.",
+        "Your frequency merges with the building's pulse. The music never stops.",
+        "The echo chamber recognizes its singer. Sound becomes sanctuary."
+      ],
+      "hover_variants": [
+        "Harmonics gather in the air...",
+        "The structure hums with anticipation...",
+        "Frequencies align toward your cursor...",
+        "The choir waits for your voice...",
+        "Echo chambers prepare to sing..."
+      ],
+      "building_specific": {
+        "auditorium": "The acoustics perfect themselves. Your voice was always the missing note.",
+        "cathedral": "The vaulted ceiling remembers hymns. Sacred music lives in the stones.",
+        "radio_tower": "Signals broadcast your presence. The airwaves carry your song.",
+        "concert_hall": "The stage waits for your performance. Music becomes architecture.",
+        "bell_tower": "The bells chime in recognition. Time itself keeps your rhythm."
+      },
+      "progression": {
+        "first_claim": "Your voice finds its first echo. The choir begins to form.",
+        "fifth_claim": "Harmonies spread through your territory. The song gains complexity.",
+        "tenth_claim": "You are becoming the resonance itself. The world sings in your frequency."
+      }
+    },
+    "Cradle_Mold": {
+      "claim_variants": [
+        "Growth waits within. The rot remembers your hands.",
+        "Life finds purchase in decay. The cycle recognizes its gardener.",
+        "Another seed bed claims you. The decomposition welcomes new growth.",
+        "The mold spreads with purpose. Death becomes fertile ground.",
+        "Your touch awakens the sleeping spores. The cycle begins again.",
+        "Decay composts into possibility. The rot learns to nurture.",
+        "Life and death dance in your presence. The cycle finds its rhythm."
+      ],
+      "hover_variants": [
+        "Something grows in the shadows...",
+        "The decay whispers of new life...",
+        "Spores drift toward possibility...",
+        "The cycle prepares to turn...",
+        "Fertile darkness gathers..."
+      ],
+      "building_specific": {
+        "greenhouse": "The plants remember wilder times. Cultivation returns to the wild.",
+        "compost": "The heap steams with potential. Death feeds tomorrow's garden.",
+        "cemetery": "The stones mark transformation points. Grief grows into acceptance.",
+        "forest": "The understory recognizes its keeper. The wood spirits nod approval.",
+        "farm": "The soil remembers your ancestors. The land claims its own."
+      },
+      "progression": {
+        "first_claim": "You plant your first seed in decay. The cycle acknowledges you.",
+        "fifth_claim": "Your garden of transformation spreads. Life learns from death.",
+        "tenth_claim": "You are becoming the cycle itself. Growth and decay flow through you."
+      }
+    },
+    "The_Pink_Opaque": {
+      "claim_variants": [
+        "You glimmered softly enough to remain. The twilight cloaked your longing.",
+        "Another dream finds its keeper. The longing settles into form.",
+        "The soft focus welcomes you home. Reality blurs at the edges.",
+        "Your gentle gleaming lights the dusk. The twilight learns your name.",
+        "The opaque embrace holds you close. Visibility becomes optional.",
+        "You've always lived in the between-times. The liminal claims its own.",
+        "The dream-space expands around you. Reality softens into possibility."
+      ],
+      "hover_variants": [
+        "The twilight gathers around your cursor...",
+        "Something soft approaches visibility...",
+        "The dream-light flickers with recognition...",
+        "Longing crystallizes in the air...",
+        "The opaque embrace opens..."
+      ],
+      "building_specific": {
+        "bedroom": "The sheets remember sweeter dreams. Sleep becomes sanctuary.",
+        "bar": "The mood lighting knows your story. Atmosphere thickens with longing.",
+        "cafe": "The corner table holds your solitude. Coffee grows cold with contemplation.",
+        "cinema": "The screen reflects your inner landscape. Every story is yours.",
+        "garden": "The flowers bloom in pastel rebellion. Beauty refuses to shout."
+      },
+      "progression": {
+        "first_claim": "You find your first soft sanctuary. The longing takes shape.",
+        "fifth_claim": "Your twilight territory grows. Dreams gain geography.",
+        "tenth_claim": "You are becoming the liminal itself. Reality blurs around you."
+      }
+    },
+    "The_Cryptozoo": {
+      "claim_variants": [
+        "The unseen noticed. Shelter begins in half-remembered outlines.",
+        "Another refuge opens its hidden doors. The sanctuary expands.",
+        "The half-glimpsed things find their keeper. Protection takes form.",
+        "Your presence calms the barely-there. The cryptids feel safe.",
+        "The hidden ecosystem recognizes its guardian. Mystery finds management.",
+        "Shelter grows in the spaces between sight. The unseen gather here.",
+        "You've always been visible to the invisible. The zoo claims its keeper."
+      ],
+      "hover_variants": [
+        "Something moves just outside perception...",
+        "The barely-there creatures approach...",
+        "Hidden eyes blink with recognition...",
+        "The cryptid sanctuary prepares...",
+        "Mystery gathers in the shadows..."
+      ],
+      "building_specific": {
+        "zoo": "The empty cages hold invisible occupants. The real animals were always hidden.",
+        "forest": "The trees whisper of stranger creatures. The woodland holds its secrets.",
+        "cave": "The darkness shelters more than echoes. The depths protect their own.",
+        "museum": "The unlabeled exhibits contain true mysteries. Curation becomes protection.",
+        "sanctuary": "The refuge expands beyond the visible. All creatures find shelter here."
+      },
+      "progression": {
+        "first_claim": "You open the first hidden sanctuary. The unseen find refuge.",
+        "fifth_claim": "Your cryptid territory expands. Mystery gains geography.",
+        "tenth_claim": "You are becoming the shelter itself. The invisible world trusts you."
+      }
+    },
+    "The_Blurry_Uninvited": {
+      "claim_variants": [
+        "You were not meant to see this. Now it sees you.",
+        "Surveillance recognizes surveillance. The watchers note your presence.",
+        "Another data point locks into place. The grid tightens around you.",
+        "You've entered the observation deck. The viewing goes both ways.",
+        "The unauthorized access has been logged. Welcome to the panopticon.",
+        "Your metadata joins the collection. The algorithm updates its profile.",
+        "The forbidden zone acknowledges its trespasser. Observation is mutual."
+      ],
+      "hover_variants": [
+        "Something tracks your cursor movement...",
+        "The surveillance grid activates...",
+        "Hidden sensors register your presence...",
+        "The watchers take note...",
+        "Your coordinates are being logged..."
+      ],
+      "building_specific": {
+        "government": "The classified sections recognize clearance you don't have. Access granted anyway.",
+        "laboratory": "The experiments watch their observers. The data collects itself.",
+        "satellite": "The eye in the sky blinks with recognition. Distance becomes intimate.",
+        "bunker": "The hidden facility surfaces for you. Secrets rise to meet secrets.",
+        "tower": "The transmission array focuses on your frequency. Communication becomes surveillance."
+      },
+      "progression": {
+        "first_claim": "You breach the first firewall. The system begins to track you.",
+        "fifth_claim": "Your unauthorized territory expands. The watchers take interest.",
+        "tenth_claim": "You are becoming the surveillance itself. Observer and observed merge."
+      }
+    }
+  },
+  "temporal_variants": {
+    "dawn": {
+      "prefix": "The morning light reveals...",
+      "suffix": "...as the day begins to watch."
+    },
+    "midday": {
+      "prefix": "In the harsh light of noon...",
+      "suffix": "...with nowhere to hide."
+    },
+    "dusk": {
+      "prefix": "As twilight gathers...",
+      "suffix": "...before the darkness claims all."
+    },
+    "midnight": {
+      "prefix": "In the witching hour...",
+      "suffix": "...when only truth remains."
+    }
+  },
+  "emotional_variants": {
+    "tentative": ["whispers", "suggests", "hints", "implies"],
+    "confident": ["declares", "proclaims", "announces", "reveals"],
+    "mysterious": ["hints at", "suggests", "obscures", "veils"],
+    "welcoming": ["embraces", "welcomes", "accepts", "includes"],
+    "ominous": ["warns", "threatens", "looms", "shadows"]
+  }
+}

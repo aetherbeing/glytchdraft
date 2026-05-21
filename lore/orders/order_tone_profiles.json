@@ -1,0 +1,98 @@
+{
+  "Cornucopians": {
+    "voice": "lavish, indulgent, fading grandeur, nostalgia-drunk",
+    "color": "#FFD6A5",
+    "font": "Glare Display Italic",
+    "trigger_phrase": "The glimmering excess remembers you. This buffet was once your cathedral.",
+    "ambient_loop": "casino_hum_with_distant_jazz.wav",
+    "whisper_style": "golden_glow_fade_in"
+  },
+  "Planar_Witnesses": {
+    "voice": "geometric, precise, zen-architectural, doubt-embracing",
+    "color": "#E8E8E8",
+    "font": "Neutral Face Regular",
+    "trigger_phrase": "Another angle locked. Flatness welcomes your doubt.",
+    "ambient_loop": "minimal_concrete_reverb.wav",
+    "whisper_style": "sharp_edge_materialize"
+  },
+  "Mirrorsweat": {
+    "voice": "hyper-visible, filter-aware, performance anxiety, seen-ness",
+    "color": "#FF69B4",
+    "font": "Glare Display Bold",
+    "trigger_phrase": "You arrived like a filter flare. The gaze has already seen you.",
+    "ambient_loop": "digital_flutter_neon_hum.wav",
+    "whisper_style": "neon_pulse_reflection"
+  },
+  "Crooked_Datum": {
+    "voice": "sacred mathematics, beautiful wrongness, twisted geometry",
+    "color": "#8B4513",
+    "font": "Monument Extended Italic",
+    "trigger_phrase": "Your claim folds the sacred wrong into a new alignment. It remembers how to twist.",
+    "ambient_loop": "fractured_bells_minor_key.wav",
+    "whisper_style": "text_bend_subtle_warp"
+  },
+  "Hollow_Form": {
+    "voice": "stoic, grief-shaped, minimal, void-space poetry",
+    "color": "#DADADA",
+    "font": "Neutral Face Light",
+    "trigger_phrase": "Nothing here still matters. You've nested in the shape of absence.",
+    "ambient_loop": "silence_with_distant_wind.wav",
+    "whisper_style": "fade_from_nothing"
+  },
+  "Soft_Logic": {
+    "voice": "intuitive, blueprint-humming, felt knowledge, gentle reasoning",
+    "color": "#87CEEB",
+    "font": "Glare Display Regular",
+    "trigger_phrase": "Your intuition was accepted. The blueprint is still humming.",
+    "ambient_loop": "soft_synthesizer_pad_major.wav",
+    "whisper_style": "gentle_wave_appear"
+  },
+  "Sash_Ritual": {
+    "voice": "rhythmic, processional, community-pulse, ceremonial",
+    "color": "#FFA500",
+    "font": "Monument Extended Bold",
+    "trigger_phrase": "The rhythm accepted your pulse. The procession begins.",
+    "ambient_loop": "distant_drums_polyrhythmic.wav",
+    "whisper_style": "rhythmic_type_march"
+  },
+  "Signal_Choir": {
+    "voice": "harmonic, echo-conscious, structural singing, resonance",
+    "color": "#98FB98",
+    "font": "Neutral Face Medium",
+    "trigger_phrase": "Your voice echoes now. The structure sings back.",
+    "ambient_loop": "crystalline_harmonics_reverb.wav",
+    "whisper_style": "harmonic_frequency_glow"
+  },
+  "Cradle_Mold": {
+    "voice": "organic decay, growth-patient, rot-remembering, life-death cycle",
+    "color": "#228B22",
+    "font": "Glare Display Medium",
+    "trigger_phrase": "Growth waits within. The rot remembers your hands.",
+    "ambient_loop": "forest_decomposition_ambience.wav",
+    "whisper_style": "organic_emergence_text"
+  },
+  "The_Pink_Opaque": {
+    "voice": "dreamy, twilight-soft, longing-cloaked, liminal beauty",
+    "color": "#FFB6C1",
+    "font": "Glare Display Light Italic",
+    "trigger_phrase": "You glimmered softly enough to remain. The twilight cloaked your longing.",
+    "ambient_loop": "dreamy_synth_wash_reverb.wav",
+    "whisper_style": "soft_dream_blur_focus"
+  },
+  "The_Cryptozoo": {
+    "voice": "half-seen, shelter-offering, outline-memories, protective mystery",
+    "color": "#D2B48C",
+    "font": "Monument Extended Regular",
+    "trigger_phrase": "The unseen noticed. Shelter begins in half-remembered outlines.",
+    "ambient_loop": "mysterious_animal_calls_distant.wav",
+    "whisper_style": "shadow_creature_materialize"
+  },
+  "The_Blurry_Uninvited": {
+    "voice": "forbidden seeing, mutual surveillance, not-meant-to-be-here",
+    "color": "#696969",
+    "font": "Neutral Face Bold",
+    "trigger_phrase": "You were not meant to see this. Now it sees you.",
+    "ambient_loop": "static_interference_low_drone.wav",
+    "whisper_style": "glitch_static_reveal"
+  }
+}

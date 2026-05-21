@@ -1,0 +1,8 @@
+﻿/* Custom app styles */
+.glytch-button {
+  @apply bg-gradient-to-r from-glytch-pink to-glytch-purple text-white font-bold py-2 px-4 rounded-lg transition-all duration-300 hover:scale-105 hover:shadow-lg;
+}
+
+.glytch-text {
+  @apply text-transparent bg-clip-text bg-gradient-to-r from-glytch-pink to-glytch-blue;
+}

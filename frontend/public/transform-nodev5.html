@@ -1,0 +1,664 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+<title>GlytchDraft — Transform Node</title>
+<link href="https://api.mapbox.com/mapbox-gl-js/v2.15.0/mapbox-gl.css" rel="stylesheet"/>
+<script src="https://api.mapbox.com/mapbox-gl-js/v2.15.0/mapbox-gl.js"></script>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;900&display=swap');
+  @import url('https://fonts.googleapis.com/css2?family=Archivo+Black&display=swap');
+  *{box-sizing:border-box;margin:0;padding:0}
+  :root{
+    --void:#000;--deep:#0a0a14;--surface:#111118;--elev:#1a1a24;--white:#fff;
+    --fuchsia:#ff0099;--cyan:#00ffff;--muted:#a3a3a3;--muter:#525252;
+    --orange:#ff6600;--green:#00ff99;--warning:#ffff00
+  }
+  body{background:var(--deep);color:var(--white);font-family:Inter,system-ui,sans-serif;line-height:1.5;min-height:100vh}
+  .nav{position:fixed;inset:0 0 auto 0;background:rgba(10,10,20,.95);backdrop-filter:blur(20px);border-bottom:1px solid var(--elev);padding:16px 0;z-index:10}
+  .nav-content{max-width:1400px;margin:0 auto;display:flex;justify-content:space-between;align-items:center;padding:0 32px}
+  .logo{width:48px;height:48px;border-radius:12px;background:var(--fuchsia);display:grid;place-items:center;font-family:'Archivo Black',sans-serif;color:var(--void);font-size:20px}
+  .wallet{display:flex;gap:8px;align-items:center;border:1px solid var(--fuchsia);color:var(--fuchsia);padding:6px 12px;border-radius:8px;background:rgba(255,0,153,.1);font-weight:700}
+  .wallet .gem{animation:gem 2s infinite}
+  @keyframes gem { 0%,100%{text-shadow:0 0 5px var(--fuchsia)} 50%{text-shadow:0 0 15px var(--fuchsia),0 0 25px var(--fuchsia)} }
+  .container{max-width:1400px;margin:100px auto 48px;padding:0 32px}
+  .header{padding:32px 0 24px;border-bottom:1px solid var(--elev);margin-bottom:24px}
+  .header h1{font-family:'Archivo Black',sans-serif;font-size:48px;letter-spacing:-.03em;color:transparent;-webkit-text-stroke:1px var(--white)}
+  .grid{display:grid;grid-template-columns:1fr 380px;gap:24px;align-items:start}
+  .panel{background:var(--surface);border:1px solid var(--elev);border-radius:12px}
+  .main{padding:24px;position:relative}
+  .aside{padding:24px;position:sticky;top:120px}
+  .label{font-size:12px;text-transform:uppercase;font-weight:700;letter-spacing:.08em;margin-bottom:6px}
+  .body-sm{color:var(--muted);font-size:14px;margin-bottom:16px}
+  .map-wrap{height:300px;border-radius:8px;overflow:hidden;position:relative;border:1px solid var(--elev);margin-bottom:12px;display:flex}
+  #map{flex:1;height:100%}
+  .mini-dash{width:140px;background:rgba(10,10,20,.95);border-left:1px solid var(--elev);padding:12px;display:flex;flex-direction:column;gap:8px}
+  .mini-stat{background:var(--surface);border:1px solid var(--elev);border-radius:6px;padding:8px;text-align:center}
+  .mini-stat .mini-num{font-size:16px;font-weight:800;color:var(--fuchsia);line-height:1}
+  .mini-stat .mini-label{font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-top:2px}
+  .mini-activity{background:var(--surface);border:1px solid var(--elev);border-radius:6px;padding:8px;flex:1;min-height:0}
+  .mini-activity .mini-title{font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px}
+  .mini-feed{font-size:10px;color:var(--white);line-height:1.3;max-height:120px;overflow:auto}
+  .mini-feed .activity-item{margin-bottom:4px;padding:4px;background:rgba(255,255,255,.03);border-radius:3px}
+  .mini-feed .activity-item .time{color:var(--muted)}
+  .chip{position:absolute;left:10px;top:10px;background:#000000c0;padding:6px 10px;border-radius:6px;font-size:12px;font-weight:700;z-index:5}
+  .chip b{color:var(--fuchsia)}
+  .status{position:absolute;left:10px;top:40px;background:#000000c0;padding:6px 10px;border-radius:6px;font-size:12px;color:var(--cyan);z-index:5}
+  .input{width:100%;background:var(--elev);border:1px solid var(--elev);border-radius:8px;color:var(--white);padding:14px 16px;margin-top:6px;margin-bottom:14px}
+  textarea.input{min-height:140px;resize:vertical}
+  .btn{width:100%;padding:14px 16px;border-radius:8px;text-transform:uppercase;letter-spacing:.1em;font-weight:700;cursor:pointer;border:none}
+  .btn-outline{background:transparent;border:1px solid var(--cyan);color:var(--cyan);margin-bottom:10px}
+  .btn-solid{background:var(--fuchsia);border:none;color:var(--void)}
+  .btn-market{background:var(--orange);border:none;color:var(--void);margin-bottom:10px}
+  .btn-small{padding:8px 12px;font-size:12px;width:auto;display:inline-block;margin:2px}
+  .stats{display:flex;gap:12px;justify-content:space-between;background:var(--elev);border-left:3px solid var(--fuchsia);border-radius:8px;padding:12px;margin-bottom:12px}
+  .stat{text-align:center}.num{font-size:22px;font-weight:800;color:var(--fuchsia)}
+  .list{background:var(--elev);border-radius:8px;padding:12px;max-height:300px;overflow:auto}
+  .item{display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid rgba(255,255,255,.08);cursor:pointer;transition:all 0.2s ease}
+  .item:hover{background:rgba(255,0,153,.1);border-radius:6px;padding:10px 8px}
+  .item:last-child{border-bottom:none}
+  .item-details{flex:1}
+  .item-actions{display:flex;gap:6px;align-items:center}
+  .swatch{width:18px;height:18px;border-radius:4px;border:2px solid #fff;margin-right:8px}
+  .muter{color:var(--muted);font-size:12px}
+  .release-hint{color:var(--muted);font-size:11px;opacity:0.7}
+  .tabs{display:flex;gap:2px;margin-bottom:16px}
+  .tab{padding:8px 16px;background:var(--elev);border:none;color:var(--muted);cursor:pointer;border-radius:6px;font-weight:600;font-size:12px;text-transform:uppercase;letter-spacing:.08em}
+  .tab.active{background:var(--fuchsia);color:var(--void)}
+  .price-input{width:80px;background:var(--surface);border:1px solid var(--elev);border-radius:4px;color:var(--white);padding:6px 8px;font-size:12px;text-align:center}
+  .listing-badge{background:var(--orange);color:var(--void);padding:2px 6px;border-radius:4px;font-size:10px;font-weight:700;margin-left:6px}
+  .for-sale{border-left:3px solid var(--orange) !important}
+  .market-item{border-left:3px solid var(--green)}
+  @media (max-width: 1000px){ .grid{grid-template-columns:1fr} .aside{position:static} }
+</style>
+</head>
+<body>
+  <nav class="nav">
+    <div class="nav-content">
+      <div class="logo">G</div>
+      <div class="wallet" title="1 TRACE = 1 Footprint">
+        <span class="gem">◈</span><span id="traceAmount">1,337</span><span>TRACE</span>
+      </div>
+    </div>
+  </nav>
+
+  <div class="container">
+    <header class="header">
+      <h1>GLYTCH THIS NODE</h1>
+      <p class="body-sm">Transform the mundane • Build living mythology</p>
+    </header>
+
+    <div class="grid">
+      <section class="panel main">
+        <div class="label">Location</div>
+        <p class="body-sm">Where are you performing your transformation?</p>
+
+        <div class="map-wrap">
+          <div id="map"></div>
+          <div class="mini-dash">
+            <div class="mini-stat">
+              <div class="mini-num" id="miniTraceCount">1,337</div>
+              <div class="mini-label">TRACE</div>
+            </div>
+            <div class="mini-stat">
+              <div class="mini-num" id="miniOwnedCount">0</div>
+              <div class="mini-label">OWNED</div>
+            </div>
+            <div class="mini-stat">
+              <div class="mini-num" id="miniMarketCount">0</div>
+              <div class="mini-label">MARKET</div>
+            </div>
+            <div class="mini-activity">
+              <div class="mini-title">Activity Feed</div>
+              <div class="mini-feed" id="miniFeed">
+                <div class="activity-item">
+                  <div>System ready</div>
+                  <div class="time">Now</div>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="chip" id="selChip" style="display:none">Selected: <b id="selChipId"></b></div>
+          <div class="status" id="mapStatus">READY</div>
+        </div>
+
+        <input id="locationInput" class="input" placeholder="Building will appear here…" />
+        <div class="label">Transform</div>
+        <p class="body-sm">How will you transform this node?</p>
+        <textarea id="ritualText" class="input" placeholder="Describe your transformation…"></textarea>
+
+        <button id="buyFootprintButton" class="btn btn-outline" disabled>Own Footprint (Costs 1 TRACE)</button>
+        <button id="buyFromMarketButton" class="btn btn-market" style="display:none">Buy from Market</button>
+        <button id="claimButton" class="btn btn-solid">Execute Transform & Glytch Node</button>
+      </section>
+
+      <aside class="panel aside" id="ownershipPanel">
+        <div class="label">Dashboard</div>
+        <div class="stats">
+          <div class="stat">
+            <div class="num" id="ownedCount">0</div>
+            <div class="muter">Owned</div>
+          </div>
+          <div class="stat">
+            <div class="num" id="traceSpent">0</div>
+            <div class="muter">TRACE Spent</div>
+          </div>
+        </div>
+
+        <div class="tabs">
+          <button class="tab active" onclick="switchTab('owned')">MY NODES</button>
+          <button class="tab" onclick="switchTab('market')">MARKET</button>
+        </div>
+
+        <div id="ownedTab">
+          <div class="list" id="ownedFootprints">
+            <div data-empty class="muter" style="text-align:center;padding:18px">No footprints owned yet</div>
+          </div>
+          <div class="release-hint" style="text-align:center;margin-top:8px;padding:0 4px">
+            Click actions to list/unlist or release ownership
+          </div>
+        </div>
+
+        <div id="marketTab" style="display:none">
+          <div class="list" id="marketListings">
+            <div data-empty class="muter" style="text-align:center;padding:18px">No buildings for sale</div>
+          </div>
+          <div class="release-hint" style="text-align:center;margin-top:8px;padding:0 4px">
+            Click to purchase listed buildings
+          </div>
+        </div>
+      </aside>
+    </div>
+  </div>
+
+<script>
+/* =========================
+   Core Data & Storage
+========================= */
+const LS_WALLET = 'glytch_wallet_v1';
+const LS_OWNED  = 'glytch_owned_v1';
+const LS_MARKET = 'glytch_market_v1';
+const COLORS = ['#ff0099','#00ffff','#ffff00','#ff6600','#9900ff','#00ff99','#ff0066','#0066ff'];
+
+let traceBalance = 1337;
+let traceSpent = 0;
+let owned = [];
+let marketListings = [];
+let activityFeed = [];
+
+// restore saved state
+try {
+  const savedBal = JSON.parse(localStorage.getItem(LS_WALLET));
+  if (typeof savedBal === 'number' && savedBal >= 0) traceBalance = savedBal;
+  const savedOwned = JSON.parse(localStorage.getItem(LS_OWNED) || '[]');
+  if (Array.isArray(savedOwned)) owned = savedOwned.map(o => ({...o, id:String(o.id)}));
+  const savedMarket = JSON.parse(localStorage.getItem(LS_MARKET) || '[]');
+  if (Array.isArray(savedMarket)) marketListings = savedMarket.map(m => ({...m, id:String(m.id)}));
+  traceSpent = owned.length;
+} catch {}
+
+function saveWallet(){ localStorage.setItem(LS_WALLET, JSON.stringify(traceBalance)); }
+function saveOwned(){ localStorage.setItem(LS_OWNED, JSON.stringify(owned)); }
+function saveMarket(){ localStorage.setItem(LS_MARKET, JSON.stringify(marketListings)); }
+function spendTrace(n=1){ if (traceBalance < n) return false; traceBalance -= n; saveWallet(); renderWallet(); return true; }
+function earnTrace(n=1){ traceBalance += n; saveWallet(); renderWallet(); }
+
+// Activity feed functions
+function addActivity(message, type = 'info') {
+  const timestamp = new Date().toLocaleTimeString('en-US', { 
+    hour: '2-digit', 
+    minute: '2-digit' 
+  });
+  
+  activityFeed.unshift({ message, type, timestamp });
+  if (activityFeed.length > 10) activityFeed.pop();
+  
+  renderActivityFeed();
+}
+
+function renderActivityFeed() {
+  const feed = document.getElementById('miniFeed');
+  feed.innerHTML = activityFeed.map(item => `
+    <div class="activity-item">
+      <div>${item.message}</div>
+      <div class="time">${item.timestamp}</div>
+    </div>
+  `).join('') || '<div class="activity-item"><div>No activity yet</div><div class="time">—</div></div>';
+}
+
+function renderMiniStats() {
+  document.getElementById('miniTraceCount').textContent = traceBalance.toLocaleString();
+  document.getElementById('miniOwnedCount').textContent = owned.length;
+  document.getElementById('miniMarketCount').textContent = marketListings.length;
+}
+
+function renderWallet(){ 
+  document.getElementById('traceAmount').textContent = traceBalance.toLocaleString();
+  renderMiniStats();
+}
+
+function renderOwnedList(){
+  const list = document.getElementById('ownedFootprints');
+  list.innerHTML = owned.length ? '' : '<div data-empty class="muter" style="text-align:center;padding:18px">No footprints owned yet</div>';
+  owned.forEach(rec => {
+    const isListed = rec.isListed;
+    const el = document.createElement('div');
+    el.className = `item ${isListed ? 'for-sale' : ''}`;
+    el.innerHTML = `
+      <div class="item-details">
+        <div style="display:flex;align-items:center">
+          <div class="swatch" style="background:${rec.color}"></div>
+          <div>
+            <div style="font-weight:700">Building ${rec.id}${isListed ? '<span class="listing-badge">FOR SALE</span>' : ''}</div>
+            <div class="muter">Owned ${new Date(rec.ownedAt).toLocaleString()}</div>
+            ${isListed ? `<div class="muter">Listed for ${rec.price} TRACE</div>` : ''}
+          </div>
+        </div>
+      </div>
+      <div class="item-actions">
+        ${isListed ? 
+          `<button class="btn btn-small btn-outline" onclick="unlistBuilding('${rec.id}')">UNLIST</button>` :
+          `<button class="btn btn-small btn-market" onclick="showListDialog('${rec.id}')">LIST</button>`
+        }
+        <button class="btn btn-small" style="background:var(--warning);color:var(--void)" onclick="releaseOwnership('${rec.id}')">RELEASE</button>
+      </div>
+    `;
+    list.prepend(el);
+  });
+  renderMiniStats();
+}
+
+function renderMarketList(){
+  const list = document.getElementById('marketListings');
+  list.innerHTML = marketListings.length ? '' : '<div data-empty class="muter" style="text-align:center;padding:18px">No buildings for sale</div>';
+  marketListings.forEach(listing => {
+    const el = document.createElement('div');
+    el.className = 'item market-item';
+    el.onclick = () => purchaseBuilding(listing.id, listing.price);
+    el.innerHTML = `
+      <div class="item-details">
+        <div style="display:flex;align-items:center">
+          <div class="swatch" style="background:${listing.color}"></div>
+          <div>
+            <div style="font-weight:700">Building ${listing.id}</div>
+            <div class="muter">Listed ${new Date(listing.listedAt).toLocaleString()}</div>
+            <div style="color:var(--orange);font-weight:700">${listing.price} TRACE</div>
+          </div>
+        </div>
+      </div>
+    `;
+    list.prepend(el);
+  });
+  renderMiniStats();
+}
+
+function renderStats(){
+  document.getElementById('ownedCount').textContent = owned.length;
+  document.getElementById('traceSpent').textContent = traceSpent;
+}
+
+function switchTab(tab) {
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  document.querySelector(`.tab:nth-child(${tab === 'owned' ? '1' : '2'})`).classList.add('active');
+  
+  document.getElementById('ownedTab').style.display = tab === 'owned' ? 'block' : 'none';
+  document.getElementById('marketTab').style.display = tab === 'market' ? 'block' : 'none';
+}
+
+function showListDialog(buildingId) {
+  const price = prompt('List Building ' + buildingId + ' for how many TRACE?', '5');
+  if (!price || isNaN(price) || parseInt(price) < 1) return;
+  listBuilding(buildingId, parseInt(price));
+}
+
+function listBuilding(buildingId, price) {
+  const ownedIndex = owned.findIndex(o => o.id === buildingId);
+  if (ownedIndex === -1) return;
+  
+  owned[ownedIndex].isListed = true;
+  owned[ownedIndex].price = price;
+  
+  const listing = {
+    id: buildingId,
+    sellerId: 'current_user',
+    price: price,
+    color: owned[ownedIndex].color,
+    listedAt: new Date().toISOString()
+  };
+  marketListings.push(listing);
+  
+  saveOwned();
+  saveMarket();
+  renderOwnedList();
+  renderMarketList();
+  
+  if (map && map.getSource('maryland-buildings')) {
+    map.setFeatureState(
+      { source: 'maryland-buildings', id: buildingId },
+      { listed: true }
+    );
+  }
+  
+  addActivity(`Listed Building ${buildingId} for ${price} TRACE`, 'market');
+  status(`LISTED Building ${buildingId} for ${price} TRACE`, '#ff6600');
+  setTimeout(() => status('READY', '#0ff'), 2000);
+}
+
+function unlistBuilding(buildingId) {
+  const ownedIndex = owned.findIndex(o => o.id === buildingId);
+  if (ownedIndex === -1) return;
+  
+  owned[ownedIndex].isListed = false;
+  delete owned[ownedIndex].price;
+  
+  const listingIndex = marketListings.findIndex(l => l.id === buildingId);
+  if (listingIndex !== -1) marketListings.splice(listingIndex, 1);
+  
+  saveOwned();
+  saveMarket();
+  renderOwnedList();
+  renderMarketList();
+  
+  if (map && map.getSource('maryland-buildings')) {
+    map.setFeatureState(
+      { source: 'maryland-buildings', id: buildingId },
+      { listed: false }
+    );
+  }
+  
+  addActivity(`Unlisted Building ${buildingId}`, 'market');
+  status(`UNLISTED Building ${buildingId}`, '#00ffff');
+  setTimeout(() => status('READY', '#0ff'), 1500);
+}
+
+function purchaseBuilding(buildingId, price) {
+  if (!spendTrace(price)) {
+    addActivity(`Failed to buy Building ${buildingId} - insufficient TRACE`, 'error');
+    status('NOT ENOUGH TRACE', '#ff9933');
+    return;
+  }
+  
+  const listingIndex = marketListings.findIndex(l => l.id === buildingId);
+  if (listingIndex === -1) return;
+  marketListings.splice(listingIndex, 1);
+  
+  const color = COLORS[owned.length % COLORS.length];
+  const rec = { 
+    id: buildingId, 
+    color, 
+    ownedAt: new Date().toISOString(),
+    isListed: false
+  };
+  owned.push(rec);
+  traceSpent = owned.length;
+  
+  saveOwned();
+  saveMarket();
+  renderOwnedList();
+  renderMarketList();
+  renderStats();
+  
+  if (map && map.getSource('maryland-buildings')) {
+    map.setFeatureState(
+      { source: 'maryland-buildings', id: buildingId },
+      { owned: true, ownerColor: color, listed: false }
+    );
+  }
+  
+  addActivity(`Purchased Building ${buildingId} for ${price} TRACE`, 'purchase');
+  status(`PURCHASED Building ${buildingId} for ${price} TRACE`, '#00ff99');
+  setTimeout(() => status('READY', '#0ff'), 2000);
+}
+
+function releaseOwnership(buildingId) {
+  if (!confirm(`Release ownership of Building ${buildingId}?`)) return;
+  
+  const index = owned.findIndex(o => o.id === buildingId);
+  if (index === -1) return;
+  
+  if (owned[index].isListed) {
+    const listingIndex = marketListings.findIndex(l => l.id === buildingId);
+    if (listingIndex !== -1) marketListings.splice(listingIndex, 1);
+    saveMarket();
+  }
+  
+  earnTrace(1);
+  
+  owned.splice(index, 1);
+  traceSpent = owned.length;
+  saveOwned();
+  
+  if (map && map.getSource('maryland-buildings')) {
+    map.setFeatureState(
+      { source: 'maryland-buildings', id: buildingId },
+      { owned: false, ownerColor: null, listed: false }
+    );
+  }
+  
+  renderOwnedList();
+  renderMarketList();
+  renderStats();
+  
+  if (selectedId === buildingId) {
+    updateSelectedBuildingButtons();
+  }
+  
+  addActivity(`Released Building ${buildingId} (+1 TRACE refund)`, 'release');
+  status(`RELEASED Building ${buildingId} (+1 TRACE)`, '#ff9933');
+  setTimeout(() => status('READY', '#0ff'), 1500);
+}
+
+function updateSelectedBuildingButtons() {
+  const buyBtn = document.getElementById('buyFootprintButton');
+  const marketBtn = document.getElementById('buyFromMarketButton');
+  
+  if (!selectedId) {
+    buyBtn.style.display = 'block';
+    buyBtn.disabled = true;
+    marketBtn.style.display = 'none';
+    return;
+  }
+  
+  const ownedByMe = owned.some(o => o.id === selectedId);
+  const listing = marketListings.find(l => l.id === selectedId);
+  
+  if (ownedByMe) {
+    buyBtn.textContent = 'Already Owned';
+    buyBtn.disabled = true;
+    buyBtn.style.color = 'var(--muter)';
+    buyBtn.style.borderColor = 'var(--muter)';
+    buyBtn.style.background = 'transparent';
+    buyBtn.style.display = 'block';
+    marketBtn.style.display = 'none';
+  } else if (listing) {
+    buyBtn.style.display = 'none';
+    marketBtn.style.display = 'block';
+    marketBtn.textContent = `Buy for ${listing.price} TRACE`;
+    marketBtn.onclick = () => purchaseBuilding(listing.id, listing.price);
+  } else {
+    buyBtn.textContent = 'Own Footprint (Costs 1 TRACE)';
+    buyBtn.disabled = false;
+    buyBtn.style.color = 'var(--cyan)';
+    buyBtn.style.borderColor = 'var(--cyan)';
+    buyBtn.style.background = 'transparent';
+    buyBtn.style.display = 'block';
+    marketBtn.style.display = 'none';
+  }
+}
+
+/* =========================
+   Map System
+========================= */
+mapboxgl.accessToken='pk.eyJ1IjoiZ2x5dGNoZHJhZnQiLCJhIjoiY204bXp1dm5rMXFlczJqbXV0czNjMGd6eSJ9.1OC6M5N-o51Kctf7S8zLZw';
+
+let map, selectedId=null, hoveredId=null;
+
+function status(msg,c){ const el=document.getElementById('mapStatus'); el.textContent=msg; if(c) el.style.color=c; }
+function showChip(id){ const chip=document.getElementById('selChip'); document.getElementById('selChipId').textContent=id; chip.style.display='block'; }
+
+function init(){
+  renderWallet(); 
+  renderOwnedList(); 
+  renderMarketList(); 
+  renderStats(); 
+  renderActivityFeed();
+
+  map = new mapboxgl.Map({
+    container:'map',
+    style:'mapbox://styles/mapbox/dark-v11',
+    center:[-76.6124,39.2904],
+    zoom:13,
+    attributionControl:false
+  });
+
+  map.on('load', async ()=>{
+    status('LOADING BUILDINGS…', '#0ff');
+    const data = await loadGeo();
+    data.features.forEach((f,i)=>{
+      const raw = f.id ?? f.properties?.id ?? f.properties?.OBJECTID ?? f.properties?.FID ?? i;
+      f.id = String(raw);
+    });
+
+    map.addSource('maryland-buildings',{type:'geojson', data});
+
+    map.addLayer({
+      id:'buildings-fill',
+      type:'fill',
+      source:'maryland-buildings',
+      paint:{
+        'fill-color':[
+          'case',
+          ['boolean',['feature-state','owned'],false], ['coalesce',['feature-state','ownerColor'],'#ff0099'],
+          ['boolean',['feature-state','listed'],false], '#ff6600',
+          ['boolean',['feature-state','selected'],false], '#00ffff',
+          ['boolean',['feature-state','hover'],false], '#ffffff',
+          '#1a1a24'
+        ],
+        'fill-opacity':[
+          'case',
+          ['boolean',['feature-state','owned'],false], .9,
+          ['boolean',['feature-state','listed'],false], .8,
+          ['boolean',['feature-state','selected'],false], .7,
+          ['boolean',['feature-state','hover'],false], .5,
+          .4
+        ]
+      }
+    });
+
+    map.addLayer({
+      id:'buildings-line',
+      type:'line',
+      source:'maryland-buildings',
+      paint:{
+        'line-color':[
+          'case',
+          ['boolean',['feature-state','owned'],false], ['coalesce',['feature-state','ownerColor'],'#ff66cc'],
+          ['boolean',['feature-state','listed'],false], '#ff6600',
+          ['boolean',['feature-state','selected'],false], '#00ffff',
+          ['boolean',['feature-state','hover'],false], '#ffffff',
+          '#666'
+        ],
+        'line-width':[
+          'case',
+          ['boolean',['feature-state','owned'],false], 3,
+          ['boolean',['feature-state','listed'],false], 2.5,
+          ['boolean',['feature-state','selected'],false], 2,
+          ['boolean',['feature-state','hover'],false], 1.6,
+          1
+        ]
+      }
+    });
+
+    owned.forEach(rec=>{
+      map.setFeatureState({source:'maryland-buildings', id:String(rec.id)}, {owned:true, ownerColor:rec.color, listed:rec.isListed || false});
+    });
+    
+    marketListings.forEach(listing => {
+      if (!owned.some(o => o.id === listing.id)) {
+        map.setFeatureState({source:'maryland-buildings', id:String(listing.id)}, {listed:true});
+      }
+    });
+
+    map.on('mousemove','buildings-fill', e=>{
+      const f=e.features?.[0]; map.getCanvas().style.cursor=f?'pointer':'';
+      const id = f? String(f.id) : null;
+      if (hoveredId!=null) map.setFeatureState({source:'maryland-buildings',id:hoveredId},{hover:false});
+      hoveredId=id;
+      if (hoveredId!=null) map.setFeatureState({source:'maryland-buildings',id:hoveredId},{hover:true});
+    });
+    
+    map.on('mouseleave','buildings-fill', ()=>{
+      map.getCanvas().style.cursor='';
+      if (hoveredId!=null) map.setFeatureState({source:'maryland-buildings',id:hoveredId},{hover:false});
+      hoveredId=null;
+    });
+
+    map.on('click','buildings-fill', e=>{
+      const f=e.features?.[0]; if(!f) return;
+      if (selectedId!=null) map.setFeatureState({source:'maryland-buildings',id:selectedId},{selected:false});
+      selectedId=String(f.id);
+      map.setFeatureState({source:'maryland-buildings',id:selectedId},{selected:true});
+      showChip(selectedId);
+      document.getElementById('locationInput').value = `Building ${selectedId}`;
+
+      updateSelectedBuildingButtons();
+
+      if (f.geometry?.type==='Polygon'){
+        const b=new mapboxgl.LngLatBounds(); f.geometry.coordinates[0].forEach(c=>b.extend(c));
+        map.fitBounds(b,{padding:50,maxZoom:18});
+      }
+    });
+
+    status('READY', '#0ff');
+    addActivity('System initialized', 'system');
+  });
+
+  document.getElementById('buyFootprintButton').onclick = ()=>{
+    if (!selectedId) return;
+    if (owned.some(o=>o.id===selectedId)) return;
+    if (!spendTrace(1)) { status('NOT ENOUGH TRACE', '#ff9933'); return; }
+
+    const color = COLORS[owned.length % COLORS.length];
+    const rec = { id:selectedId, color, ownedAt:new Date().toISOString(), isListed:false };
+    owned.push(rec); traceSpent = owned.length; saveOwned();
+
+    map.setFeatureState({source:'maryland-buildings', id:selectedId}, {owned:true, ownerColor:color, listed:false});
+
+    renderOwnedList(); renderStats();
+    updateSelectedBuildingButtons();
+    addActivity(`Acquired Building ${selectedId} for 1 TRACE`, 'ownership');
+    status(`FOOTPRINT ACQUIRED: Building ${selectedId}`, '#00ff99');
+    setTimeout(() => status('READY', '#0ff'), 2000);
+  };
+
+  document.getElementById('claimButton').onclick = ()=>{
+    const loc=document.getElementById('locationInput').value.trim();
+    const rit=document.getElementById('ritualText').value.trim();
+    if (!loc || !rit){ status('NEED LOCATION + RITUAL', '#ff9933'); return; }
+    const reward = Math.floor(Math.random()*3)+1;
+    earnTrace(reward);
+    addActivity(`Node glytched: +${reward} TRACE earned`, 'reward');
+    status(`NODE GLYTCHED (+${reward} TRACE)`, '#0ff');
+    setTimeout(()=>{ document.getElementById('locationInput').value=''; document.getElementById('ritualText').value=''; status('READY','#0ff'); }, 1000);
+  };
+}
+
+async function loadGeo(){
+  const tries=['Maryland.geojson','./Maryland.geojson','/Maryland.geojson'];
+  for (const url of tries){
+    try{ const res=await fetch(url); if(res.ok){ return await res.json(); } }catch{}
+  }
+  return {
+    "type":"FeatureCollection",
+    "features":[
+      {"type":"Feature","id":"demo_1","properties":{"building":"commercial"},"geometry":{"type":"Polygon","coordinates":[[[-76.6400,39.0470],[-76.6395,39.0470],[-76.6395,39.0465],[-76.6400,39.0465],[-76.6400,39.0470]]]}},
+      {"type":"Feature","id":"demo_2","properties":{"building":"residential"},"geometry":{"type":"Polygon","coordinates":[[[-76.6420,39.0480],[-76.6410,39.0480],[-76.6410,39.0470],[-76.6420,39.0470],[-76.6420,39.0480]]]}}
+    ]
+  };
+}
+
+document.addEventListener('DOMContentLoaded', init);
+</script>
+</body>
+</html>

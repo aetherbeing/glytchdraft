@@ -1,0 +1,13 @@
+{
+	"FileVersion": 3,
+	"EngineAssociation": "5.3",
+	"Category": "Games",
+	"Description": "GlytchDraft Miami Slice Phase 1 MVP",
+	"Modules": [
+		{
+			"Name": "GlytchDraftMiami",
+			"Type": "Runtime",
+			"LoadingPhase": "Default"
+		}
+	]
+}

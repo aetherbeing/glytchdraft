@@ -1,0 +1,1179 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GlytchDraft - Transform Node</title>
+    <link href="https://api.mapbox.com/mapbox-gl-js/v2.15.0/mapbox-gl.css" rel="stylesheet">
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap');
+        @import url('https://fonts.googleapis.com/css2?family=Archivo+Black&display=swap');
+        
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        :root {
+            /* CLEAN PALETTE */
+            --void-black: #000000;
+            --deep-purple: #0a0a14;
+            --surface: #111118;
+            --surface-elevated: #1a1a24;
+            
+            /* HYPER-BRIGHT ACCENTS */
+            --fuchsia: #ff0099;
+            --cyan: #00ffff;
+            --yellow: #ffff00;
+            --orange: #ff6600;
+            
+            /* CLEAN NEUTRALS */
+            --white: #ffffff;
+            --gray-50: #fafafa;
+            --gray-100: #f5f5f5;
+            --gray-200: #e5e5e5;
+            --gray-300: #d4d4d4;
+            --gray-400: #a3a3a3;
+            --gray-500: #737373;
+            --gray-600: #525252;
+            --gray-700: #404040;
+            --gray-800: #262626;
+            --gray-900: #171717;
+        }
+        
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            background: var(--deep-purple);
+            color: var(--white);
+            min-height: 100vh;
+            font-weight: 400;
+            line-height: 1.5;
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
+        }
+        
+        /* CLEAN TYPE SCALE */
+        .display-2 {
+            font-family: 'Archivo Black', sans-serif;
+            font-size: 3rem;
+            font-weight: 900;
+            line-height: 1;
+            letter-spacing: -0.03em;
+            color: transparent;
+            -webkit-text-stroke: 1px var(--white);
+            text-stroke: 1px var(--white);
+        }
+        
+        .body-sm {
+            font-family: 'Inter', sans-serif;
+            font-size: 0.875rem;
+            font-weight: 400;
+            line-height: 1.4;
+            color: var(--gray-300);
+        }
+        
+        .caption {
+            font-family: 'Inter', sans-serif;
+            font-size: 0.75rem;
+            font-weight: 500;
+            line-height: 1.3;
+            color: var(--gray-400);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+        
+        .label {
+            font-family: 'Inter', sans-serif;
+            font-size: 0.875rem;
+            font-weight: 600;
+            line-height: 1.2;
+            color: var(--white);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        /* Glitch effect for select letters */
+        .glitch-letter {
+            transition: all 0.3s ease;
+            display: inline-block;
+        }
+        
+        .glitch-letter.fuchsia { 
+            color: transparent;
+            -webkit-text-stroke: 1px var(--fuchsia);
+            text-stroke: 1px var(--fuchsia);
+        }
+        .glitch-letter.cyan { 
+            color: transparent;
+            -webkit-text-stroke: 1px var(--cyan);
+            text-stroke: 1px var(--cyan);
+        }
+        .glitch-letter.yellow { 
+            color: transparent;
+            -webkit-text-stroke: 1px var(--yellow);
+            text-stroke: 1px var(--yellow);
+        }
+        
+        /* LAYOUT */
+        .nav {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            background: rgba(10, 10, 20, 0.95);
+            backdrop-filter: blur(20px);
+            border-bottom: 1px solid var(--surface-elevated);
+            padding: 1.5rem 0;
+            z-index: 100;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        .nav-content {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            width: 100%;
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 0 3rem 0 5rem;
+        }
+
+        .logo-placeholder {
+            width: 48px;
+            height: 48px;
+            background: transparent;
+            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            overflow: hidden;
+        }
+        
+        .logo-placeholder img {
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
+        }
+        
+        .companion-status {
+            font-size: 0.75rem;
+            font-weight: 500;
+            color: var(--cyan);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+        }
+        
+        .companion-pulse {
+            width: 8px;
+            height: 8px;
+            background: var(--cyan);
+            border-radius: 50%;
+            animation: pulse 2s infinite;
+        }
+        
+        @keyframes pulse {
+            0%, 100% { opacity: 0.4; transform: scale(1); }
+            50% { opacity: 1; transform: scale(1.2); }
+        }
+        
+        /* MAIN CONTENT */
+        .container {
+            margin-top: 100px;
+            min-height: calc(100vh - 100px);
+            max-width: 1400px;
+            margin-left: auto;
+            margin-right: auto;
+            padding: 0 3rem;
+        }
+        
+        .header {
+            padding: 3rem 0 2rem 0;
+            border-bottom: 1px solid var(--surface-elevated);
+            margin-bottom: 2rem;
+        }
+        
+        .header-content {
+            padding: 0 2rem;
+        }
+        
+        .header .display-2 {
+            margin-bottom: 0.5rem;
+        }
+        
+        .main-grid {
+            display: grid;
+            grid-template-columns: 1fr 400px;
+            gap: 2rem;
+            align-items: start;
+        }
+        
+        .claim-form {
+            background: var(--surface);
+            border: 1px solid var(--surface-elevated);
+            border-radius: 12px;
+            padding: 2rem 0 2rem 0;
+        }
+        
+        .companion-sidebar {
+            background: var(--surface);
+            border: 1px solid var(--surface-elevated);
+            border-radius: 12px;
+            padding: 2rem;
+            height: fit-content;
+            position: sticky;
+            top: 120px;
+        }
+        
+        /* FORM SPACING SYSTEM */
+        .form-section {
+            padding: 0 2rem;
+            margin-bottom: 2.5rem;
+        }
+        
+        .form-section:last-child {
+            margin-bottom: 0;
+        }
+        
+        .form-section .label {
+            margin-bottom: 0.5rem;
+        }
+        
+        .form-section .body-sm {
+            margin-bottom: 1.5rem;
+        }
+
+        /* Map Container */
+        .map-container {
+            width: 100%;
+            height: 300px;
+            border-radius: 8px;
+            overflow: hidden;
+            border: 1px solid var(--surface-elevated);
+            margin-bottom: 1.5rem;
+        }
+        
+        .map-container #map {
+            width: 100%;
+            height: 100%;
+        }
+        
+        /* Address Suggestions */
+        .address-suggestions {
+            position: absolute;
+            top: 100%;
+            left: 0;
+            right: 0;
+            background: var(--surface);
+            border: 1px solid var(--surface-elevated);
+            border-top: none;
+            border-radius: 0 0 8px 8px;
+            max-height: 200px;
+            overflow-y: auto;
+            z-index: 1001;
+            display: none;
+        }
+        
+        .address-suggestion {
+            padding: 0.75rem 1rem;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            border-bottom: 1px solid var(--surface-elevated);
+        }
+        
+        .address-suggestion:hover {
+            background: var(--surface-elevated);
+        }
+        
+        .address-suggestion:last-child {
+            border-bottom: none;
+        }
+        
+        .suggestion-main {
+            color: var(--white);
+            font-size: 0.875rem;
+            margin-bottom: 0.25rem;
+        }
+        
+        .suggestion-details {
+            color: var(--gray-400);
+            font-size: 0.75rem;
+        }
+
+        .location-input-group {
+            position: relative;
+        }
+
+        /* Form Inputs */
+        .form-input {
+            width: 100%;
+            background: var(--surface-elevated);
+            border: 1px solid var(--surface-elevated);
+            border-radius: 8px;
+            padding: 1rem 1.25rem;
+            color: var(--white);
+            font-family: 'Inter', sans-serif;
+            font-size: 1rem;
+            font-weight: 400;
+            outline: none;
+            transition: all 0.2s ease;
+            margin-bottom: 1.5rem;
+        }
+        
+        .form-input:focus {
+            border-color: var(--cyan);
+            box-shadow: 0 0 20px rgba(0, 255, 255, 0.1);
+        }
+        
+        .form-input::placeholder {
+            color: var(--gray-600);
+        }
+        
+        .form-textarea {
+            width: 100%;
+            background: var(--surface-elevated);
+            border: 1px solid var(--surface-elevated);
+            border-radius: 8px;
+            padding: 1.25rem;
+            color: var(--white);
+            font-family: 'Inter', sans-serif;
+            font-size: 1rem;
+            font-weight: 400;
+            line-height: 1.6;
+            min-height: 200px;
+            outline: none;
+            resize: vertical;
+            transition: all 0.2s ease;
+            margin-bottom: 1.5rem;
+        }
+        
+        .form-textarea:focus {
+            border-color: var(--fuchsia);
+            box-shadow: 0 0 20px rgba(255, 0, 153, 0.1);
+        }
+        
+        .form-textarea::placeholder {
+            color: var(--gray-600);
+        }
+        
+        /* Protocol Type Tags */
+        .protocol-tags {
+            display: flex;
+            gap: 0.75rem;
+            margin-bottom: 1.5rem;
+            flex-wrap: wrap;
+        }
+        
+        .protocol-tag {
+            background: transparent;
+            border: 1px solid var(--gray-600);
+            border-radius: 4px;
+            padding: 0.5rem 1rem;
+            font-size: 0.75rem;
+            font-weight: 600;
+            color: var(--gray-400);
+            cursor: pointer;
+            transition: all 0.2s ease;
+            user-select: none;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+        
+        .protocol-tag:hover {
+            color: var(--white);
+            border-color: var(--white);
+        }
+        
+        .protocol-tag.active {
+            background: transparent;
+            color: var(--fuchsia);
+            border-color: var(--fuchsia);
+        }
+        
+        /* Primary Button */
+        .btn-primary {
+            width: calc(100% - 4rem);
+            margin: 0 2rem;
+            background: var(--fuchsia);
+            border: none;
+            padding: 1.25rem 2rem;
+            border-radius: 8px;
+            color: var(--void-black);
+            font-family: 'Inter', sans-serif;
+            font-size: 0.875rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+        
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 25px rgba(255, 0, 153, 0.4);
+        }
+        
+        .btn-primary:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            transform: none;
+        }
+        
+        /* COMPANION SIDEBAR */
+        .companion-header {
+            text-align: center;
+            margin-bottom: 2rem;
+            padding-bottom: 2rem;
+            border-bottom: 1px solid var(--surface-elevated);
+        }
+        
+        .companion-avatar {
+            width: 80px;
+            height: 80px;
+            background: var(--fuchsia);
+            border-radius: 50%;
+            margin: 0 auto 1rem;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 2rem;
+            border: 2px solid var(--surface-elevated);
+        }
+        
+        /* Whispers Feed */
+        .whispers-section {
+            margin-bottom: 2rem;
+        }
+        
+        .whisper-item {
+            background: var(--surface-elevated);
+            border-left: 3px solid var(--cyan);
+            padding: 1rem;
+            border-radius: 0 8px 8px 0;
+            margin-bottom: 1rem;
+            opacity: 0;
+            animation: whisperAppear 0.5s ease forwards;
+        }
+        
+        @keyframes whisperAppear {
+            from { opacity: 0; transform: translateX(-20px); }
+            to { opacity: 1; transform: translateX(0); }
+        }
+        
+        .whisper-text {
+            margin-bottom: 0.5rem;
+        }
+        
+        /* Territory Feed */
+        .territory-feed {
+            max-height: 300px;
+            overflow-y: auto;
+        }
+        
+        .territory-item {
+            padding: 1rem 0;
+            border-bottom: 1px solid var(--surface-elevated);
+        }
+        
+        .territory-item:first-child {
+            padding-top: 0;
+        }
+        
+        .territory-item:last-child {
+            border-bottom: none;
+            padding-bottom: 0;
+        }
+        
+        /* RESPONSIVE */
+        @media (max-width: 1024px) {
+            .main-grid {
+                grid-template-columns: 1fr;
+                gap: 2rem;
+            }
+            
+            .companion-sidebar {
+                position: static;
+            }
+        }
+        
+        @media (max-width: 768px) {
+            .container {
+                padding: 0 1rem;
+            }
+            
+            .nav {
+                padding: 1rem;
+                flex-direction: column;
+                gap: 1rem;
+            }
+            
+            .container {
+                margin-top: 140px;
+            }
+            
+            .claim-form {
+                padding: 2rem;
+            }
+            
+            .companion-sidebar {
+                padding: 2rem;
+            }
+        }
+    </style>
+</head>
+<body>
+    <nav class="nav">
+        <div class="nav-content">
+            <div class="logo-placeholder">
+                <img src="gz.png" alt="GlytchDraft Logo" onload="console.log('✅ Logo loaded successfully')" onerror="console.log('❌ Logo failed to load, using fallback'); this.style.display='none'; this.parentNode.innerHTML='<div style=\'width:100%;height:100%;background:var(--fuchsia);border-radius:12px;display:flex;align-items:center;justify-content:center;font-family:Archivo Black,sans-serif;font-size:1.5rem;font-weight:900;color:var(--void-black)\'>G</div>';">
+            </div>
+            
+            <div class="companion-status">
+                <div class="companion-pulse"></div>
+                <span>Echo is witnessing</span>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container">
+        <header class="header">
+            <div class="header-content">
+                <h1 class="display-2" id="claimTitle">GLYTCH THIS NODE</h1>
+                <p class="caption">Transform the mundane • Build living mythology</p>
+            </div>
+        </header>
+
+        <div class="main-grid">
+            <main class="claim-form">
+                <section class="form-section">
+                    <h2 class="label">Location</h2>
+                    <p class="body-sm">Where are you performing your transformation?</p>
+                    
+                    <div class="map-container">
+                        <div id="map"></div>
+                    </div>
+                    
+                    <div class="location-input-group">
+                        <input 
+                            type="text" 
+                            class="form-input" 
+                            id="locationInput"
+                            placeholder="Search addresses in Maryland..."
+                        >
+                        <div class="address-suggestions" id="addressSuggestions"></div>
+                    </div>
+                </section>
+
+                <section class="form-section">
+                    <h2 class="label">Transform</h2>
+                    <p class="body-sm">How will you transform this node?</p>
+                    
+                    <div class="protocol-tags">
+                        <div class="protocol-tag active" data-type="sync">Sync</div>
+                        <div class="protocol-tag" data-type="memory">Memory Install</div>
+                        <div class="protocol-tag" data-type="dream">Dream Patch</div>
+                        <div class="protocol-tag" data-type="witness">Witness Protocol</div>
+                    </div>
+
+                    <textarea 
+                        class="form-textarea" 
+                        id="ritualText"
+                        placeholder="Describe your transformation... What shifts when you glytch this node? How does reality bend here?
+
+Example: 'I press my palm against this corner store's brick and feel the neighborhood's hunger. The fluorescent buzz becomes a frequency of abundance. This node now pulses with generosity.'"
+                    ></textarea>
+                </section>
+
+                <button class="btn-primary" id="claimButton" onclick="performClaiming()">
+                    Execute Transform & Glytch Node
+                </button>
+            </main>
+
+            <aside class="companion-sidebar">
+                <div class="companion-header">
+                    <div class="companion-avatar" id="companionAvatar">🪞</div>
+                    <h3 class="label" id="companionName">Echo</h3>
+                    <p class="caption">Reflection Amplifier</p>
+                </div>
+
+                <div class="whispers-section">
+                    <h4 class="caption">Companion Whispers</h4>
+                    <div id="whisperFeed">
+                        <div class="whisper-item">
+                            <div class="whisper-text body-sm">"I sense seventeen surfaces here that could multiply your blessing..."</div>
+                            <div class="whisper-time caption">just now</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="territory-feed">
+                    <h4 class="caption">Recent Territory Claims</h4>
+                    <div class="territory-item">
+                        <div class="territory-location">
+                            <span class="body-sm" style="color: var(--white); font-weight: 600;">7-Eleven on Bleecker St</span>
+                        </div>
+                        <div class="territory-snippet body-sm">"The Slurpee machine hums mantras of sugar and ice..."</div>
+                        <div class="territory-meta caption">Neon Pilgrim • 2h ago</div>
+                    </div>
+                    <div class="territory-item">
+                        <div class="territory-location">
+                            <span class="body-sm" style="color: var(--white); font-weight: 600;">Empty lot behind the library</span>
+                        </div>
+                        <div class="territory-snippet body-sm">"In this absence, I plant seeds of possibility..."</div>
+                        <div class="territory-meta caption">Hollow Form • 4h ago</div>
+                    </div>
+                    <div class="territory-item">
+                        <div class="territory-location">
+                            <span class="body-sm" style="color: var(--white); font-weight: 600;">Laundromat on 23rd Ave</span>
+                        </div>
+                        <div class="territory-snippet body-sm">"The spin cycle sounds like my childhood..."</div>
+                        <div class="territory-meta caption">Pink Opaque • 6h ago</div>
+                    </div>
+                </div>
+            </aside>
+        </div>
+    </div>
+
+    <script src="https://api.mapbox.com/mapbox-gl-js/v2.15.0/mapbox-gl.min.js"></script>
+    <script>
+        // REPLACE WITH YOUR MAPBOX TOKEN
+        mapboxgl.accessToken = 'YOUR_MAPBOX_TOKEN_HERE';
+
+        let map;
+        let selectedBuilding = null;
+        let addressDebounce = null;
+        let selectedRitualType = 'sync';
+        let currentOrder = null;
+
+        // Order-specific companions
+        const orderCompanions = {
+            'crooked-datum': {
+                name: 'Skew',
+                type: 'Misalignment Daemon', 
+                glyph: '📐',
+                whispers: [
+                    "I see the crack in the sidewalk where beauty enters...",
+                    "That tilted sign is more honest than perfect ones...",
+                    "The broken streetlight creates sacred shadow..."
+                ]
+            },
+            'hollow-form': {
+                name: 'Null',
+                type: 'Void Keeper',
+                glyph: '🕳️', 
+                whispers: [
+                    "In empty lots, I feel the weight of unbuilt dreams...",
+                    "This vacant window holds infinite possibilities...",
+                    "The pause between your words is where meaning lives..."
+                ]
+            },
+            'mirrorsweat': {
+                name: 'Echo',
+                type: 'Reflection Amplifier',
+                glyph: '🪞',
+                whispers: [
+                    "I count seventeen reflections of you in this storefront...",
+                    "Every surface here multiplies your presence...",
+                    "The puddle shows you a different city..."
+                ]
+            },
+            'pink-opaque': {
+                name: 'Fade',
+                type: 'Nostalgia Weaver',
+                glyph: '🌸',
+                whispers: [
+                    "This place tastes like a memory you never had...",
+                    "The neon flickers with ghost-light from 1987...",
+                    "I hear arcade music from a mall that never was..."
+                ]
+            }
+        };
+
+        function initializeMap() {
+            // Initialize Mapbox map centered on Maryland
+            map = new mapboxgl.Map({
+                container: 'map',
+                style: 'mapbox://styles/mapbox/dark-v11', // Dark theme
+                center: [-76.6413, 39.0458], // Maryland center
+                zoom: 8
+            });
+
+            map.on('load', function() {
+                console.log('Map loaded successfully');
+                
+                // Load your Microsoft building footprints
+                loadMarylandBuildings();
+            });
+        }
+
+        async function loadMarylandBuildings() {
+            try {
+                // Load your actual Maryland GeoJSON file
+                const response = await fetch('/Maryland.geojson');
+                const buildingData = await response.json();
+                
+                console.log('Loaded building data:', buildingData.features.length, 'buildings');
+                
+                // Add building source
+                map.addSource('maryland-buildings', {
+                    'type': 'geojson',
+                    'data': buildingData
+                });
+
+                // Add building layers
+                addBuildingLayers();
+                
+            } catch (error) {
+                console.error('Failed to load building data:', error);
+                // Fall back to mock data for testing
+                addMockBuildings();
+            }
+        }
+
+        function addBuildingLayers() {
+            // Unclaimed buildings
+            map.addLayer({
+                'id': 'buildings-unclaimed',
+                'source': 'maryland-buildings',
+                'type': 'fill',
+                'paint': {
+                    'fill-color': '#1a1a24',
+                    'fill-opacity': 0.6,
+                    'fill-outline-color': '#525252'
+                }
+            });
+
+            // Hover state
+            map.addLayer({
+                'id': 'buildings-hover',
+                'source': 'maryland-buildings',
+                'type': 'fill',
+                'paint': {
+                    'fill-color': '#ff0099',
+                    'fill-opacity': 0.8,
+                    'fill-outline-color': '#ff0099'
+                },
+                'filter': ['==', ['get', 'id'], '']
+            });
+
+            // Click events
+            map.on('click', 'buildings-unclaimed', function(e) {
+                if (e.features.length > 0) {
+                    selectBuilding(e.features[0]);
+                }
+            });
+
+            map.on('mouseenter', 'buildings-unclaimed', function(e) {
+                map.getCanvas().style.cursor = 'pointer';
+                if (e.features.length > 0) {
+                    const id = e.features[0].properties.id || e.features[0].id;
+                    map.setFilter('buildings-hover', ['==', ['get', 'id'], id]);
+                }
+            });
+
+            map.on('mouseleave', 'buildings-unclaimed', function() {
+                map.getCanvas().style.cursor = '';
+                map.setFilter('buildings-hover', ['==', ['get', 'id'], '']);
+            });
+        }
+
+        function addMockBuildings() {
+            // Fallback mock data if Maryland.geojson fails to load
+            const mockBuildings = {
+                "type": "FeatureCollection",
+                "features": [
+                    {
+                        "type": "Feature",
+                        "properties": {
+                            "id": "building_1",
+                            "name": "Corner Store",
+                            "address": "1247 Park Heights Ave, Baltimore, MD"
+                        },
+                        "geometry": {
+                            "type": "Polygon",
+                            "coordinates": [[
+                                [-76.6413, 39.0458],
+                                [-76.6410, 39.0458],
+                                [-76.6410, 39.0455],
+                                [-76.6413, 39.0455],
+                                [-76.6413, 39.0458]
+                            ]]
+                        }
+                    },
+                    {
+                        "type": "Feature", 
+                        "properties": {
+                            "id": "building_2",
+                            "name": "Apartment Complex",
+                            "address": "2156 Pennsylvania Ave, Baltimore, MD"
+                        },
+                        "geometry": {
+                            "type": "Polygon",
+                            "coordinates": [[
+                                [-76.6400, 39.0470],
+                                [-76.6395, 39.0470],
+                                [-76.6395, 39.0465],
+                                [-76.6400, 39.0465],
+                                [-76.6400, 39.0470]
+                            ]]
+                        }
+                    }
+                ]
+            };
+
+            map.addSource('maryland-buildings', {
+                'type': 'geojson',
+                'data': mockBuildings
+            });
+
+            addBuildingLayers();
+        }
+
+        function selectBuilding(feature) {
+            selectedBuilding = feature;
+            const props = feature.properties;
+            
+            // Update location input with building info
+            const buildingInfo = props.name || props.address || 'Selected Building';
+            document.getElementById('locationInput').value = buildingInfo;
+            
+            // Zoom to building
+            if (feature.geometry) {
+                const bounds = new mapboxgl.LngLatBounds();
+                if (feature.geometry.type === 'Polygon') {
+                    feature.geometry.coordinates[0].forEach(coord => {
+                        bounds.extend(coord);
+                    });
+                    map.fitBounds(bounds, { padding: 100 });
+                }
+            }
+            
+            // Trigger companion whisper
+            triggerCompanionWhisper();
+        }
+
+        // Mapbox Geocoding for address search
+        async function searchAddresses(query) {
+            try {
+                const response = await fetch(
+                    `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(query)}.json?access_token=${mapboxgl.accessToken}&country=us&bbox=-79.487,37.886,-75.048,39.723&limit=5`
+                );
+                const data = await response.json();
+                displayAddressSuggestions(data.features);
+            } catch (error) {
+                console.error('Address search error:', error);
+            }
+        }
+
+        function displayAddressSuggestions(results) {
+            const suggestions = document.getElementById('addressSuggestions');
+            
+            if (results.length === 0) {
+                suggestions.style.display = 'none';
+                return;
+            }
+
+            suggestions.innerHTML = results.map(result => {
+        function displayAddressSuggestions(results) {
+            const suggestions = document.getElementById('addressSuggestions');
+            
+            if (results.length === 0) {
+                suggestions.style.display = 'none';
+                return;
+            }
+
+            suggestions.innerHTML = results.map(result => {
+                return `
+                    <div class="address-suggestion" onclick="selectAddress(${result.center[1]}, ${result.center[0]}, '${result.place_name.replace(/'/g, "\\'")}')">
+                        <div class="suggestion-main">${result.text}</div>
+                        <div class="suggestion-details">${result.place_name}</div>
+                    </div>
+                `;
+            }).join('');
+            
+            suggestions.style.display = 'block';
+        }
+
+        function setupAddressSearch() {
+            const input = document.getElementById('locationInput');
+            const suggestions = document.getElementById('addressSuggestions');
+
+            input.addEventListener('input', function(e) {
+                const query = e.target.value.trim();
+                
+                if (query.length < 3) {
+                    suggestions.style.display = 'none';
+                    return;
+                }
+
+                clearTimeout(addressDebounce);
+                addressDebounce = setTimeout(() => {
+                    searchAddresses(query);
+                }, 300);
+            });
+
+            input.addEventListener('blur', function() {
+                setTimeout(() => {
+                    suggestions.style.display = 'none';
+                }, 200);
+            });
+        }
+
+        window.selectAddress = function(lat, lon, address) {
+            document.getElementById('locationInput').value = address;
+            document.getElementById('addressSuggestions').style.display = 'none';
+            
+            // Fly to location on map
+            map.flyTo({
+                center: [lon, lat],
+                zoom: 16,
+                duration: 2000
+            });
+            
+            triggerCompanionWhisper();
+        };
+
+        function initializeGlitchText() {
+            const title = document.getElementById('claimTitle');
+            const text = title.textContent;
+            const colors = ['fuchsia', 'cyan', 'yellow'];
+            
+            // Randomly color 1-2 letters
+            const numToColor = Math.floor(Math.random() * 2) + 1;
+            const indicesToColor = [];
+            
+            while (indicesToColor.length < numToColor && indicesToColor.length < text.length) {
+                const randomIndex = Math.floor(Math.random() * text.length);
+                if (!indicesToColor.includes(randomIndex) && text[randomIndex] !== ' ') {
+                    indicesToColor.push(randomIndex);
+                }
+            }
+            
+            title.innerHTML = text.split('').map((letter, index) => {
+                if (indicesToColor.includes(index)) {
+                    const randomColor = colors[Math.floor(Math.random() * colors.length)];
+                    return `<span class="glitch-letter ${randomColor}">${letter}</span>`;
+                }
+                return letter;
+            }).join('');
+        }
+
+        function applyGlitchToElement(elementId) {
+            const element = document.getElementById(elementId);
+            if (!element) return;
+            
+            const text = element.textContent;
+            const colors = ['fuchsia', 'cyan', 'yellow'];
+            
+            // Randomly color 1 letter
+            const randomIndex = Math.floor(Math.random() * text.length);
+            if (text[randomIndex] && text[randomIndex] !== ' ') {
+                const randomColor = colors[Math.floor(Math.random() * colors.length)];
+                element.innerHTML = text.split('').map((letter, index) => {
+                    if (index === randomIndex) {
+                        return `<span class="glitch-letter ${randomColor}">${letter}</span>`;
+                    }
+                    return letter;
+                }).join('');
+            }
+        }
+
+        function loadSelectedOrder() {
+            try {
+                const stored = localStorage.getItem('selectedOrder');
+                if (stored) {
+                    currentOrder = JSON.parse(stored);
+                    updateCompanionDisplay();
+                } else {
+                    currentOrder = { id: 'mirrorsweat' };
+                    updateCompanionDisplay();
+                }
+            } catch (e) {
+                currentOrder = { id: 'mirrorsweat' };
+                updateCompanionDisplay();
+            }
+        }
+
+        function updateCompanionDisplay() {
+            const companion = orderCompanions[currentOrder?.id] || orderCompanions['mirrorsweat'];
+            
+            const avatarEl = document.getElementById('companionAvatar');
+            const nameEl = document.getElementById('companionName');
+            const typeEl = document.querySelector('aside .caption');
+            const statusEl = document.querySelector('.companion-status span');
+            
+            if (avatarEl) avatarEl.textContent = companion.glyph;
+            if (nameEl) nameEl.textContent = companion.name;
+            if (typeEl) typeEl.textContent = companion.type;
+            if (statusEl) statusEl.textContent = `${companion.name} is witnessing`;
+        }
+
+        function setupRitualTags() {
+            const tags = document.querySelectorAll('.protocol-tag');
+            
+            tags.forEach(tag => {
+                tag.addEventListener('click', function() {
+                    tags.forEach(t => t.classList.remove('active'));
+                    this.classList.add('active');
+                    selectedRitualType = this.dataset.type;
+                    
+                    if (Math.random() > 0.6) {
+                        triggerCompanionWhisper();
+                    }
+                });
+            });
+        }
+
+        function triggerCompanionWhisper() {
+            const companion = orderCompanions[currentOrder?.id] || orderCompanions['mirrorsweat'];
+            const randomWhisper = companion.whispers[Math.floor(Math.random() * companion.whispers.length)];
+            
+            addWhisper(randomWhisper);
+        }
+
+        function addWhisper(text) {
+            const feed = document.getElementById('whisperFeed');
+            const whisper = document.createElement('div');
+            whisper.className = 'whisper-item';
+            whisper.innerHTML = `
+                <div class="whisper-text body-sm">"${text}"</div>
+                <div class="whisper-time caption">just now</div>
+            `;
+            
+            feed.insertBefore(whisper, feed.firstChild);
+            
+            // Keep only last 5 whispers
+            const whispers = feed.querySelectorAll('.whisper-item');
+            if (whispers.length > 5) {
+                whispers[whispers.length - 1].remove();
+            }
+        }
+
+        function performClaiming() {
+            const location = document.getElementById('locationInput').value.trim();
+            const ritual = document.getElementById('ritualText').value.trim();
+            
+            if (!location || !ritual) {
+                // Clean error state
+                const button = document.getElementById('claimButton');
+                button.textContent = 'Location and transform required';
+                button.style.background = 'var(--orange)';
+                setTimeout(() => {
+                    button.textContent = 'Execute Transform & Glytch Node';
+                    button.style.background = 'var(--fuchsia)';
+                }, 2000);
+                return;
+            }
+            
+            // Store the claim
+            const claim = {
+                location,
+                ritual,
+                type: selectedRitualType,
+                order: currentOrder?.id || 'mirrorsweat',
+                building: selectedBuilding,
+                timestamp: new Date().toISOString()
+            };
+            
+            console.log('Node transformation:', claim);
+            
+            // Success state
+            const button = document.getElementById('claimButton');
+            button.textContent = 'Node glytched';
+            button.style.background = 'var(--cyan)';
+            button.style.color = 'var(--void-black)';
+            button.disabled = true;
+            
+            // Companion celebrates
+            const companion = orderCompanions[currentOrder?.id] || orderCompanions['mirrorsweat'];
+            setTimeout(() => {
+                addWhisper(`Node glytched. The ${location.toLowerCase()} is now part of the living network.`);
+            }, 1000);
+            
+            // Reset form
+            setTimeout(() => {
+                document.getElementById('locationInput').value = '';
+                document.getElementById('ritualText').value = '';
+                button.textContent = 'Execute Transform & Glytch Node';
+                button.style.background = 'var(--fuchsia)';
+                button.style.color = 'var(--void-black)';
+                button.disabled = false;
+                selectedBuilding = null;
+                
+                // Clear building selection on map
+                if (map.getLayer('buildings-hover')) {
+                    map.setFilter('buildings-hover', ['==', ['get', 'id'], '']);
+                }
+            }, 3000);
+        }
+
+        // Initialize everything
+        document.addEventListener('DOMContentLoaded', function() {
+            console.log('GlytchDraft initializing with Mapbox...');
+            
+            // Check if Mapbox token is set
+            if (mapboxgl.accessToken === 'YOUR_MAPBOX_TOKEN_HERE') {
+                console.error('⚠️ Please set your Mapbox access token!');
+                document.getElementById('map').innerHTML = `
+                    <div style="display: flex; align-items: center; justify-content: center; height: 100%; background: var(--surface-elevated); color: var(--gray-400); text-align: center; padding: 2rem; border-radius: 8px;">
+                        <div>
+                            <h3 style="color: var(--fuchsia); margin-bottom: 1rem;">Mapbox Token Required</h3>
+                            <p style="margin-bottom: 1rem;">Please add your Mapbox access token to the JavaScript.</p>
+                            <p style="font-size: 0.875rem;">Replace 'YOUR_MAPBOX_TOKEN_HERE' with your actual token.</p>
+                        </div>
+                    </div>
+                `;
+            } else {
+                initializeMap();
+            }
+            
+            initializeGlitchText();
+            loadSelectedOrder();
+            setupRitualTags();
+            setupAddressSearch();
+            
+            // Apply glitch effect to companion name
+            setTimeout(() => {
+                applyGlitchToElement('companionName');
+            }, 2000);
+            
+            // Text input responses
+            const ritualText = document.getElementById('ritualText');
+            let textTimeout;
+            if (ritualText) {
+                ritualText.addEventListener('input', function() {
+                    clearTimeout(textTimeout);
+                    textTimeout = setTimeout(() => {
+                        if (this.value.length > 50 && Math.random() > 0.7) {
+                            triggerCompanionWhisper();
+                        }
+                    }, 2000);
+                });
+            }
+            
+            // Periodic whispers and glitch effects
+            setInterval(() => {
+                if (Math.random() > 0.85) {
+                    triggerCompanionWhisper();
+                }
+                
+                // Randomly glitch companion name
+                if (Math.random() > 0.9) {
+                    applyGlitchToElement('companionName');
+                }
+            }, 20000);
+            
+            // Re-glitch title occasionally
+            setInterval(initializeGlitchText, 15000);
+            
+            console.log('GlytchDraft initialized');
+        });
+    </script>
+</body>
+</html>
