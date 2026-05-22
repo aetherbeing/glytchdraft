@@ -12,6 +12,7 @@ Step 1 — Find source
 Step 2 — List all tiles
   Paginate the S3 XML listing under the confirmed prefix.
   Fallback: paginated USGS TNM API query for the project.
+  Final fallback: build from local /mnt/t7/la/data_raw/laz/*.laz.
   Every filename returned is a real USGS product.
 
 Step 3 — Build catalog
@@ -24,14 +25,17 @@ Output schema:
   {
     "schema_version": "1.0",
     "project": "CA_LosAngeles_2016",
-    "source": "s3" | "tnm",
+    "source": "s3" | "tnm" | "local",
     "s3_prefix": "StagedProducts/...",
     "generated_at": "2026-...",
     "tile_count": N,
     "tiles": [
       {
         "filename":      "USGS_LPC_CA_LosAngeles_2016_L4_6477_1836b_LAS_2018.laz",
+        "local_path":    "/mnt/t7/la/data_raw/laz/USGS_LPC_CA_LosAngeles_2016_L4_6477_1836b_LAS_2018.laz",
         "download_url":  "https://prd-tnm.s3.amazonaws.com/...",
+        "project":       "CA_LosAngeles_2016",
+        "tile_stem":     "6477_1836b",
         "stem_x":        6477,
         "stem_y":        1836,
         "quarter":       "b",
@@ -48,6 +52,7 @@ Usage:
     python scripts/la/build_la_catalog.py --force     # re-fetch even if cached
     python scripts/la/build_la_catalog.py --tnm-only  # skip S3, use TNM API
     python scripts/la/build_la_catalog.py --s3-only   # skip TNM fallback
+    python scripts/la/build_la_catalog.py --local-only
 """
 
 from __future__ import annotations
@@ -419,34 +424,71 @@ def fetch_via_tnm() -> list[tuple[str, int, str]]:
 
 # ── catalog builder ───────────────────────────────────────────────────────────
 
+def fetch_via_local() -> list[tuple[str, int, str | None]]:
+    """
+    Build a catalog source from LAZ files already present on local disk.
+    Returns [(filename, size_bytes, None)].
+    """
+    console.print("\n[bold cyan]Source: local LAZ directory[/bold cyan]")
+    console.print(f"  directory: [dim]{LAZ_DIR}[/dim]")
+
+    if not LAZ_DIR.exists():
+        console.print("  [yellow]Local LAZ directory does not exist.[/yellow]")
+        return []
+
+    results: list[tuple[str, int, str | None]] = []
+    skipped = 0
+    for path in sorted(LAZ_DIR.glob("*.laz")):
+        if parse_filename(path.name) is None:
+            skipped += 1
+            continue
+        results.append((path.name, path.stat().st_size, None))
+
+    console.print(f"  [green]{len(results)} local {TNM_PROJECT!r} LAZ file(s)[/green]")
+    if skipped:
+        console.print(f"  [yellow]Skipped {skipped} unparseable local LAZ file(s)[/yellow]")
+    return results
+
+
 def build_catalog(
     s3_first: bool = True,
     tnm_fallback: bool = True,
+    local_fallback: bool = True,
+    local_only: bool = False,
 ) -> dict:
     """
     Fetch the full tile list, parse filenames, compute bboxes, write catalog.
     Returns the catalog dict.
     """
-    raw_entries: list[tuple[str, int, str]] = []
+    raw_entries: list[tuple[str, int, str | None]] = []
     source      = "unknown"
     s3_prefix   = ""
 
-    if s3_first:
+    if local_only:
+        raw_entries = fetch_via_local()
+        source      = "local"
+
+    if not raw_entries and s3_first and not local_only:
         entries, prefix = fetch_via_s3()
         if entries:
             raw_entries = entries
             source      = "s3"
             s3_prefix   = prefix or ""
 
-    if not raw_entries and tnm_fallback:
+    if not raw_entries and tnm_fallback and not local_only:
         raw_entries = fetch_via_tnm()
         source      = "tnm"
 
+    if not raw_entries and local_fallback:
+        raw_entries = fetch_via_local()
+        source      = "local"
+
     if not raw_entries:
-        raise RuntimeError(
-            "Both S3 and TNM returned no results. "
-            "Check network connectivity and try again."
+        console.print(
+            "\n[yellow]No S3, TNM, or local LAZ entries found. "
+            "Writing an empty local catalog.[/yellow]"
         )
+        source = "local"
 
     # Parse and enrich
     console.print(f"\n[dim]Parsing {len(raw_entries)} filenames...[/dim]")
@@ -471,17 +513,21 @@ def build_catalog(
 
             stem_x, stem_y, quarter = parsed
             bbox_2229, bbox_4326   = _quarter_bboxes(stem_x, stem_y, quarter)
-            on_disk = (LAZ_DIR / filename).exists()
+            local_path = LAZ_DIR / filename
+            on_disk = local_path.exists()
 
             tiles.append({
                 "filename":      filename,
+                "local_path":    str(local_path),
                 "download_url":  url,
+                "project":       TNM_PROJECT,
+                "tile_stem":     f"{stem_x}_{stem_y}{quarter}",
                 "stem_x":        stem_x,
                 "stem_y":        stem_y,
                 "quarter":       quarter,
                 "bbox_2229":     bbox_2229,
                 "bbox_4326":     bbox_4326 if bbox_4326 else None,
-                "s3_size_bytes": size_bytes if size_bytes else None,
+                "s3_size_bytes": size_bytes if source == "s3" and size_bytes else None,
                 "on_disk":       on_disk,
             })
             progress.advance(task)
@@ -525,8 +571,9 @@ def main():
     force    = "--force"    in args
     s3_only  = "--s3-only"  in args
     tnm_only = "--tnm-only" in args
+    local_only = "--local-only" in args
 
-    if CATALOG_PATH.exists() and not force:
+    if CATALOG_PATH.exists() and not force and not local_only:
         data = json.loads(CATALOG_PATH.read_text(encoding="utf-8"))
         n    = data.get("tile_count", len(data.get("tiles", [])))
         ts   = data.get("generated_at", "unknown")
@@ -555,6 +602,7 @@ def main():
         catalog = build_catalog(
             s3_first    = not tnm_only,
             tnm_fallback= not s3_only,
+            local_only  = local_only,
         )
     except RuntimeError as e:
         console.print(f"\n[red]ERROR: {e}[/red]")
