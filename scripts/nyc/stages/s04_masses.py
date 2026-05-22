@@ -233,6 +233,10 @@ def _write_metadata(path, polys, attrs, stats):
 def run(tile: TileConfig) -> dict:
     tile.masses_dir.mkdir(parents=True, exist_ok=True)
 
+    if not tile.footprints_32611.exists():
+        print(f"[{tile.tile_id}]   footprints_32611 not found; terrain-only tile")
+        return {"lod0": 0, "lod1": 0, "quality": {}, "footprints": 0, "skipped": "no_footprints_file"}
+
     print(f"[{tile.tile_id}] s04 masses — loading data...")
     t0 = time.time()
     polys, attrs  = _load_footprints(tile.footprints_32611)
