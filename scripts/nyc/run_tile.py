@@ -225,7 +225,7 @@ def main():
     any_failed = False
 
     console.print(Panel(
-        f"[bold magenta]GlitchOS.io[/bold magenta] — LA pipeline\n"
+        f"[bold magenta]GlitchOS.io[/bold magenta] — NYC pipeline\n"
         f"Tiles: [cyan]{' '.join(tile_ids)}[/cyan]   Stages: [white]{' '.join(stages)}[/white]",
         box=box.ROUNDED,
     ))

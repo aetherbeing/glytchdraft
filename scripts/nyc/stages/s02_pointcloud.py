@@ -1,11 +1,10 @@
 """
-stages/s02_pointcloud.py  [LA block pipeline]
+stages/s02_pointcloud.py  [NYC city pipeline]
 
-Extract class-2 (ground) points from the tile LAZ, reproject to EPSG:32611,
+Extract class-2 (ground) points from the COPC tile LAZ, reproject to EPSG:32618,
 spatially subsample at 1 m, write PLY to tile pointcloud dir.
 
-Z is NOT converted to meters here — conversion happens in s04 where arithmetic
-is performed. The PLY file carries Z in US survey feet (PDAL passthrough).
+Z is in meters (NAVD88 GEOID18). FTUS_TO_M = 1.0 for NYC so no unit conversion needed.
 """
 
 from __future__ import annotations
@@ -27,7 +26,7 @@ def run(tile: TileConfig) -> dict:
 
     pipeline = {
         "pipeline": [
-            {"type": "readers.las", "filename": str(tile.laz_path)},
+            {"type": "readers.copc", "filename": str(tile.laz_path)},
             {"type": "filters.range", "limits": "Classification[2:2]"},
             {"type": "filters.reprojection", "in_srs": SRC_SRS, "out_srs": DST_SRS},
             {"type": "filters.sample", "radius": 1.0},

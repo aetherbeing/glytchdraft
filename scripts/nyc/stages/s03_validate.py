@@ -10,7 +10,7 @@ Checks (same logic as standalone 03_validate_crs.py, parametrized for any tile):
   4. Footprint 4326 coordinates are readable
   5. Footprints reprojected to source CRS numerically overlap LAZ bounds
   6. Batch clip: N_BATCH footprints clipped from raw LAZ — all return >0 pts
-  7. Z values in meters fall in plausible DTLA range (Z_M_MIN – Z_M_MAX)
+  7. Z values in meters fall in plausible NYC range (Z_M_MIN – Z_M_MAX)
 
 Returns {"passed": bool, "failures": [...], "batch_results": [...]}
 Raises RuntimeError if passed=False (so run_tile.py can abort stage 04).
@@ -29,13 +29,13 @@ from shapely.geometry import shape, Polygon, MultiPolygon
 from shapely.ops import transform as shp_transform
 import pyproj
 
-from tile_config import TileConfig, SRC_EPSG, DST_EPSG, FTUS_TO_M
+from tile_config import TileConfig, SRC_EPSG, DST_EPSG
 
 osr.UseExceptions()
 
 N_BATCH   = 5
-Z_M_MIN   = 15.0
-Z_M_MAX   = 400.0
+Z_M_MIN   = -10.0   # NYC coastal tiles can be below sea level
+Z_M_MAX   = 600.0   # One World Trade antenna ≈ 541 m
 
 def _geojson_crs_name(path: Path) -> str:
     try:
@@ -92,12 +92,14 @@ def run(tile: TileConfig) -> dict:
 
     # ── 1+2. LAZ CRS and bounds ────────────────────────────────────────────
     pl = pdal.Pipeline(json.dumps({
-        "pipeline": [{"type": "readers.las", "filename": str(tile.laz_path), "count": 0}]
+        "pipeline": [{"type": "readers.copc", "filename": str(tile.laz_path), "count": 0}]
     }))
     pl.execute()
     md = pl.metadata
     if isinstance(md, str): md = json.loads(md)
-    rlas = md.get("metadata", {}).get("readers.las", {})
+    rlas = (md.get("metadata", {}).get("readers.copc")
+            or md.get("metadata", {}).get("readers.las")
+            or {})
     if isinstance(rlas, list): rlas = rlas[0] if rlas else {}
 
     crs_str = rlas.get("comp_spatialreference") or rlas.get("spatialreference") or ""
@@ -105,7 +107,7 @@ def run(tile: TileConfig) -> dict:
     laz_miny, laz_maxy = float(rlas.get("miny", 0)), float(rlas.get("maxy", 0))
 
     print(f"  LAZ CRS: {crs_str[:100]}...")
-    print(f"  LAZ X: {laz_minx:,.0f} → {laz_maxx:,.0f}  Y: {laz_miny:,.0f} → {laz_maxy:,.0f}  (ft)")
+    print(f"  LAZ X: {laz_minx:,.0f} → {laz_maxx:,.0f}  Y: {laz_miny:,.0f} → {laz_maxy:,.0f}  (m)")
 
     if crs_str and str(SRC_EPSG) not in crs_str:
         ok(f"LAZ CRS reported by PDAL; configured source EPSG:{SRC_EPSG} will be used")
@@ -117,12 +119,12 @@ def run(tile: TileConfig) -> dict:
     if s00_bounds is None:
         ok("per-tile s00 bounds unavailable; using PDAL header bounds for this tile")
     else:
-        tol_ft = 2.0
+        tol_m = 2.0
         deltas = [abs(a - b) for a, b in zip(laz_bounds, s00_bounds)]
-        if any(d > tol_ft for d in deltas):
+        if any(d > tol_m for d in deltas):
             fail(
                 "LAZ bounds differ from s00 extent by more than "
-                f"{tol_ft} ft: deltas={[round(d, 3) for d in deltas]}"
+                f"{tol_m} m: deltas={[round(d, 3) for d in deltas]}"
             )
         else:
             ok("LAZ bounds match per-tile s00 extent")
@@ -169,7 +171,7 @@ def run(tile: TileConfig) -> dict:
     else:
         ok("footprints_4326 has no coordinate data; treating tile as no-footprints / terrain-only")
 
-    # ── 5. Spatial overlap in EPSG:2229 ─────────────────────────────────
+    # ── 5. Spatial overlap (footprints→source CRS) ───────────────────────
     gj32611 = json.loads(tile.footprints_32611.read_text(encoding="utf-8"))
     fp_xs, fp_ys = [], []
     for ft in gj32611["features"]:
@@ -209,7 +211,7 @@ def run(tile: TileConfig) -> dict:
         try:
             pl = pdal.Pipeline(json.dumps({
                 "pipeline": [
-                    {"type": "readers.las", "filename": str(tile.laz_path)},
+                    {"type": "readers.copc", "filename": str(tile.laz_path)},
                     {"type": "filters.crop", "polygon": wkt},
                 ]
             }))
@@ -224,7 +226,7 @@ def run(tile: TileConfig) -> dict:
             batch_results.append({"fid": fid, "n_pts": 0, "passed": False})
             continue
 
-        z_m = pl.arrays[0]["Z"] * FTUS_TO_M
+        z_m = pl.arrays[0]["Z"]  # already meters (NAVD88 GEOID18)
         zmin, zmax = float(z_m.min()), float(z_m.max())
         row = {"fid": str(fid), "n_pts": n, "z_m_min": round(zmin,1), "z_m_max": round(zmax,1), "elapsed_s": round(time.time()-t0,1)}
 

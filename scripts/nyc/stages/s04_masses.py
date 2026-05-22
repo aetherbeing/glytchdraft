@@ -10,8 +10,8 @@ For each footprint polygon:
   4. Extrude footprint shell → LOD0 OBJ prism.
   5. Replace with minimum rotated rectangle → LOD1 OBJ prism.
 
-Z UNIT NOTE: PDAL reprojection keeps Z in the source vertical units.
-All Z arithmetic is done after multiplying by FTUS_TO_M when needed.
+Z UNIT NOTE: NOAA 9306 COPC files carry Z in meters (NAVD88 GEOID18).
+No unit conversion is needed; all Z arithmetic is in meters directly.
 
 Returns: {"lod0": n, "lod1": n, "quality": {...}, "footprints": total}
 """
@@ -29,7 +29,7 @@ from scipy.spatial import cKDTree
 from shapely.geometry import Point, shape, Polygon, MultiPolygon
 from shapely import prepared
 
-from tile_config import TileConfig, SRC_SRS, DST_SRS, DST_EPSG, FTUS_TO_M
+from tile_config import TileConfig, SRC_SRS, DST_SRS, DST_EPSG
 
 osr.UseExceptions()
 
@@ -43,7 +43,7 @@ MIN_HEIGHT_M    = 1.5
 def _load_nonground(tile: TileConfig) -> np.ndarray:
     pipeline = {
         "pipeline": [
-            {"type": "readers.las", "filename": str(tile.laz_path)},
+            {"type": "readers.copc", "filename": str(tile.laz_path)},
             {"type": "filters.range", "limits": "Classification![2:2]"},
             {"type": "filters.reprojection", "in_srs": SRC_SRS, "out_srs": DST_SRS},
             {"type": "filters.sample", "radius": 0.5},
@@ -53,7 +53,6 @@ def _load_nonground(tile: TileConfig) -> np.ndarray:
     n = pl.execute()
     arr = pl.arrays[0]
     xyz = np.stack([arr["X"], arr["Y"], arr["Z"]], axis=1).astype(np.float64)
-    xyz[:, 2] *= FTUS_TO_M
     print(f"[{tile.tile_id}]   non-ground: {n:,} pts → {len(xyz):,} after 0.5m subsample")
     return xyz
 
@@ -63,7 +62,6 @@ def _load_ground(tile: TileConfig) -> np.ndarray:
     pl.execute()
     arr = pl.arrays[0]
     xyz = np.stack([arr["X"], arr["Y"], arr["Z"]], axis=1).astype(np.float64)
-    xyz[:, 2] *= FTUS_TO_M
     print(f"[{tile.tile_id}]   ground: {len(xyz):,} pts")
     return xyz
 

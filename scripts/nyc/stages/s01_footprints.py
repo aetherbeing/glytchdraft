@@ -1,11 +1,11 @@
 """
-stages/s01_footprints.py  [LA block pipeline]
+stages/s01_footprints.py  [NYC city pipeline]
 
-Clip the block-wide building footprint GeoJSON to this tile's bbox,
-reproject to EPSG:32611, write per-tile footprint files.
+Clip the city-wide building footprint GeoJSON to this tile's bbox,
+reproject to EPSG:32618, write per-tile footprint files.
 
 Requires: tile_extent.json written by s00_extent.
-Requires: BLOCK_FOOTPRINTS_RAW downloaded by 00_download_block_footprints.py.
+Requires: BLOCK_FOOTPRINTS_RAW at /mnt/t7/nyc/data_raw/geojson/nyc_footprints_4326.geojson.
 """
 
 from __future__ import annotations
@@ -75,9 +75,9 @@ def run(tile: TileConfig) -> dict:
         )
 
     extent = json.loads(tile.extent_json.read_text(encoding="utf-8"))
-    b = extent["bbox_2229"]
+    b = extent.get("bbox_source") or extent["bbox_2229"]
 
-    # Convert tile bbox from EPSG:2229 to EPSG:4326 for spatial filter
+    # Convert tile bbox from source CRS to EPSG:4326 for spatial filter
     bbox_4326 = _reproject_bbox_to_4326(b["minx"], b["miny"], b["maxx"], b["maxy"], SRC_EPSG)
     print(f"[{tile.tile_id}] s01 footprints  clip bbox 4326: {[round(v,5) for v in bbox_4326]}")
 

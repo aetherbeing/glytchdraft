@@ -55,7 +55,8 @@ def run(tile: TileConfig) -> dict:
     # Read header bounds (quickinfo — zero point reads)
     pl = pdal.Pipeline(json.dumps({"pipeline": [str(tile.laz_path)]}))
     info = pl.quickinfo
-    b = info["readers.las"]["bounds"]
+    reader_key = next((k for k in info if k.startswith("readers.")), "readers.las")
+    b = info[reader_key]["bounds"]
     src_min = (b["minx"], b["miny"], b["minz"])
     src_max = (b["maxx"], b["maxy"], b["maxz"])
 

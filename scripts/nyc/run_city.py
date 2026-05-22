@@ -78,14 +78,16 @@ CATALOG_TILE_RE = re.compile(r"^(.+?)(?:\.copc)?(?:\.laz)?$")
 
 
 def _tile_info_from_manifest_record(t: dict) -> TileInfo:
+    laz_path = LAZ_DIR / t["laz_filename"]
+    on_disk  = laz_path.exists()
     return TileInfo(
         tile_id=t["tile_id"],
         laz_filename=t["laz_filename"],
         download_url=t.get("download_url"),
-        bbox_2229=t.get("bbox_2229") or {},
+        bbox_2229=t.get("bbox_source") or t.get("bbox_2229") or {},
         bbox_4326=t.get("bbox_4326"),
-        on_disk=t["on_disk"],
-        file_size_mb=t.get("file_size_mb"),
+        on_disk=on_disk,
+        file_size_mb=laz_path.stat().st_size / 1_048_576 if on_disk else None,
     )
 
 
