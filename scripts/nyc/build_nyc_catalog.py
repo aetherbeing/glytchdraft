@@ -79,10 +79,27 @@ def _bbox_intersects(a: dict, b: dict) -> bool:
     return a["xmin"] <= b["xmax"] and a["xmax"] >= b["xmin"] and a["ymin"] <= b["ymax"] and a["ymax"] >= b["ymin"]
 
 
-def _boroughs_for_bbox(bbox: dict | None) -> list[str]:
-    if not bbox:
+def _boroughs_for_bbox(bbox_4326: dict | None) -> list[str]:
+    if not bbox_4326:
         return []
-    return [name for name, bb in BOROUGH_BBOXES_4326.items() if _bbox_intersects(bbox, bb)]
+    return [name for name, bb in BOROUGH_BBOXES_4326.items() if _bbox_intersects(bbox_4326, bb)]
+
+
+def _src_bbox_to_4326(bbox_src: dict) -> dict | None:
+    """Reproject a source-CRS bbox (minx/miny/maxx/maxy) to EPSG:4326."""
+    try:
+        import pyproj
+        from tile_config import SRC_EPSG
+        transformer = pyproj.Transformer.from_crs(SRC_EPSG, 4326, always_xy=True)
+        minx = bbox_src["minx"]; miny = bbox_src["miny"]
+        maxx = bbox_src["maxx"]; maxy = bbox_src["maxy"]
+        xs, ys = [], []
+        for cx, cy in [(minx, miny), (maxx, miny), (maxx, maxy), (minx, maxy)]:
+            lon, lat = transformer.transform(cx, cy)
+            xs.append(lon); ys.append(lat)
+        return {"xmin": min(xs), "ymin": min(ys), "xmax": max(xs), "ymax": max(ys)}
+    except Exception:
+        return None
 
 
 def _read_urls_from_urllist() -> list[str]:
@@ -172,9 +189,7 @@ def build_catalog(force: bool = False) -> dict:
                 continue
             local_path = LAZ_DIR / filename
             bbox = minmax.get(filename)
-            bbox_4326 = None
-            # NOAA minmax 9306 is in source UTM coordinates; keep it as bbox_source.
-            # Precise 4326 filtering will be added when borough geometry is wired.
+            bbox_4326 = _src_bbox_to_4326(bbox) if bbox else None
             boroughs = _boroughs_for_bbox(bbox_4326)
             tiles.append({
                 "tile_id": _tile_id(filename),
