@@ -88,6 +88,7 @@ def _tile_info_from_manifest_record(t: dict) -> TileInfo:
         bbox_4326=t.get("bbox_4326"),
         on_disk=on_disk,
         file_size_mb=laz_path.stat().st_size / 1_048_576 if on_disk else None,
+        boroughs=tuple(t.get("boroughs", [])),
     )
 
 
@@ -171,8 +172,11 @@ def _merge_tiles(primary: list[TileInfo], extra: list[TileInfo]) -> list[TileInf
 
 
 def _tile_subprocess_code() -> str:
+    import sys as _sys
+    proj_data = str(Path(_sys.executable).parent.parent / "share" / "proj")
     return (
-        "import json, sys\n"
+        "import json, os, sys\n"
+        "os.environ.setdefault('PROJ_DATA', r'%s')\n"
         "from pathlib import Path\n"
         "sys.path.insert(0, str(Path(r'%s')))\n"
         "sys.path.insert(0, str(Path(r'%s') / 'stages'))\n"
@@ -182,7 +186,7 @@ def _tile_subprocess_code() -> str:
         "tile = TileConfig(tile_id=tile_id, laz_filename=laz_filename, output_root=Path(output_root))\n"
         "results = run_tile(tile, json.loads(stages_json))\n"
         "sys.exit(1 if results.get('errors') else 0)\n"
-    ) % (Path(__file__).parent, Path(__file__).parent)
+    ) % (proj_data, Path(__file__).parent, Path(__file__).parent)
 
 
 def dry_run(
@@ -257,18 +261,29 @@ def dry_run(
     tbl.add_column("Tile ID",  min_width=20)
     tbl.add_column("LAZ File", min_width=52)
     tbl.add_column("On Disk",  min_width=14)
+    tbl.add_column("Borough(s)", min_width=16)
     tbl.add_column("Output Dir")
 
     for t in tiles[:50]:  # cap at 50 rows in dry-run for readability
         disk = (f"[green]✓ {t.file_size_mb:.0f} MB[/green]" if t.on_disk
                 else "[red]✗ missing[/red]")
         out_dir = str(cfg.tiles_root / t.tile_id)
-        tbl.add_row(t.tile_id, t.laz_filename, disk, f"[dim]{out_dir}[/dim]")
+        borough_str = ", ".join(t.boroughs) if t.boroughs else "[dim]—[/dim]"
+        tbl.add_row(t.tile_id, t.laz_filename, disk, borough_str, f"[dim]{out_dir}[/dim]")
 
     if len(tiles) > 50:
-        tbl.add_row(f"... and {len(tiles) - 50} more ...", "", "", "")
+        tbl.add_row(f"... and {len(tiles) - 50} more ...", "", "", "", "")
 
     console.print(tbl)
+
+    # Borough breakdown
+    from collections import Counter
+    borough_counts: Counter = Counter(b for t in tiles for b in t.boroughs)
+    if borough_counts:
+        console.print()
+        console.rule("[cyan]Borough breakdown[/cyan]")
+        for borough, n in sorted(borough_counts.items()):
+            console.print(f"  {borough:<18} [white]{n}[/white] tile(s)")
 
     # Summary
     console.print()

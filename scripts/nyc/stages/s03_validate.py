@@ -157,41 +157,48 @@ def run(tile: TileConfig) -> dict:
     else:
         ok(f"footprints target crs = EPSG:{DST_EPSG}")
 
-    # ── 4. Footprint 4326 LA location ────────────────────────────────────
-    gj4326 = json.loads(tile.footprints_4326.read_text(encoding="utf-8"))
-    lons, lats = [], []
-    for ft in gj4326["features"][:20]:
-        for lon, lat in ft["geometry"]["coordinates"][0]:
-            lons.append(lon); lats.append(lat)
-    if lons:
-        mn_lon, mx_lon = min(lons), max(lons)
-        mn_lat, mx_lat = min(lats), max(lats)
-        print(f"  footprints_4326 lon: {mn_lon:.5f}→{mx_lon:.5f}  lat: {mn_lat:.5f}→{mx_lat:.5f}")
-        ok("footprint coordinate sample read")
+    # ── 4. Footprint 4326 location ────────────────────────────────────────
+    if tile.footprints_4326.exists():
+        gj4326 = json.loads(tile.footprints_4326.read_text(encoding="utf-8"))
+        lons, lats = [], []
+        for ft in gj4326["features"][:20]:
+            for lon, lat in ft["geometry"]["coordinates"][0]:
+                lons.append(lon); lats.append(lat)
+        if lons:
+            mn_lon, mx_lon = min(lons), max(lons)
+            mn_lat, mx_lat = min(lats), max(lats)
+            print(f"  footprints_4326 lon: {mn_lon:.5f}→{mx_lon:.5f}  lat: {mn_lat:.5f}→{mx_lat:.5f}")
+            ok("footprint coordinate sample read")
+        else:
+            ok("footprints_4326 has no coordinate data; treating tile as no-footprints / terrain-only")
     else:
-        ok("footprints_4326 has no coordinate data; treating tile as no-footprints / terrain-only")
+        ok("footprints_4326 not present (no footprint source or terrain-only tile)")
 
     # ── 5. Spatial overlap (footprints→source CRS) ───────────────────────
-    gj32611 = json.loads(tile.footprints_32611.read_text(encoding="utf-8"))
-    fp_xs, fp_ys = [], []
-    for ft in gj32611["features"]:
-        for x, y in ft["geometry"]["coordinates"][0]:
-            fp_xs.append(x); fp_ys.append(y)
-
-    if fp_xs:
-        fp_source = _reproject_bbox(min(fp_xs), min(fp_ys), max(fp_xs), max(fp_ys), DST_EPSG, SRC_EPSG)
-        print(f"  footprints->source  X:{fp_source[0]:,.0f}->{fp_source[2]:,.0f}  Y:{fp_source[1]:,.0f}->{fp_source[3]:,.0f}")
-        x_overlap = fp_source[0] <= laz_maxx and fp_source[2] >= laz_minx
-        y_overlap = fp_source[1] <= laz_maxy and fp_source[3] >= laz_miny
-        if not x_overlap: fail(f"X: footprints do not overlap LAZ bounds in EPSG:{SRC_EPSG}")
-        else: ok(f"X overlap confirmed")
-        if not y_overlap: fail(f"Y: footprints do not overlap LAZ bounds in EPSG:{SRC_EPSG}")
-        else: ok(f"Y overlap confirmed")
+    if not tile.footprints_32611.exists():
+        ok("footprints_32611 not present; spatial overlap and batch clip checks skipped")
+        features = []
     else:
-        ok("target CRS footprints have no coordinate data; footprint overlap and massing checks skipped")
+        gj32611 = json.loads(tile.footprints_32611.read_text(encoding="utf-8"))
+        fp_xs, fp_ys = [], []
+        for ft in gj32611["features"]:
+            for x, y in ft["geometry"]["coordinates"][0]:
+                fp_xs.append(x); fp_ys.append(y)
+
+        if fp_xs:
+            fp_source = _reproject_bbox(min(fp_xs), min(fp_ys), max(fp_xs), max(fp_ys), DST_EPSG, SRC_EPSG)
+            print(f"  footprints->source  X:{fp_source[0]:,.0f}->{fp_source[2]:,.0f}  Y:{fp_source[1]:,.0f}->{fp_source[3]:,.0f}")
+            x_overlap = fp_source[0] <= laz_maxx and fp_source[2] >= laz_minx
+            y_overlap = fp_source[1] <= laz_maxy and fp_source[3] >= laz_miny
+            if not x_overlap: fail(f"X: footprints do not overlap LAZ bounds in EPSG:{SRC_EPSG}")
+            else: ok(f"X overlap confirmed")
+            if not y_overlap: fail(f"Y: footprints do not overlap LAZ bounds in EPSG:{SRC_EPSG}")
+            else: ok(f"Y overlap confirmed")
+        else:
+            ok("target CRS footprints have no coordinate data; footprint overlap and massing checks skipped")
+        features = gj32611["features"]
 
     # ── 6+7. Batch clip test ──────────────────────────────────────────────
-    features = gj32611["features"]
     step = max(1, len(features) // N_BATCH)
     sample = [features[i * step] for i in range(N_BATCH) if i * step < len(features)]
 
