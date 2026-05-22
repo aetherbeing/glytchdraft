@@ -6,11 +6,15 @@ Tile registry for the four 3DEP quarter-tiles covering Downtown LA / Bunker Hill
 
 All four LAZ files are in EPSG:2229 (NAD83 / CA Zone 5, US survey feet).
 Pipeline target CRS is EPSG:32611 (WGS84 / UTM Zone 11N, meters).
+
+output_root: if set on a TileConfig, all derived paths are rooted there instead
+of the default PROC_DIR/tiles/<tile_id>. Used by the sector pipeline to write
+to sectors/<sector_id>/tiles/<tile_id>/ without touching the existing tiles/ tree.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 # ── storage roots ─────────────────────────────────────────────────────────────
@@ -52,17 +56,19 @@ class TileConfig:
     """
     All paths and metadata for one 3DEP quarter-tile.
 
-    Paths are derived properties so the config remains a single source of truth.
-    tile_dir → /mnt/t7/la/data_processed/tiles/{tile_id}/
+    output_root: if provided, tile_dir = output_root / tile_id (sector pipeline).
+                 If None, tile_dir = PROC_DIR / "tiles" / tile_id (standalone block pipeline).
     """
-    tile_id:      str   # "1836a" | "1836b" | "1836c" | "1836d"
-    laz_filename: str   # USGS_LPC_CA_LosAngeles_2016_L4_6477_1836{x}_LAS_2018.laz
+    tile_id:      str   # "1836a" | "1836b" | "sm_6396_1872a" | …
+    laz_filename: str   # USGS_LPC_CA_LosAngeles_2016_L4_…_LAS_2018.laz
 
     # Outer sanity bounds in EPSG:2229 (US survey feet).
     # Actual bounds are read from the LAZ header at runtime.
-    # These wide limits cover the entire 6477_1836 block ± generous tolerance.
     x_range: tuple[float, float] = (6_473_000.0, 6_483_000.0)
     y_range: tuple[float, float] = (1_833_000.0, 1_845_000.0)
+
+    # If set, overrides the default tiles/<tile_id> output root.
+    output_root: Path | None = field(default=None)
 
     # ── derived paths ──────────────────────────────────────────────────────────
 
@@ -72,6 +78,8 @@ class TileConfig:
 
     @property
     def tile_dir(self) -> Path:
+        if self.output_root is not None:
+            return self.output_root / self.tile_id
         return PROC_DIR / "tiles" / self.tile_id
 
     @property
