@@ -40,8 +40,8 @@ CLASS_CONFIG = {
     "water":    {"class_id": 9, "spacing_m": 1.0,  "expected_count": 0},
 }
 
-SRC_SRS = "EPSG:6340"   # NAD83(2011) UTM Zone 11N — source CRS of 3DEP tiles
-DST_SRS = "EPSG:32611"  # WGS84 UTM Zone 11N        — target CRS for Blender
+SRC_SRS = "EPSG:2229"   # NAD83 / California zone 5 (ftUS) — confirmed from LAZ header
+DST_SRS = "EPSG:32611"  # WGS84 / UTM Zone 11N            — target CRS for Blender
 
 
 def build_pipeline(class_id: int, spacing_m: float, out_path: Path) -> dict:
@@ -61,11 +61,14 @@ def build_pipeline(class_id: int, spacing_m: float, out_path: Path) -> dict:
                 "type": "filters.sample",
                 "radius": spacing_m,
             },
+            # LA 3DEP tiles are intensity-only (no RGB). PLY carries Intensity +
+            # Classification so Blender can shade by class or intensity via a
+            # custom attribute material.
             {
                 "type": "writers.ply",
                 "filename": str(out_path),
                 "storage_mode": "little endian",
-                "dims": "X,Y,Z,Red,Green,Blue,Intensity,Classification",
+                "dims": "X,Y,Z,Intensity,Classification",
             },
         ]
     }

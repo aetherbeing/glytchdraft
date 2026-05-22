@@ -35,7 +35,7 @@ NOTES_DIR  = Path("/mnt/t7/la/data_processed/hero_tile/notes")
 # For LA tiles (EPSG:6340 UTM), the bbox is in UTM meters — we need it in
 # 4326 to clip the footprints (which are in 4326). We re-project the UTM
 # bbox to 4326 for the spatial filter.
-LAZ_SRC_EPSG  = 6340
+LAZ_SRC_EPSG  = 2229   # NAD83 / California zone 5 (ftUS) — confirmed from LAZ header
 FOOTPRINT_EPSG = 4326
 TARGET_EPSG   = 32611
 
@@ -64,8 +64,8 @@ def read_utm_bbox_from_notes() -> tuple[float, float, float, float]:
     return minx, miny, maxx, maxy
 
 
-def utm_bbox_to_4326(utm_min, utm_max, src_epsg=6340):
-    """Convert a UTM bbox to WGS84 lon/lat for spatial filtering."""
+def src_bbox_to_4326(utm_min, utm_max, src_epsg=2229):
+    """Convert a State Plane (or any projected) bbox to WGS84 lon/lat for spatial filtering."""
     src = osr.SpatialReference()
     src.ImportFromEPSG(src_epsg)
     dst = osr.SpatialReference()
@@ -118,10 +118,8 @@ def main():
         return 1
     OUT_DIR.mkdir(parents=True, exist_ok=True)
 
-    utm_min_xy, utm_max_xy = read_utm_bbox_from_notes()[:2], read_utm_bbox_from_notes()[2:]
-    # read_utm_bbox_from_notes returns (minx, miny, maxx, maxy) flat
     minx, miny, maxx, maxy = read_utm_bbox_from_notes()
-    bbox_4326 = utm_bbox_to_4326((minx, miny), (maxx, maxy))
+    bbox_4326 = src_bbox_to_4326((minx, miny), (maxx, maxy))
     print(f"clip bbox (EPSG:4326):   {bbox_4326}")
     print(f"clip bbox (EPSG:{LAZ_SRC_EPSG}): ({minx:.1f}, {miny:.1f}, {maxx:.1f}, {maxy:.1f})")
 
@@ -137,10 +135,13 @@ def main():
     n_dst = feature_count(out_32611)
     print(f"wrote {out_32611.name}  ({n_dst:,} features)")
 
-    # 3. DXF fallback
+    # 3. DXF fallback (geometry only — attributes may be dropped if source has non-DXF-safe fields)
     out_dxf = OUT_DIR / "hero_tile_footprints_32611.dxf"
-    run_translate(out_dxf, FOOTPRINTS, bbox_4326, t_srs=f"EPSG:{TARGET_EPSG}", out_format="DXF")
-    print(f"wrote {out_dxf.name}  (geometry only)")
+    try:
+        run_translate(out_dxf, FOOTPRINTS, bbox_4326, t_srs=f"EPSG:{TARGET_EPSG}", out_format="DXF")
+        print(f"wrote {out_dxf.name}  (geometry only)")
+    except Exception as e:
+        print(f"WARN: DXF export skipped ({e}). GeoJSON is the primary path.")
 
     note_file = NOTES_DIR / "hero_tile_extent.txt"
     with note_file.open("a", encoding="utf-8") as f:

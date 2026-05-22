@@ -12,6 +12,7 @@
 
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 LAZ_DIR="/mnt/t7/la/data_raw/laz"
 SHP_DIR="/mnt/t7/la/data_raw/shp"
 GEOJSON_DIR="/mnt/t7/la/data_raw/geojson"
@@ -42,22 +43,13 @@ echo ""
 echo "=== Downloading LA County Building Outlines ==="
 mkdir -p "$SHP_DIR" "$GEOJSON_DIR"
 
-# LA County Building Outlines — LA GeoHub / ESRI Open Data
-# Delivered as EPSG:4326 GeoJSON. ~2.4M features county-wide.
-FOOTPRINT_URL="https://opendata.arcgis.com/api/v3/datasets/eb8b0f1d36274c6f9d7bc7c3abf01f97_0/downloads/data?format=geojson&spatialRefId=4326&where=1%3D1"
 FOOTPRINT_DEST="$GEOJSON_DIR/la_county_building_outlines_4326.geojson"
 
-if [[ -f "$FOOTPRINT_DEST" ]]; then
-    echo "  already exists: la_county_building_outlines_4326.geojson"
+if [[ -f "$FOOTPRINT_DEST" && -s "$FOOTPRINT_DEST" ]]; then
+    echo "  already exists: $(du -sh "$FOOTPRINT_DEST" | cut -f1)"
 else
-    echo "  downloading LA County Building Outlines (large — county-wide, ~2.4M features)..."
-    echo "  this may take several minutes."
-    wget -q --show-progress -O "$FOOTPRINT_DEST" "$FOOTPRINT_URL" || {
-        echo ""
-        echo "  WARN: automatic download failed. Download manually:"
-        echo "    https://geohub.lacity.org/datasets/lacounty::la-county-building-outlines"
-        echo "    Save to: $FOOTPRINT_DEST"
-    }
+    echo "  querying hero-tile area only (ESRI FeatureServer → OSM Overpass fallback)..."
+    python "$SCRIPT_DIR/00_download_footprints.py"
 fi
 
 echo ""

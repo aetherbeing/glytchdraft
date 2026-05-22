@@ -32,8 +32,8 @@ HERO_LAZ = Path(
 )
 NOTES_DIR = Path("/mnt/t7/la/data_processed/hero_tile/notes")
 
-SRC_EPSG = 6340   # NAD83(2011) / UTM Zone 11N  — source CRS of 3DEP tiles
-DST_EPSG = 32611  # WGS84 / UTM Zone 11N        — target CRS for Blender
+SRC_EPSG = 2229   # NAD83 / California zone 5 (ftUS)  — confirmed from LAZ header
+DST_EPSG = 32611  # WGS84 / UTM Zone 11N              — target CRS for Blender
 
 
 def get_header_bounds(las_path: Path):
@@ -90,7 +90,7 @@ def main():
         "# hero_tile extent  [LA / Downtown Bunker Hill]\n"
         f"source: {HERO_LAZ.name}\n"
         "\n"
-        f"## EPSG:{SRC_EPSG} (source — NAD83(2011) UTM Zone 11N)\n"
+        f"## EPSG:{SRC_EPSG} (source — NAD83 / California zone 5, US survey feet)\n"
         f"min: ({src_min[0]:.3f}, {src_min[1]:.3f}, {src_min[2]:.3f})\n"
         f"max: ({src_max[0]:.3f}, {src_max[1]:.3f}, {src_max[2]:.3f})\n"
         f"x_span: {src_max[0] - src_min[0]:.2f} m\n"
@@ -98,7 +98,7 @@ def main():
         f"z_range: {src_max[2] - src_min[2]:.2f} m\n"
         "\n"
         f"## EPSG:{DST_EPSG} (target — WGS84 UTM Zone 11N)\n"
-        "# NAD83(2011) -> WGS84 datum shift is sub-centimeter; extents are effectively identical.\n"
+        "# Reprojected from State Plane ftUS; values now in true meters.\n"
         f"min: ({dst_min[0]:.3f}, {dst_min[1]:.3f})\n"
         f"max: ({dst_max[0]:.3f}, {dst_max[1]:.3f})\n"
         f"x_span_32611: {dst_max[0] - dst_min[0]:.2f} m\n"
