@@ -5,6 +5,7 @@ Runs the full LA hero-tile pipeline in sequence:
   Stage 00 — compute tile extent + Blender origin shift
   Stage 01 — clip + reproject LA County footprints to hero tile bbox
   Stage 02 — extract per-class point clouds (ground, building, water)
+  Stage 04 — footprint-driven building masses (LOD0/LOD1 OBJ + metadata)
 
 Usage:
     python run_pipeline.py              # all stages
@@ -26,6 +27,7 @@ STAGES = {
     "00": SCRIPTS / "00_compute_extent.py",
     "01": SCRIPTS / "01_clip_footprints.py",
     "02": SCRIPTS / "02_extract_classes.py",
+    "04": SCRIPTS / "04_building_masses.py",
 }
 
 
@@ -52,6 +54,7 @@ def main():
         run_stage("00")
         run_stage("01")
         run_stage("02")
+        run_stage("04")
         return
 
     stage = args[0]
