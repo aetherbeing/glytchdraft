@@ -1,0 +1,138 @@
+# regions/miami/region.yaml
+# --------------------------
+# Miami-Dade metro region configuration.
+# Pipeline status: ACTIVE (hero tile complete, masses + PLYs written)
+#
+# Hero tile: fargate_336324a5-588c-4e19-bce1-e4c1cbaecb4d.laz
+# Source CRS: EPSG:3857 (Web Mercator) — confirmed from LAZ file header
+# Target CRS: EPSG:32617 (WGS84 / UTM Zone 17N)
+# Point count: 153,706,103
+# Classification coverage: ~40% (classes 1, 2, 6, 9 present)
+
+region_id: miami
+display_name: Miami — Brickell / Downtown
+status: active
+
+# Full region bbox (Miami-Dade County area, WGS84)
+bbox_wgs84:
+  xmin: -80.873
+  ymin: 25.370
+  xmax: -80.118
+  ymax: 25.980
+
+# Pilot bbox — the hero tile area (Brickell / Downtown Miami waterfront)
+pilot_bbox_wgs84:
+  xmin: -80.210
+  ymin: 25.745
+  xmax: -80.180
+  ymax: 25.780
+
+# CRS settings
+target_crs: "EPSG:32617"
+source_crs_lidar: "EPSG:3857"
+
+# Tiling
+tile_scheme:
+  scheme: utm_grid
+  tile_size_m: 500.0
+  overlap_m: 10.0
+
+# Style defaults for the full region
+style_defaults:
+  water_color: "#0a3d6b"
+  ground_color: "#2d2d2d"
+  building_color: "#e8e0d0"
+  point_size: 0.5
+
+# Pipeline layers
+layers:
+  - id: terrain
+    source_id: miami_usgs_3dep_lpc
+    output_format: ply
+    lod_levels: [0, 1, 2]
+    style_defaults:
+      color: "#2d2d2d"
+      opacity: 1.0
+
+  - id: pointcloud
+    source_id: miami_usgs_3dep_lpc
+    output_format: ply
+    lod_levels: [0, 1, 2]
+    style_defaults:
+      point_size: 0.25
+      color_by: "classification"
+
+  - id: buildings
+    source_id: miami_dade_building_footprints
+    output_format: obj
+    lod_levels: [0, 1]
+    style_defaults:
+      color: "#e8e0d0"
+      opacity: 0.9
+      extrude_from_lidar: true
+
+  - id: roads
+    source_id: miami_osm_roads
+    output_format: geojson
+    lod_levels: [0]
+    style_defaults:
+      color: "#404040"
+      width_m: 6.0
+
+  - id: annotations
+    source_id: miami_manual_annotations
+    output_format: geojson
+    lod_levels: [0]
+    style_defaults:
+      color: "#ff6600"
+
+# Data sources
+sources:
+  - id: miami_usgs_3dep_lpc
+    type: usgs_3dep_lpc
+    url: null
+    crs: "EPSG:3857"
+    description: >
+      USGS 3DEP LiDAR point cloud, Miami-Dade campaign 2023-2024.
+      Hero tile: fargate_336324a5-588c-4e19-bce1-e4c1cbaecb4d.laz
+      153,706,103 points. Classes present: 1 (unclassified), 2 (ground),
+      6 (building), 9 (water). ~40% classified.
+      Downloaded via USGS National Map / Fargate.
+    license: "Public domain (U.S. Government work, 17 U.S.C. § 105)"
+    status: available
+
+  - id: miami_dade_building_footprints
+    type: arcgis_feature
+    url: null
+    crs: "EPSG:4326"
+    description: >
+      Miami-Dade County GIS building footprints (2018).
+      771,441 features county-wide. Hero tile clip: 2,819 features.
+      Key attributes: UNIQUEID, SOURCE, YEARUPDATE, TYPE, HEIGHT (often null).
+      Download from: https://gisweb.miamidade.gov/
+    license: "Unknown — county open data, license review required before commercial use"
+    status: available
+
+  - id: miami_osm_roads
+    type: osm_overpass
+    url: "https://overpass-api.de/api/interpreter"
+    crs: "EPSG:4326"
+    description: >
+      OpenStreetMap road network for Miami-Dade via Overpass API.
+    license: "ODbL 1.0 (OpenStreetMap contributors)"
+    status: available
+
+  - id: miami_manual_annotations
+    type: manual
+    url: null
+    crs: "EPSG:4326"
+    description: "Manual landmark annotations (landmarks, POIs). Created in-house."
+    license: "Proprietary — GlitchOS.io"
+    status: placeholder
+
+provenance_notes: >
+  Hero tile processed May 2026. PLYs and OBJ masses written to
+  data_processed/miami/hero_tile/. UE5 project at GlytchDraftMiami/
+  includes GlytchBuildingActor, GlytchTileManager, GlytchFlyPawn.
+  Miami-Dade footprint license must be confirmed before commercial use.
+  See docs/DATA_PROVENANCE.md for full chain.

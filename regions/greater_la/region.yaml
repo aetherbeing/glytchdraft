@@ -1,0 +1,169 @@
+# regions/greater_la/region.yaml
+# --------------------------------
+# Greater Los Angeles metro region configuration.
+# Pipeline status: SCAFFOLD (hero tiles downloaded, processing not yet run)
+#
+# Pilot corridor: Hollywood / Griffith Observatory / DTLA Bunker Hill
+# Hero tile: USGS_LPC_CA_LosAngeles_2016_L4_6477_1836b_LAS_2018.laz
+#
+# CONFIRMED from pdal info on 1836b:
+#   Source CRS: EPSG:2229 (NAD83 / California zone 5, survey feet)
+#   Class 6 (building) = 0 points in this dataset
+#   Height method: footprint-driven, all non-class-2 (non-ground) returns
+#
+# 4 hero tiles downloaded to /mnt/t7/la/data_raw/laz/
+#   1836a, 1836b, 1836c, 1836d  (~27 MB each compressed)
+#
+# Footprints: LA County Building Outlines
+#   Primary: ArcGIS REST export (may be gated)
+#   Confirmed fallback: OSM Overpass API (working as of May 2026)
+
+region_id: greater_la
+display_name: Greater Los Angeles
+status: scaffold
+
+# Full region bbox: Greater LA metro, WGS84
+bbox_wgs84:
+  xmin: -118.7
+  ymin: 33.7
+  xmax: -117.9
+  ymax: 34.4
+
+# Pilot bbox: Hollywood / Griffith / DTLA corridor
+# Matches the 4 downloaded hero tiles (tile group 1836)
+pilot_bbox_wgs84:
+  xmin: -118.32
+  ymin: 34.02
+  xmax: -118.19
+  ymax: 34.12
+
+# CRS settings
+# EPSG:2229 confirmed from pdal info on 1836b LAZ header
+target_crs: "EPSG:32611"
+source_crs_lidar: "EPSG:2229"
+
+# Tiling — UTM grid in target CRS (metres)
+tile_scheme:
+  scheme: utm_grid
+  tile_size_m: 500.0
+  overlap_m: 10.0
+
+# Style defaults
+style_defaults:
+  water_color: "#0a2a4a"
+  ground_color: "#3a3028"
+  building_color: "#d4c9b8"
+  point_size: 0.5
+
+# Pipeline layers
+layers:
+  - id: terrain
+    source_id: la_usgs_3dep_lpc
+    output_format: ply
+    lod_levels: [0, 1, 2]
+    style_defaults:
+      color: "#3a3028"
+      opacity: 1.0
+
+  - id: pointcloud
+    source_id: la_usgs_3dep_lpc
+    output_format: ply
+    lod_levels: [0, 1, 2]
+    style_defaults:
+      point_size: 0.25
+      color_by: "classification"
+
+  - id: buildings
+    source_id: la_county_building_outlines
+    output_format: obj
+    lod_levels: [0, 1]
+    style_defaults:
+      color: "#d4c9b8"
+      opacity: 0.9
+      extrude_from_lidar: true
+      height_method: "footprint_driven_non_ground_returns"
+
+  - id: roads
+    source_id: la_osm_roads
+    output_format: geojson
+    lod_levels: [0]
+    style_defaults:
+      color: "#505050"
+      width_m: 8.0
+
+  - id: annotations
+    source_id: la_manual_annotations
+    output_format: geojson
+    lod_levels: [0]
+    style_defaults:
+      color: "#ff9900"
+
+# Data sources
+sources:
+  - id: la_usgs_3dep_lpc
+    type: usgs_3dep_lpc
+    url: "https://rockyweb.usgs.gov/vdelivery/Datasets/Staged/Elevation/LPC/Projects/CA_LosAngeles_2016_D16/CA_LA_East_2016/LAZ/"
+    crs: "EPSG:2229"
+    description: >
+      USGS 3DEP LiDAR point cloud, USGS LPC CA_LosAngeles_2016 campaign.
+      Hero tiles: 1836a, 1836b, 1836c, 1836d (quarter-tiles, ~27 MB each compressed).
+      Tile 1836b covers Bunker Hill / Walt Disney Concert Hall / Grand Park.
+      Source CRS: EPSG:2229 (NAD83 / California zone 5, survey feet) — confirmed.
+      Class 6 (building) = 0 points in this dataset.
+      Heights derived from all non-class-2 (non-ground) returns.
+      4 hero tiles staged at /mnt/t7/la/data_raw/laz/ as of May 2026.
+    license: "Public domain (U.S. Government work, 17 U.S.C. § 105)"
+    status: available
+
+  - id: la_county_building_outlines
+    type: arcgis_feature
+    url: "https://opendata.arcgis.com/api/v3/datasets/f6b0c9ad1e1e43c0af9e0b74e7437e3b_0/downloads/data?format=geojson&spatialRefId=4326"
+    crs: "EPSG:4326"
+    description: >
+      LA County Building Outlines from the LA GeoHub / ArcGIS open data.
+      ~2.4 million features county-wide. Source URL may be gated.
+      Confirmed fallback: OSM Overpass API (building footprints for pilot bbox).
+      Manual download: https://geohub.lacity.org/datasets/lacounty::la-county-building-outlines
+      Save to: /mnt/t7/la/data_raw/geojson/la_county_building_outlines_4326.geojson
+    license: "LA County open data — license review required for commercial use"
+    status: needs_review
+
+  - id: la_osm_roads
+    type: osm_overpass
+    url: "https://overpass-api.de/api/interpreter"
+    crs: "EPSG:4326"
+    description: >
+      OpenStreetMap road network for Greater LA via Overpass API.
+    license: "ODbL 1.0 (OpenStreetMap contributors)"
+    status: available
+
+  - id: la_osm_buildings_overpass
+    type: osm_overpass
+    url: "https://overpass-api.de/api/interpreter"
+    crs: "EPSG:4326"
+    description: >
+      OSM building footprints via Overpass API. Confirmed fallback when
+      LA County ArcGIS export is gated. Covers pilot bbox adequately.
+    license: "ODbL 1.0 (OpenStreetMap contributors)"
+    status: available
+
+  - id: la_manual_annotations
+    type: manual
+    url: null
+    crs: "EPSG:4326"
+    description: >
+      Manual landmark annotations for LA: Griffith Observatory, Hollywood Sign,
+      Walt Disney Concert Hall, Grand Park, Pershing Square.
+      Atlas Protocol anchors — 100 landmarks per city target.
+    license: "Proprietary — GlitchOS.io"
+    status: placeholder
+
+provenance_notes: >
+  Scaffold as of May 2026. 4 hero LiDAR tiles staged on T7 SSD.
+  Source CRS EPSG:2229 (survey feet) confirmed from pdal info on tile 1836b.
+  Class-6 (building) point count = 0 for USGS LPC CA_LosAngeles_2016 dataset.
+  Building heights must be derived via footprint-driven method using all
+  non-class-2 returns. LA County footprint URL may be gated — use OSM Overpass
+  fallback if ArcGIS download fails. See scripts/la/ for working pipeline scripts.
+  Phase 1 = hero tile (1836b). Phase 2 = corridor (1836a–d + adjacent).
+  Phase 3 = full Greater LA metro. Order is The Pink Opaque (see ai/lore/).

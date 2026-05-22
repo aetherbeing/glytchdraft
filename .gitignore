@@ -70,3 +70,11 @@ GlytchDraftMiami/DerivedDataCache/
 GlytchDraftMiami/Build/
 GlytchDraftMiami/Binaries/
 *.aps
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# Pipeline outputs (generated data — not source)
+atlas_output/
