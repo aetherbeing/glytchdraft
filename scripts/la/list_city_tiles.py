@@ -6,8 +6,8 @@ LAZ availability, estimated download size, and output paths.
 
 Usage:
     python scripts/la/list_city_tiles.py --city los_angeles
-    python scripts/la/list_city_tiles.py --city los_angeles --no-api      # grid only
-    python scripts/la/list_city_tiles.py --city los_angeles --no-grid     # API only
+    python scripts/la/list_city_tiles.py --city los_angeles --no-api      # accepted for compatibility
+    python scripts/la/list_city_tiles.py --city los_angeles --no-grid     # accepted for compatibility
     python scripts/la/list_city_tiles.py --city los_angeles --bbox-only   # skip shapely
     python scripts/la/list_city_tiles.py --city los_angeles --limit 20    # cap for testing
     python scripts/la/list_city_tiles.py --city los_angeles --refresh     # re-discover
@@ -92,7 +92,7 @@ def _print_tile_table(tiles: list[TileInfo], city_id: str):
     for t in tiles:
         disk_str = "[green]✓[/green]" if t.on_disk else "[red]✗ missing[/red]"
         size_str = f"{t.file_size_mb:.0f} MB" if t.file_size_mb else "—"
-        src_str  = "API" if t.download_url else "grid"
+        src_str  = "catalog" if t.download_url else "-"
         tbl.add_row(t.tile_id, t.laz_filename, disk_str, size_str, src_str)
 
     console.print(tbl)

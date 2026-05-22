@@ -7,7 +7,7 @@ Usage:
     python scripts/la/run_city.py los_angeles --dry-run             # preview (default)
     python scripts/la/run_city.py los_angeles --execute             # actually run
     python scripts/la/run_city.py los_angeles --execute --stages 00 01 02
-    python scripts/la/run_city.py los_angeles --dry-run --no-grid   # API only, no grid
+    python scripts/la/run_city.py los_angeles --dry-run --no-grid   # accepted for compatibility
     python scripts/la/run_city.py los_angeles --dry-run --bbox-only # skip shapely
     python scripts/la/run_city.py los_angeles --dry-run --limit 20  # cap tiles (testing)
 
