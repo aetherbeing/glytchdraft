@@ -4,9 +4,12 @@ run_city.py  [LA city pipeline — GlitchOS.io]
 Process all 3DEP tiles intersecting the City of Los Angeles municipal boundary.
 
 Usage:
-    python scripts/la/run_city.py los_angeles --dry-run      # preview (default)
-    python scripts/la/run_city.py los_angeles --execute      # actually run
+    python scripts/la/run_city.py los_angeles --dry-run             # preview (default)
+    python scripts/la/run_city.py los_angeles --execute             # actually run
     python scripts/la/run_city.py los_angeles --execute --stages 00 01 02
+    python scripts/la/run_city.py los_angeles --dry-run --no-grid   # API only, no grid
+    python scripts/la/run_city.py los_angeles --dry-run --bbox-only # skip shapely
+    python scripts/la/run_city.py los_angeles --dry-run --limit 20  # cap tiles (testing)
 
 Dry-run shows:
   - city boundary source + bbox
@@ -43,7 +46,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent / "stages"))
 
 from city_config import CITIES, CITY_ORDER
-from tile_discovery import discover_tiles, write_tile_manifest, TileInfo
+from tile_discovery import discover_tiles, write_tile_manifest, TileInfo, _parse_discovery_flags
 from tile_config import LAZ_DIR, PROC_DIR
 
 from rich.console import Console
@@ -69,7 +72,14 @@ PROTECTED_PATHS = [
 
 # ── dry-run ───────────────────────────────────────────────────────────────────
 
-def dry_run(city_id: str, stages: list[str]):
+def dry_run(
+    city_id:   str,
+    stages:    list[str],
+    use_api:   bool = True,
+    no_grid:   bool = False,
+    bbox_only: bool = False,
+    limit:     int | None = None,
+):
     if city_id not in CITIES:
         console.print(f"[red]Unknown city: {city_id!r}[/red]")
         console.print(f"Valid: {CITY_ORDER}")
@@ -122,7 +132,8 @@ def dry_run(city_id: str, stages: list[str]):
 
     if tiles is None:
         console.print("\n[dim]Running tile discovery...[/dim]")
-        tiles = discover_tiles(city_id, use_api=True)
+        tiles = discover_tiles(city_id, use_api=use_api, no_grid=no_grid,
+                               bbox_only=bbox_only, limit=limit)
         write_tile_manifest(city_id, tiles)
 
     n_on_disk  = sum(1 for t in tiles if t.on_disk)
@@ -399,8 +410,12 @@ def main():
     if not stages:
         stages = ALL_STAGES[:]
 
+    # Discovery flags (shared with tile_discovery / list_city_tiles)
+    _, use_api, no_grid, bbox_only, _, limit = _parse_discovery_flags(args)
+
     if dry:
-        return dry_run(city_id, stages)
+        return dry_run(city_id, stages, use_api=use_api, no_grid=no_grid,
+                       bbox_only=bbox_only, limit=limit)
     else:
         return execute(city_id, stages)
 
