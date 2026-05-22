@@ -32,7 +32,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent / "stages"))
 
-from tile_config import TILES, TILE_ORDER, TileConfig
+from tile_config import LAZ_DIR, TILES, TILE_ORDER, TileConfig
 from stages import s00_extent, s01_footprints, s02_pointcloud, s03_validate, s04_masses, s05_manifest
 
 from rich.console import Console
@@ -65,6 +65,26 @@ STAGE_LABELS = {
 }
 
 
+def _tile_config_for_id(tile_id: str, known_tiles: dict[str, TileConfig]) -> TileConfig | None:
+    """
+    Resolve either a registered short tile id or a real LAZ stem.
+
+    City manifests use full LAZ stems such as
+    USGS_LPC_CA_LosAngeles_2016_L4_6360_1831b_LAS_2018. Those should map
+    directly to /mnt/t7/la/data_raw/laz/<tile_id>.laz without being limited to
+    the old four-tile registry.
+    """
+    if tile_id in known_tiles:
+        return known_tiles[tile_id]
+
+    stem = Path(tile_id).stem
+    laz_path = LAZ_DIR / f"{stem}.laz"
+    if laz_path.exists():
+        return TileConfig(tile_id=stem, laz_filename=laz_path.name)
+
+    return None
+
+
 def run_tile(tile: TileConfig, stages: list[str], progress=None, tile_task=None) -> dict:
     """
     Run requested stages for one tile. Returns stage_results dict.
@@ -79,6 +99,18 @@ def run_tile(tile: TileConfig, stages: list[str], progress=None, tile_task=None)
         if stage_id == "05":
             continue
         if stage_id not in STAGE_FNS:
+            continue
+        if stage_id == "04" and (stage_results.get("s01") or {}).get("no_footprints"):
+            stage_results["s04"] = {
+                "lod0": 0,
+                "lod1": 0,
+                "quality": {},
+                "footprints": 0,
+                "skipped": "no_footprints",
+            }
+            console.print(f"    [yellow]s04 masses: skipped (no footprints / terrain-only tile)[/yellow]")
+            if progress and tile_task is not None:
+                progress.advance(tile_task)
             continue
 
         label, fn = STAGE_FNS[stage_id]
@@ -147,11 +179,11 @@ def _parse_args(argv: list[str]) -> tuple[list[str], list[str], Path | None]:
         elif arg.startswith("--"):
             console.print(f"[red]Unknown flag: {arg}[/red]")
             sys.exit(1)
-        elif arg in known_tiles:
-            tile_ids.append(arg)
+        elif _tile_config_for_id(arg, known_tiles) is not None:
+            tile_ids.append(Path(arg).stem)
         else:
             console.print(f"[red]Unknown tile ID: {arg!r}[/red]")
-            console.print(f"Valid: {TILE_ORDER}")
+            console.print(f"Expected a registered tile or a local LAZ stem under {LAZ_DIR}")
             sys.exit(1)
         i += 1
 
@@ -159,7 +191,8 @@ def _parse_args(argv: list[str]) -> tuple[list[str], list[str], Path | None]:
         tile_ids = TILE_ORDER[:]
     if not tile_ids:
         console.print("Usage: python run_tile.py <tile_id> [--all] [--stages 00 01 ...] [--output-root /path]")
-        console.print(f"Valid tiles: {TILE_ORDER}")
+        console.print(f"Registered sample tiles: {TILE_ORDER}")
+        console.print(f"Full LAZ stems are also accepted if present in {LAZ_DIR}")
         sys.exit(1)
 
     return tile_ids, stages, output_root
@@ -178,17 +211,14 @@ def main():
     # Apply output_root override if supplied
     tile_configs = []
     for tid in tile_ids:
-        base = known_tiles.get(tid)
+        base = _tile_config_for_id(tid, known_tiles)
         if base is None:
-            console.print(f"[red]Unknown tile {tid!r}[/red]")
+            console.print(f"[red]Unknown tile {tid!r}; no {LAZ_DIR / (Path(tid).stem + '.laz')} found[/red]")
             sys.exit(1)
         if output_root is not None:
-            from dataclasses import replace
             base = TileConfig(
                 tile_id=base.tile_id,
                 laz_filename=base.laz_filename,
-                x_range=base.x_range,
-                y_range=base.y_range,
                 output_root=output_root,
             )
         tile_configs.append(base)

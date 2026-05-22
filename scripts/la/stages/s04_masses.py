@@ -239,6 +239,15 @@ def run(tile: TileConfig) -> dict:
     print(f"[{tile.tile_id}] s04 masses — loading data...")
     t0 = time.time()
     polys, attrs  = _load_footprints(tile.footprints_32611)
+    if not polys:
+        print(f"[{tile.tile_id}]   no footprints; skipping building masses for terrain-only tile")
+        return {
+            "lod0": 0,
+            "lod1": 0,
+            "quality": {},
+            "footprints": 0,
+            "skipped": "no_footprints",
+        }
     all_xyz       = _load_nonground(tile)
     ground_xyz    = _load_ground(tile)
     print(f"[{tile.tile_id}]   load: {time.time()-t0:.1f}s  footprints: {len(polys)}")

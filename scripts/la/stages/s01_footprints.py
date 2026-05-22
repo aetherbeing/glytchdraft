@@ -92,9 +92,13 @@ def run(tile: TileConfig) -> dict:
     n_32611 = _feature_count(tile.footprints_32611)
 
     if n_32611 == 0:
-        raise RuntimeError(
-            f"[{tile.tile_id}] 0 footprints after clip — check block footprint bbox or tile extent"
-        )
+        print(f"[{tile.tile_id}]   0 footprints after clip; marking terrain-only and continuing")
+        return {
+            "count_4326": n_4326,
+            "count_32611": n_32611,
+            "no_footprints": True,
+            "terrain_only": True,
+        }
 
     print(f"[{tile.tile_id}]   {n_4326} features (4326),  {n_32611} features (32611)")
-    return {"count_4326": n_4326, "count_32611": n_32611}
+    return {"count_4326": n_4326, "count_32611": n_32611, "no_footprints": False}

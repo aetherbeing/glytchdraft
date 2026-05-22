@@ -35,6 +35,7 @@ def write_tile_manifest(tile: TileConfig, stage_results: dict) -> Path:
     s03 = stage_results.get("s03") or {}
     s04 = stage_results.get("s04") or {}
     errors = stage_results.get("errors") or {}
+    terrain_only = bool(s01.get("no_footprints") or s01.get("terrain_only"))
 
     all_passed = not errors
 
@@ -52,12 +53,13 @@ def write_tile_manifest(tile: TileConfig, stage_results: dict) -> Path:
             "s01_footprints": "ok"   if "s01" in stage_results else ("error: " + errors.get("s01", "skipped")),
             "s02_pointcloud": "ok"   if "s02" in stage_results else ("error: " + errors.get("s02", "skipped")),
             "s03_validate":   "pass" if s03.get("passed") else ("error: " + errors.get("s03", "skipped")),
-            "s04_masses":     "ok"   if "s04" in stage_results else ("error: " + errors.get("s04", "skipped")),
+            "s04_masses":     ("skipped: no_footprints" if terrain_only else ("ok" if "s04" in stage_results else ("error: " + errors.get("s04", "skipped")))),
         },
         "bbox_2229":        s00.get("bbox_2229"),
         "bbox_32611":       s00.get("bbox_32611"),
         "blender_shift":    s00.get("shift"),
         "footprint_count":  s01.get("count_32611"),
+        "terrain_only":     terrain_only,
         "ground_points":    s02.get("ground_points"),
         "building_mass_lod0": s04.get("lod0"),
         "building_mass_lod1": s04.get("lod1"),
