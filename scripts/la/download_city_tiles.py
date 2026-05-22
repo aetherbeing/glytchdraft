@@ -54,12 +54,9 @@ console = Console()
 # Tried in order until one returns HTTP 200.
 
 USGS_URL_TEMPLATES = [
-    # AWS S3 staged products (most reliable for 3DEP LPC)
-    "https://prd-tnm.s3.amazonaws.com/StagedProducts/Elevation/LPC/Projects/"
-    "CA_LosAngeles_2016_D16/CA_LosAngeles_2016/LAZ/{filename}",
-    # USGS RockyWeb mirror
+    # USGS RockyWeb vdelivery
     "https://rockyweb.usgs.gov/vdelivery/Datasets/Staged/Elevation/LPC/Projects/"
-    "CA_LosAngeles_2016_D16/CA_LosAngeles_2016/LAZ/{filename}",
+    "USGS_LPC_CA_LosAngeles_2016_LAS_2018/laz/{filename}",
 ]
 
 CHUNK_SIZE  = 1 << 20   # 1 MiB chunks
@@ -87,8 +84,8 @@ def _load_manifest(city_id: str) -> list[dict]:
 def _resolve_url(tile: dict) -> str | None:
     """
     Return the best download URL for a tile.
-    Prefers the URL stored in the manifest (from TNM API), then tries
-    the known USGS URL templates with a HEAD request.
+    Prefers the URL stored in the manifest, then tries the known USGS
+    RockyWeb URL template with a HEAD request.
     """
     stored = tile.get("download_url")
     if stored:
