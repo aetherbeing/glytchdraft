@@ -76,6 +76,83 @@ MIN_POINTS_GOOD    = 8     # below this count, quality = "sparse" rather than "g
 DEFAULT_HEIGHT_M   = 6.0   # fallback when no non-ground returns land inside polygon
 MIN_HEIGHT_M       = 1.5   # floor so every used building has at least some geometry
 
+# Expected LAZ bounds in EPSG:2229 (ft) — hard bounds; stage aborts if outside these
+LAZ_X_RANGE = (6_476_000.0, 6_481_000.0)
+LAZ_Y_RANGE = (1_835_000.0, 1_843_000.0)
+
+# Expected footprint coordinates in EPSG:32611 (m) for downtown LA Bunker Hill
+# Stage aborts if centroid of all footprints falls outside these
+FP_X_RANGE = (374_000.0, 390_000.0)   # UTM 11N easting
+FP_Y_RANGE = (3_762_000.0, 3_772_000.0)  # UTM 11N northing
+
+# Plausible Z range for DTLA in meters (NAVD88)
+Z_M_PLAUSIBLE = (15.0, 400.0)
+
+
+# ── CRS pre-flight ────────────────────────────────────────────────────────────
+
+def _assert_laz_crs():
+    """Read LAZ metadata and hard-fail if CRS or bounds look wrong."""
+    print("pre-flight: checking LAZ CRS and bounds...")
+    pipeline = {
+        "pipeline": [{"type": "readers.las", "filename": str(HERO_LAZ), "count": 0}]
+    }
+    pl = pdal.Pipeline(json.dumps(pipeline))
+    pl.execute()
+    md = pl.metadata
+    if isinstance(md, str):
+        md = json.loads(md)
+    rlas = md.get("metadata", {}).get("readers.las", {})
+    if isinstance(rlas, list):
+        rlas = rlas[0] if rlas else {}
+
+    crs_str = rlas.get("comp_spatialreference") or rlas.get("spatialreference") or ""
+    minx, maxx = float(rlas.get("minx", 0)), float(rlas.get("maxx", 0))
+    miny, maxy = float(rlas.get("miny", 0)), float(rlas.get("maxy", 0))
+
+    print(f"  LAZ CRS: {crs_str[:80]}...")
+    print(f"  LAZ X: {minx:,.0f} → {maxx:,.0f}  Y: {miny:,.0f} → {maxy:,.0f}  (source units)")
+
+    if "2229" not in crs_str and "California zone 5" not in crs_str:
+        raise RuntimeError(
+            f"LAZ CRS is not EPSG:2229. Run 03_validate_crs.py first.\nGot: {crs_str[:200]}"
+        )
+    if not (LAZ_X_RANGE[0] <= minx <= LAZ_X_RANGE[1]):
+        raise RuntimeError(f"LAZ minX={minx:,.0f} outside expected range {LAZ_X_RANGE}")
+    if not (LAZ_Y_RANGE[0] <= miny <= LAZ_Y_RANGE[1]):
+        raise RuntimeError(f"LAZ minY={miny:,.0f} outside expected range {LAZ_Y_RANGE}")
+    print("  [OK] LAZ CRS=EPSG:2229, bounds in expected range")
+
+
+def _assert_footprint_crs(path: Path):
+    """Read GeoJSON CRS field and confirm EPSG:32611; check centroid in expected area."""
+    print(f"pre-flight: checking footprint CRS ({path.name})...")
+    with path.open(encoding="utf-8") as f:
+        gj = json.load(f)
+
+    crs_field = (gj.get("crs") or {}).get("properties", {}).get("name", "")
+    print(f"  footprint crs field: {crs_field!r}")
+    if "32611" not in crs_field:
+        raise RuntimeError(
+            f"Footprint CRS field does not confirm EPSG:32611: {crs_field!r}\n"
+            "Re-run stage 01 (01_clip_footprints.py) to regenerate."
+        )
+
+    # Centroid check — sample first 10 features
+    xs, ys = [], []
+    for ft in gj["features"][:10]:
+        for x, y in ft["geometry"]["coordinates"][0]:
+            xs.append(x)
+            ys.append(y)
+    cx, cy = sum(xs) / len(xs), sum(ys) / len(ys)
+    print(f"  footprint sample centroid: X={cx:,.0f}  Y={cy:,.0f}  (EPSG:32611, m)")
+
+    if not (FP_X_RANGE[0] <= cx <= FP_X_RANGE[1]):
+        raise RuntimeError(f"Footprint centroid X={cx:,.0f} outside expected range {FP_X_RANGE}")
+    if not (FP_Y_RANGE[0] <= cy <= FP_Y_RANGE[1]):
+        raise RuntimeError(f"Footprint centroid Y={cy:,.0f} outside expected range {FP_Y_RANGE}")
+    print(f"  [OK] footprint CRS=EPSG:32611, centroid in DTLA area")
+
 
 # ── data loading ──────────────────────────────────────────────────────────────
 
@@ -340,6 +417,11 @@ def main():
 
     OUT_DIR.mkdir(parents=True, exist_ok=True)
     NOTES_DIR.mkdir(parents=True, exist_ok=True)
+
+    # Hard CRS pre-flight — raises RuntimeError if any check fails.
+    # Run 03_validate_crs.py for a full diagnostic if this aborts.
+    _assert_laz_crs()
+    _assert_footprint_crs(FOOTPRINTS)
 
     polys, attrs = load_footprints(FOOTPRINTS)
     print(f"footprints: {len(polys)} polygons")
