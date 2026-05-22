@@ -72,6 +72,19 @@ PROTECTED_PATHS = [
 
 # ── dry-run ───────────────────────────────────────────────────────────────────
 
+LOCAL_CATALOG_TILE_ID_MAP = {
+    "la_6477_1836a": "1836a",
+    "la_6477_1836b": "1836b",
+    "la_6477_1836c": "1836c",
+    "la_6477_1836d": "1836d",
+}
+
+
+def _run_tile_id(tile_id: str) -> str:
+    """Map catalog tile IDs to existing TileConfig IDs for run_tile.py."""
+    return LOCAL_CATALOG_TILE_ID_MAP.get(tile_id, tile_id)
+
+
 def dry_run(
     city_id:   str,
     stages:    list[str],
@@ -177,7 +190,10 @@ def dry_run(
         console.print(f"[yellow]  {n_missing} LAZ file(s) missing — only on-disk tiles will execute.[/yellow]")
     runnable = [t for t in tiles if t.on_disk]
     for i, t in enumerate(runnable[:10]):
-        cmd = f"python run_tile.py {t.tile_id} --output-root {cfg.tiles_root} --stages {' '.join(stages)}"
+        dispatch_id = _run_tile_id(t.tile_id)
+        cmd = f"python run_tile.py {dispatch_id} --output-root {cfg.tiles_root} --stages {' '.join(stages)}"
+        if dispatch_id != t.tile_id:
+            cmd += f"  # {t.tile_id}"
         console.print(f"  [{i+1}/{len(runnable)}] [dim]{cmd}[/dim]")
     if len(runnable) > 10:
         console.print(f"  ... and {len(runnable) - 10} more tiles ...")
@@ -278,11 +294,16 @@ def execute(city_id: str, stages: list[str]):
         )
 
         for t in runnable:
-            tile_task = progress.add_task(f"  {t.tile_id}", total=1)
+            dispatch_id = _run_tile_id(t.tile_id)
+            tile_label = (
+                f"{t.tile_id} -> {dispatch_id}"
+                if dispatch_id != t.tile_id else t.tile_id
+            )
+            tile_task = progress.add_task(f"  {tile_label}", total=1)
 
             cmd = [
                 python, run_tile,
-                t.tile_id,
+                dispatch_id,
                 "--output-root", str(cfg.tiles_root),
             ]
             if stages:
@@ -300,7 +321,7 @@ def execute(city_id: str, stages: list[str]):
             progress.update(
                 tile_task,
                 description=(
-                    f"  {t.tile_id} "
+                    f"  {tile_label} "
                     f"[{'green' if ok else 'red'}]{'OK' if ok else 'FAIL'}[/] "
                     f"({elapsed/60:.1f} min)"
                 ),
@@ -311,7 +332,7 @@ def execute(city_id: str, stages: list[str]):
             tile_exit_codes[t.tile_id] = rc
 
             # Read tile manifest if written
-            manifest_path = cfg.tiles_root / t.tile_id / "manifest" / f"{t.tile_id}_manifest.json"
+            manifest_path = cfg.tiles_root / dispatch_id / "manifest" / f"{dispatch_id}_manifest.json"
             manifest_data = {}
             if manifest_path.exists():
                 try:
