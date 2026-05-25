@@ -78,3 +78,5 @@ __pycache__/
 
 # Pipeline outputs (generated data — not source)
 atlas_output/
+data_processed/
+exports/
