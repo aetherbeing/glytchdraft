@@ -59,7 +59,7 @@ try:
 except ImportError:
     HAS_SHAPELY = False
 
-ALL_STAGES = ["extract", "clean", "cluster", "footprints", "masses"]
+ALL_STAGES = ["extract", "clean", "cluster", "footprints", "masses", "vegetation"]
 
 # PRESERVE_RAW_LAZ guard — enforced at module load time (rule 3)
 # The pipeline reads LAZ files via PDAL but NEVER writes to CFG.LAZ_DIR.
@@ -103,6 +103,16 @@ def _ground_steps(laz_path: Path, spacing_m: float) -> list[dict]:
         {"type": "readers.las", "filename": str(laz_path)},
         {"type": "filters.reprojection", "out_srs": f"EPSG:{CFG.OUT_EPSG}"},
         {"type": "filters.range", "limits": f"Classification[{CFG.GROUND_CLASS}:{CFG.GROUND_CLASS}]"},
+        {"type": "filters.sample", "radius": spacing_m},
+    ]
+
+
+def _vegetation_steps(laz_path: Path, spacing_m: float) -> list[dict]:
+    vmin, vmax = min(CFG.VEGETATION_CLASSES), max(CFG.VEGETATION_CLASSES)
+    return [
+        {"type": "readers.las", "filename": str(laz_path)},
+        {"type": "filters.reprojection", "out_srs": f"EPSG:{CFG.OUT_EPSG}"},
+        {"type": "filters.range", "limits": f"Classification[{vmin}:{vmax}]"},
         {"type": "filters.sample", "radius": spacing_m},
     ]
 
@@ -640,11 +650,30 @@ def stage_masses(out: Path, tile_id: str) -> dict:
     return {"ok": True, "lod0": n_lod0, "lod1": n_lod1}
 
 
-def _read_ply_xyz(path: Path) -> np.ndarray:
-    pipe = pdal.Pipeline(json.dumps({"pipeline": [{"type": "readers.ply", "filename": str(path)}]}))
-    pipe.execute()
-    arr = pipe.arrays[0]
-    return np.stack([arr["X"], arr["Y"], arr["Z"]], axis=1).astype(np.float64)
+# ── Stage 6: Vegetation ────────────────────────────────────────────────────────
+
+def stage_vegetation(laz_path: Path, out: Path, tile_id: str) -> dict:
+    """Extract LiDAR vegetation classes (3/4/5) at 1 m spacing to PLY."""
+    if not CFG.VEGETATION_ENABLED:
+        return {"ok": True, "skipped": True, "n_pts": 0}
+
+    pc_dir = out / "pointcloud"
+    pc_dir.mkdir(parents=True, exist_ok=True)
+    out_path = pc_dir / f"{tile_id}_vegetation_1m.ply"
+
+    if out_path.exists():
+        pts = out_path.stat().st_size // 28  # rough estimate (header + 3 doubles + int16 + uint8)
+        print(f"  [vegetation] exists, skip")
+        return {"ok": True, "n_pts": pts}
+
+    arr = _run_pdal(_vegetation_steps(laz_path, 1.0))
+    if arr is None or len(arr) == 0:
+        print(f"  [vegetation] 0 points (no classes {CFG.VEGETATION_CLASSES} in tile)")
+        return {"ok": True, "n_pts": 0}
+
+    n = _write_ply(arr, out_path, "X,Y,Z,Intensity,Classification")
+    print(f"  [vegetation] {n:,} pts → {out_path.name}")
+    return {"ok": True, "n_pts": n}
 
 
 # ── manifest ───────────────────────────────────────────────────────────────────
@@ -657,6 +686,7 @@ def _write_manifest(tile_id: str, out: Path, stage_results: dict, elapsed: float
     cluster_result = stage_results.get("cluster", {})
     mass_result    = stage_results.get("masses", {})
 
+    veg_result = stage_results.get("vegetation", {})
     manifest = {
         "schema_version":  CFG.PIPELINE_VERSION,
         "pipeline":        "GlitchOS.io Miami city pipeline",
@@ -669,6 +699,8 @@ def _write_manifest(tile_id: str, out: Path, stage_results: dict, elapsed: float
         "building_mass_lod1":  mass_result.get("lod1"),
         "n_clusters":      cluster_result.get("n_clusters", 0),
         "n_footprints":    stage_results.get("footprints", {}).get("n_footprints", 0),
+        "n_vegetation_pts": veg_result.get("n_pts", 0),
+        "vegetation_enabled": CFG.VEGETATION_ENABLED,
         "stages":          {k: ("ok" if v.get("ok") else "failed")
                             for k, v in stage_results.items()},
         "errors":          errors,
@@ -696,6 +728,7 @@ def run_tile(laz_path: Path, out: Path, stages: list[str], resume: bool = False)
         "cluster":    lambda: stage_cluster(out, tile_id),
         "footprints": lambda: stage_footprints(out, tile_id),
         "masses":     lambda: stage_masses(out, tile_id),
+        "vegetation": lambda: stage_vegetation(laz_path, out, tile_id),
     }
 
     for stage_name in stages:

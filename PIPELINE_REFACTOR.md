@@ -84,27 +84,129 @@ Production-live. Architecturally separate from LA/NYC — no `CityConfig` datacl
 |---|---|
 | Config | Flat module `miami_city_config.py` — module-level constants, no dataclass |
 | Tile runner | `run_tile_miami.py` — self-contained subprocess, takes `--laz` + `--out` CLI args |
-| Stages | `extract`, `clean`, `cluster`, `footprints`, `masses` (no `s0N` numbering) |
+| Stages | `extract`, `clean`, `cluster`, `footprints`, `masses`, `vegetation` (no `s0N` numbering) |
 | City runner | `run_miami_city.py` — Rich `Live` dashboard; Popen + reader thread for real-time stdout |
 | LAZ source | `/mnt/e/miami/data_raw/laz/` (EPSG:32617, already metric) |
 | Output root | `/mnt/t7/miami/data_processed/miami_city/` |
 | Address ingest | **Implemented and working** — `_run_address_ingest()` → `ingest_addresses()` from `scripts/common/` |
 | Structures | **Implemented** — `structures_enriched.geojson` with per-structure `address_status` |
 | Audit | **Implemented** — `audit_miami_city.py` writes `city_audit.json` + `city_audit.md` |
-| City manifest | **Full contract** — includes `address_enrichment` block, `package_status`, `assets` |
+| City manifest | **Full contract** — includes `address_enrichment` block, `package_status`, `assets`, `city_assets` |
 | Preflight gate | **Implemented** — `preflight_miami.py` must pass before any processing |
 | PRESERVE_RAW_LAZ | `True` (enforced at module load) |
+| **Terrain merge** | **Implemented** — all `ground_1m.ply` tiles merged → `blender_ready/miami_terrain_1m.ply` |
+| **Vegetation** | **Implemented** — LiDAR classes 3/4/5 extracted per tile → `vegetation_1m.ply`; city-wide merge 5 m grid-subsampled |
+| **City GLB** | **Implemented** — unified GLB (buildings LOD0 + terrain mesh + green veg pts) via `merge_city_assets.py` |
 
 **Key files:**
 ```
 scripts/miami/miami_city_config.py          Flat module config (constants)
 scripts/miami/run_miami_city.py             City orchestrator (Live dashboard)
 scripts/miami/run_tile_miami.py             Per-tile subprocess runner
+scripts/miami/merge_city_assets.py          City-wide terrain/veg merge + GLB export (NEW)
 scripts/miami/preflight_miami.py           Preflight gate
 scripts/miami/audit_miami_city.py          Audit writer
 scripts/miami/build_miami_catalog.py       LAZ catalog builder
 scripts/common/ingest_addresses.py         Shared address ingest (used by Miami)
 ```
+
+---
+
+## Miami City-Wide Assets (Terrain, Vegetation, GLB)
+
+These features run automatically after all 108 tiles complete. They are
+implemented in `merge_city_assets.py` and called from `run_miami_city.py`'s
+`_run_city_merge()` helper during the "merge" phase (between tile processing
+and the audit phase).
+
+### Terrain merge
+
+**Per tile (stage: `extract`):** `ground_1m.ply` — ground-class (LiDAR class 2)
+points at 1 m Poisson-disk sampling, written to `<tile>/pointcloud/`.
+
+**City-wide merge:** `merge_terrain_ply()` concatenates all 108 ground PLYs
+into `blender_ready/miami_terrain_1m.ply` (full 1 m resolution, ~20–30 M points).
+This PLY is kept at full resolution for Blender import and GIS analysis.
+
+**GLB terrain mesh:** `build_terrain_mesh()` reads the merged ground points and
+builds a regular-grid mesh at 15 m spacing using numpy vectorized ops:
+1. Assign each ground point to a grid cell, compute mean Z per cell.
+2. Fill empty cells by nearest-neighbor propagation (`scipy.ndimage.distance_transform_edt`).
+3. Emit two triangles per quad cell.
+
+At 15 m spacing the Miami city area produces ~622 K vertices and ~1.2 M triangles,
+yielding ~22 MB in the GLB. Grid spacing is tunable (`--terrain-grid-m N`).
+
+### Vegetation extraction
+
+**Config:**
+```python
+VEGETATION_ENABLED: bool          = True     # set False to skip entirely
+VEGETATION_CLASSES: tuple[int, ...] = (3, 4, 5)  # low/medium/high vegetation
+```
+
+**Per tile (stage: `vegetation`):** PDAL reads LiDAR classes 3–5, reprojects to
+UTM 17N, applies Poisson-disk sampling at 1 m, writes
+`<tile>/pointcloud/<tile>_vegetation_1m.ply`. If a tile has no vegetation returns
+the stage succeeds with `n_pts: 0`. The tile manifest records `n_vegetation_pts`
+and `vegetation_enabled`.
+
+**City-wide merge:** `merge_vegetation_ply()` concatenates all per-tile vegetation
+PLYs, then grid-subsamples to 5 m spacing using `_subsample_grid()` (highest-Z
+point per cell — canopy top selection). Full-resolution PLY:
+`blender_ready/miami_vegetation_1m.ply`. The subsampled version goes into the GLB.
+
+### City GLB export
+
+`export_city_glb()` writes `blender_ready/miami_city.glb` — a minimal but valid
+GLB 2.0 file containing three named GLTF nodes:
+
+| Node | Type | Source | Color |
+|---|---|---|---|
+| `buildings` | TRIANGLES | All per-tile `LOD0_convexhull.obj` merged | (material default) |
+| `terrain` | TRIANGLES | Grid mesh from merged `ground_1m.ply` | (material default) |
+| `vegetation` | POINTS | 5 m grid-subsampled vegetation cloud | RGBA (0, 180, 0, 255) — green |
+
+**Coordinate system:** All coordinates are in EPSG:32617 (UTM 17N, Z-up, meters).
+The GLB subtracts the scene bounding-box minimum from all vertex positions to
+maintain float32 precision (~0.06 m accuracy at Miami's ~580 000 m easting).
+The offset is recorded in `miami_city_glb_offset.json`:
+```json
+{
+  "crs": "EPSG:32617",
+  "origin_utmX": 578000.0,
+  "origin_utmY": 2745000.0,
+  "origin_utmZ": -2.5,
+  "note": "Add these values to the model matrix translation to reposition in world space."
+}
+```
+
+**Three.js/R3F usage:**
+```js
+// Load GLB then reposition
+const { scene } = useGLTF('/miami_city.glb')
+const offset = await fetch('/miami_city_glb_offset.json').then(r => r.json())
+scene.position.set(offset.origin_utmX, offset.origin_utmY, offset.origin_utmZ)
+scene.up.set(0, 0, 1)   // Z-up
+```
+
+**Standalone CLI:**
+```bash
+# Merge all assets + export GLB (run after --execute completes)
+conda run -n pdal_env python scripts/miami/merge_city_assets.py --all
+
+# Tune terrain mesh resolution
+conda run -n pdal_env python scripts/miami/merge_city_assets.py --export-glb --terrain-grid-m 25
+
+# Just re-merge terrain PLY
+conda run -n pdal_env python scripts/miami/merge_city_assets.py --merge-terrain
+```
+
+**Extending to LA/NYC:** LA and NYC pipelines do not yet produce `ground_1m.ply`
+or vegetation PLYs (their extract stages differ). When Phase 2 wires address
+enrichment into LA/NYC, terrain+vegetation extraction should also be added as
+optional flags on their tile runners — the `merge_city_assets.py` script is
+city-agnostic once given the correct `tiles_root` and output paths.
 
 ---
 

@@ -187,3 +187,23 @@ USGS_DATASET_MATCH = "MiamiDade_D23"
 USGS_PROJECT_FULL  = "FL_MiamiDade_D23_LID2024"
 
 PIPELINE_VERSION = "1.0"
+
+# ── Vegetation extraction (LiDAR classes 3/4/5) ───────────────────────────────
+#
+# Set VEGETATION_ENABLED = False to skip vegetation extraction entirely.
+# VEGETATION_CLASSES must form a contiguous integer range (used as PDAL range filter).
+VEGETATION_ENABLED: bool          = True
+VEGETATION_CLASSES: tuple[int, ...] = (3, 4, 5)  # low / medium / high vegetation
+
+# ── City-wide merged assets ───────────────────────────────────────────────────
+#
+# Produced after all tiles complete (merge_city_assets.py):
+#   CITY_TERRAIN_PLY    — full-resolution merged ground point cloud (1 m spacing)
+#   CITY_VEGETATION_PLY — merged vegetation cloud, grid-subsampled to 5 m for size
+#   CITY_GLB            — unified GLB: buildings (LOD0) + terrain mesh + vegetation pts
+#   CITY_GLB_OFFSET_JSON — UTM origin subtracted from all GLB coordinates; viewers
+#                          must add this offset to reposition the scene in world space
+CITY_TERRAIN_PLY     = BLENDER_ROOT / "miami_terrain_1m.ply"
+CITY_VEGETATION_PLY  = BLENDER_ROOT / "miami_vegetation_1m.ply"
+CITY_GLB             = BLENDER_ROOT / "miami_city.glb"
+CITY_GLB_OFFSET_JSON = BLENDER_ROOT / "miami_city_glb_offset.json"

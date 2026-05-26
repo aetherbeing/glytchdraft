@@ -50,6 +50,7 @@ import miami_city_config as CFG
 from build_miami_catalog import build_catalog
 from preflight_miami import run_preflight
 from audit_miami_city import build_audit
+from merge_city_assets import merge_terrain_ply, merge_vegetation_ply, export_city_glb
 
 try:
     from rich import box
@@ -68,6 +69,9 @@ console = Console(force_terminal=True) if HAS_RICH else None
 # ── dashboard constants ────────────────────────────────────────────────────────
 
 TILE_STAGES = ["extract", "clean", "cluster", "footprints", "masses"]
+# vegetation stage added when enabled — evaluated after CFG is imported
+if CFG.VEGETATION_ENABLED:
+    TILE_STAGES = TILE_STAGES + ["vegetation"]
 
 _STATUS_LABEL = {
     "pending": ("dim",   "○ pending"),
@@ -645,6 +649,7 @@ def _write_city_manifest(
     addr_status: str,
     addr_count: int,
     enrichment_stats: dict,
+    merge_stats: dict | None = None,
 ) -> dict:
     n_ok     = sum(1 for rc in tile_exit_codes.values() if rc == 0)
     n_lod0   = sum(r.get("lod0") or 0 for r in tile_results.values())
@@ -681,7 +686,12 @@ def _write_city_manifest(
             "city_audit_md":        str(CFG.CITY_AUDIT_MD),
             "boundary_cache":       str(CFG.BOUNDARY_CACHE),
             "tile_manifest":        str(CFG.TILE_MANIFEST),
+            "city_terrain_ply":     str(CFG.CITY_TERRAIN_PLY),
+            "city_vegetation_ply":  str(CFG.CITY_VEGETATION_PLY) if CFG.VEGETATION_ENABLED else None,
+            "city_glb":             str(CFG.CITY_GLB),
+            "city_glb_offset":      str(CFG.CITY_GLB_OFFSET_JSON),
         },
+        "city_assets": (merge_stats or {}),
         "address_enrichment": {
             "required":                       True,
             "source":                         (CFG.ADDRESS_SOURCE or {}).get("path"),
@@ -718,6 +728,67 @@ def _write_city_manifest(
         print(f"City manifest -> {CFG.CITY_MANIFEST}  status={pkg_status}")
 
     return manifest
+
+
+# ── city-wide terrain / vegetation / GLB merge ────────────────────────────────
+
+def _run_city_merge() -> dict:
+    """
+    Merge per-tile ground and vegetation PLYs, then export the city GLB.
+    Never raises — returns a stats dict with 'ok', 'terrain', 'vegetation', 'glb' keys.
+    Logs to console if Rich is available.
+    """
+    def _log(msg: str, warn: bool = False):
+        tag = "yellow" if warn else "dim"
+        if console:
+            console.print(f"  [{tag}][MERGE] {msg}[/{tag}]")
+        else:
+            print(f"[MERGE] {msg}")
+
+    stats: dict = {"ok": True, "terrain": {}, "vegetation": {}, "glb": {}}
+
+    CFG.BLENDER_ROOT.mkdir(parents=True, exist_ok=True)
+
+    _log("Merging per-tile terrain point clouds…")
+    try:
+        ok, n = merge_terrain_ply()
+        stats["terrain"] = {"ok": ok, "n_pts": n}
+        _log(f"Terrain PLY: {n:,} ground points → {CFG.CITY_TERRAIN_PLY.name}")
+    except Exception as exc:
+        _log(f"Terrain merge failed: {exc}", warn=True)
+        stats["terrain"] = {"ok": False, "error": str(exc)}
+        stats["ok"] = False
+
+    if CFG.VEGETATION_ENABLED:
+        _log("Merging per-tile vegetation point clouds…")
+        try:
+            ok, n = merge_vegetation_ply()
+            stats["vegetation"] = {"ok": ok, "n_pts": n}
+            _log(f"Vegetation PLY: {n:,} points → {CFG.CITY_VEGETATION_PLY.name}")
+        except Exception as exc:
+            _log(f"Vegetation merge failed: {exc}", warn=True)
+            stats["vegetation"] = {"ok": False, "error": str(exc)}
+            # vegetation is optional — don't set stats["ok"] = False
+
+    _log("Exporting city GLB (buildings + terrain + vegetation)…")
+    try:
+        glb_stats = export_city_glb()
+        stats["glb"] = glb_stats
+        if glb_stats.get("ok"):
+            _log(
+                f"GLB: {glb_stats.get('glb_mb', 0):.1f} MB — "
+                f"{glb_stats.get('buildings_tris', 0):,} building tris, "
+                f"{glb_stats.get('terrain_tris', 0):,} terrain tris, "
+                f"{glb_stats.get('vegetation_pts', 0):,} veg pts"
+            )
+        else:
+            _log(f"GLB export failed: {glb_stats.get('reason', 'unknown')}", warn=True)
+    except Exception as exc:
+        _log(f"GLB export error: {exc}", warn=True)
+        stats["glb"] = {"ok": False, "error": str(exc)}
+        stats["ok"] = False
+
+    return stats
 
 
 # ── dry-run ────────────────────────────────────────────────────────────────────
@@ -945,7 +1016,8 @@ def execute(force_catalog: bool = False, tile_filter: str | None = None,
             tile_results[t["tile_id"]]    = result
             print("  OK" if rc == 0 else f"  FAIL (rc={rc})")
         enrichment_stats = _run_structures_enrichment(addr_status, addr_count)
-        manifest = _write_city_manifest(tile_results, tile_exit_codes, addr_status, addr_count, enrichment_stats)
+        merge_stats = _run_city_merge()
+        manifest = _write_city_manifest(tile_results, tile_exit_codes, addr_status, addr_count, enrichment_stats, merge_stats)
         build_audit(quiet=False)
         n_fail = sum(1 for rc in tile_exit_codes.values() if rc != 0)
         return 0 if n_fail == 0 else 1
@@ -956,6 +1028,7 @@ def execute(force_catalog: bool = False, tile_filter: str | None = None,
     preflight_ok     = True
     addr_status      = "missing_source"
     addr_count       = 0
+    merge_stats:     dict            = {}
     runnable: list[dict] = []
 
     with Live(
@@ -1053,8 +1126,22 @@ def execute(force_catalog: bool = False, tile_filter: str | None = None,
         live.update(_render_dashboard(state))
 
         manifest = _write_city_manifest(
-            tile_results, tile_exit_codes, addr_status, addr_count, enrichment_stats
+            tile_results, tile_exit_codes, addr_status, addr_count,
+            enrichment_stats, merge_stats,
         )
+
+        state["phase"] = "merge"
+        state["log_tail"].append("Merging terrain + vegetation PLYs…")
+        live.update(_render_dashboard(state))
+
+        merge_stats = _run_city_merge()
+
+        if merge_stats.get("glb", {}).get("ok"):
+            glb_mb = merge_stats["glb"].get("glb_mb", 0)
+            state["log_tail"].append(f"✓ City GLB: {glb_mb:.1f} MB → {CFG.CITY_GLB.name}")
+        else:
+            state["log_tail"].append("⚠ GLB export incomplete (check logs)")
+        live.update(_render_dashboard(state))
 
         state["phase"] = "audit"
         state["log_tail"].append("Writing audit…")
@@ -1075,6 +1162,16 @@ def execute(force_catalog: bool = False, tile_filter: str | None = None,
     coverage   = enrichment_stats.get("coverage_pct", 0.0)
     pkg_color  = "green" if pkg_status == "complete" else "yellow"
 
+    glb_line = ""
+    if merge_stats.get("glb", {}).get("ok"):
+        gstats   = merge_stats["glb"]
+        glb_line = (
+            f"\n  GLB: [white]{gstats.get('glb_mb', 0):.1f} MB[/white]  "
+            f"bldg {gstats.get('buildings_tris', 0):,} tris  "
+            f"terrain {gstats.get('terrain_tris', 0):,} tris  "
+            f"veg {gstats.get('vegetation_pts', 0):,} pts"
+        )
+
     console.print(Panel(
         f"[bold]Miami city pipeline complete[/bold]\n"
         f"  {n_ok}/{len(tile_exit_codes)} tiles OK  "
@@ -1082,7 +1179,8 @@ def execute(force_catalog: bool = False, tile_filter: str | None = None,
         f"  Buildings (LOD0): [white]{n_lod0:,}[/white]   "
         f"Addresses: [white]{addr_count:,}[/white]   "
         f"Matched: [white]{n_matched:,}[/white] ({coverage}%)\n"
-        f"  Package: [{pkg_color}]{pkg_status}[/{pkg_color}]\n"
+        f"  Package: [{pkg_color}]{pkg_status}[/{pkg_color}]"
+        f"{glb_line}\n"
         f"  [dim]{_disk_stats()}[/dim]",
         box=box.ROUNDED,
     ))
