@@ -812,6 +812,17 @@ def dry_run(force_catalog: bool = False, tile_filter: str | None = None,
 def execute(force_catalog: bool = False, tile_filter: str | None = None,
             limit: int | None = None, force_preflight: bool = False):
 
+    # ── announce execute mode immediately, before Live starts ─────────────────
+    _ts = datetime.now().strftime("%H:%M:%S")
+    print(f"[EXECUTE] GlitchOS Miami pipeline — {_ts}", file=sys.stderr, flush=True)
+    if console:
+        console.print(
+            f"\n[bold magenta]GlitchOS.io — Miami City Pipeline[/bold magenta]"
+            f"  [cyan]EXECUTE[/cyan]  [dim]started {_ts}[/dim]"
+        )
+    else:
+        print(f"GlitchOS Miami Pipeline — EXECUTE — {_ts}", flush=True)
+
     python    = sys.executable
     proj_data = str(Path(python).parent.parent / "share" / "proj")
 
@@ -1084,6 +1095,7 @@ def execute(force_catalog: bool = False, tile_filter: str | None = None,
 def main() -> int:
     args             = sys.argv[1:]
     is_execute       = "--execute"        in args
+    is_dry_run       = "--dry-run"        in args
     is_preflight     = "--preflight"      in args
     is_audit         = "--audit"          in args
     force_catalog    = "--force-catalog"  in args
@@ -1109,18 +1121,36 @@ def main() -> int:
         return 0
 
     if is_execute:
+        print(
+            f"[EXECUTE] GlitchOS Miami pipeline — {datetime.now().strftime('%H:%M:%S')}",
+            file=sys.stderr, flush=True,
+        )
         return execute(
             force_catalog=force_catalog,
             tile_filter=tile_filter,
             limit=limit,
             force_preflight=force_preflight,
         )
-    else:
+
+    if is_dry_run or not args:
         return dry_run(
             force_catalog=force_catalog,
             tile_filter=tile_filter,
             limit=limit,
         )
+
+    # Unknown flags — print usage instead of silently dry-running
+    print(
+        "Usage:\n"
+        "  python run_miami_city.py --execute              # run all on-disk tiles\n"
+        "  python run_miami_city.py --execute --limit N    # run first N tiles\n"
+        "  python run_miami_city.py --execute --tile <id>  # run one tile\n"
+        "  python run_miami_city.py --dry-run              # preview only\n"
+        "  python run_miami_city.py --preflight            # check LAZ dir + catalog\n"
+        "  python run_miami_city.py --audit                # write audit outputs\n",
+        file=sys.stderr,
+    )
+    return 1
 
 
 if __name__ == "__main__":
