@@ -34,6 +34,45 @@ console = Console()
 
 PIPELINE_VERSION = "1.0"
 
+# Translate stale drive-mount prefixes left in manifests written when the
+# external T7 was mounted at /mnt/t7/.  Checked in order; first match wins.
+_PATH_REMAPS: list[tuple[str, str]] = [
+    ("/mnt/t7/", "/mnt/e/"),
+]
+
+
+def _remap_path(p: Path) -> Path:
+    """Return p with an old mount prefix replaced if the remapped path exists."""
+    s = str(p)
+    for old, new in _PATH_REMAPS:
+        if s.startswith(old):
+            candidate = Path(new + s[len(old):])
+            if candidate.exists():
+                return candidate
+    return p
+
+
+def _resolve_root(path: Path) -> Path:
+    """Return path as-is if it exists, otherwise try drive-prefix remaps."""
+    if path.exists():
+        return path
+    s = str(path)
+    for old, new in _PATH_REMAPS:
+        if s.startswith(old):
+            candidate = Path(new + s[len(old):])
+            if candidate.exists():
+                return candidate
+    return path
+
+
+def _remap_output_root(path: Path) -> Path:
+    """Always apply the drive-prefix remap for output roots (may not exist yet)."""
+    s = str(path)
+    for old, new in _PATH_REMAPS:
+        if s.startswith(old):
+            return Path(new + s[len(old):])
+    return path
+
 
 @dataclass
 class TileExport:
@@ -61,6 +100,7 @@ def _parse_args(args: list[str]) -> tuple[str, dict]:
         "merge_geometry": "--merge-geometry" in args,
         "keep_per_tile": "--keep-per-tile" in args,
         "generate_blender_manifest": "--generate-blender_manifest" in args,
+        "merge_metadata": "--merge-metadata" in args,
         "merge_terrain": "--merge-terrain" in args,
     }
     for arg in args:
@@ -74,6 +114,11 @@ def _load_json(path: Path) -> dict:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
+def _first_match(root: Path, pattern: str) -> Path | None:
+    matches = sorted(root.glob(pattern))
+    return matches[0] if matches else None
+
+
 def _find_tile_manifest(tile_dir: Path) -> Path | None:
     manifest_dir = tile_dir / "manifest"
     preferred = manifest_dir / f"{tile_dir.name}_manifest.json"
@@ -85,29 +130,38 @@ def _find_tile_manifest(tile_dir: Path) -> Path | None:
 
 def _collect_tiles(city_id: str) -> list[TileExport]:
     cfg = CITIES[city_id]
-    if not cfg.tiles_root.exists():
+    tiles_root = _resolve_root(cfg.tiles_root)
+    if not tiles_root.exists():
         return []
 
     tiles: list[TileExport] = []
-    for tile_dir in sorted(p for p in cfg.tiles_root.iterdir() if p.is_dir()):
+    for tile_dir in sorted(p for p in tiles_root.iterdir() if p.is_dir()):
         manifest_path = _find_tile_manifest(tile_dir)
-        if manifest_path is None:
-            continue
-        try:
-            manifest = _load_json(manifest_path)
-        except Exception:
-            continue
+        manifest = {}
+        if manifest_path is not None:
+            try:
+                manifest = _load_json(manifest_path)
+            except Exception:
+                manifest = {}
 
         outputs = manifest.get("outputs") or {}
-        lod0 = Path(outputs["lod0_obj"]) if outputs.get("lod0_obj") else None
-        lod1 = Path(outputs["lod1_obj"]) if outputs.get("lod1_obj") else None
-        metadata = Path(outputs["masses_metadata"]) if outputs.get("masses_metadata") else None
-        ground = Path(outputs["ground_ply"]) if outputs.get("ground_ply") else None
+
+        def _resolve_asset(key: str, glob: str) -> Path | None:
+            raw = Path(outputs[key]) if outputs.get(key) else _first_match(tile_dir, glob)
+            return _remap_path(raw) if raw else None
+
+        lod0 = _resolve_asset("lod0_obj", "blender_ready/masses/*LOD0*.obj")
+        lod1 = _resolve_asset("lod1_obj", "blender_ready/masses/*LOD1*.obj")
+        metadata = _resolve_asset("masses_metadata", "blender_ready/masses/*metadata.geojson")
+        ground = _resolve_asset("ground_ply", "pointcloud/*ground_32611_1m.ply")
+
+        if not any((lod0, lod1, metadata, ground)):
+            continue
 
         tiles.append(TileExport(
             tile_id=manifest.get("tile_id") or tile_dir.name,
             tile_dir=tile_dir,
-            manifest_path=manifest_path,
+            manifest_path=manifest_path or tile_dir,
             manifest=manifest,
             lod0_obj=lod0 if lod0 and lod0.exists() else None,
             lod1_obj=lod1 if lod1 and lod1.exists() else None,
@@ -175,8 +229,9 @@ def _copy_per_tile_assets(tiles: list[TileExport], dirs: dict[str, Path]) -> dic
         if tile.ground_ply:
             shutil.copy2(tile.ground_ply, tile_terrain_dir / tile.ground_ply.name)
             copied["terrain"] += 1
-        shutil.copy2(tile.manifest_path, tile_manifest_dir / tile.manifest_path.name)
-        copied["manifests"] += 1
+        if tile.manifest_path.is_file():
+            shutil.copy2(tile.manifest_path, tile_manifest_dir / tile.manifest_path.name)
+            copied["manifests"] += 1
     return copied
 
 
@@ -269,13 +324,65 @@ def _merge_metadata(tiles: list[TileExport], out_path: Path, city_shift: dict) -
     return {"path": str(out_path), "features": len(features)}
 
 
+def _asset_package_path(tile: TileExport, path: Path | None, kind: str, keep_per_tile: bool) -> str | None:
+    if not path:
+        return None
+    if keep_per_tile:
+        folder = "masses" if kind in {"lod0", "lod1"} else "terrain"
+        return f"{folder}/{tile.tile_id}/{path.name}"
+    return str(path)
+
+
+def _write_asset_index(
+    city_id: str,
+    tiles: list[TileExport],
+    attr: str,
+    out_path: Path,
+    city_shift: dict,
+    kind: str,
+    label: str,
+    keep_per_tile: bool,
+) -> dict:
+    records = []
+    for tile in tiles:
+        path = getattr(tile, attr)
+        if not path:
+            continue
+        records.append({
+            "tile_id": tile.tile_id,
+            "path": _asset_package_path(tile, path, kind, keep_per_tile),
+            "source_path": str(path),
+            "manifest": str(tile.manifest_path) if tile.manifest_path.is_file() else None,
+            "source_laz": tile.manifest.get("source_laz"),
+            "source_crs": tile.manifest.get("source_crs") or "EPSG:2229",
+            "target_crs": tile.manifest.get("target_crs") or "EPSG:32611",
+            "bbox_32611": tile.bbox_32611,
+            "bbox_2229": tile.manifest.get("bbox_2229"),
+            "blender_shift": tile.blender_shift,
+            "city_blender_shift": city_shift,
+            "terrain_only": tile.manifest.get("terrain_only", False),
+        })
+    payload = {
+        "schema_version": PIPELINE_VERSION,
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "city_id": city_id,
+        "asset_type": label,
+        "source_crs": "EPSG:32611",
+        "city_blender_shift": city_shift,
+        "tile_count": len(records),
+        "tiles": records,
+    }
+    out_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    return {"path": str(out_path), "tiles": len(records)}
+
+
 def _write_tile_index(tiles: list[TileExport], out_path: Path, city_shift: dict) -> dict:
     records = []
     for tile in tiles:
         records.append({
             "tile_id": tile.tile_id,
             "tile_dir": str(tile.tile_dir),
-            "manifest": str(tile.manifest_path),
+            "manifest": str(tile.manifest_path) if tile.manifest_path.is_file() else None,
             "source_laz": tile.manifest.get("source_laz"),
             "source_crs": tile.manifest.get("source_crs"),
             "target_crs": tile.manifest.get("target_crs"),
@@ -366,6 +473,7 @@ def export_city(
     merge_geometry: bool = False,
     keep_per_tile: bool = False,
     generate_blender_manifest: bool = False,
+    merge_metadata: bool = False,
     merge_terrain: bool = False,
 ) -> Path:
     if city_id not in CITIES:
@@ -374,9 +482,9 @@ def export_city(
     cfg = CITIES[city_id]
     tiles = _collect_tiles(city_id)
     if not tiles:
-        raise RuntimeError(f"No processed tile manifests found under {cfg.tiles_root}")
+        raise RuntimeError(f"No processed tile manifests found under {_resolve_root(cfg.tiles_root)}")
 
-    root = cfg.output_root / "blender_ready"
+    root = _remap_output_root(cfg.output_root) / "blender_ready"
     dirs = _ensure_export_dirs(root)
     city_shift = _city_shift(tiles)
 
@@ -400,11 +508,6 @@ def export_city(
         "outputs": {},
     }
 
-    index_result = _write_tile_index(tiles, dirs["manifests"] / "tile_index.json", city_shift)
-    metadata_result = _merge_metadata(tiles, dirs["metadata"] / "city_masses_metadata.geojson", city_shift)
-    results["outputs"]["tile_index"] = index_result
-    results["outputs"]["metadata"] = metadata_result
-
     if keep_per_tile:
         with Progress(
             SpinnerColumn(),
@@ -423,24 +526,64 @@ def export_city(
                 progress.advance(task)
         results["outputs"]["per_tile_assets"] = copied
 
+    lod0_index = _write_asset_index(
+        city_id,
+        tiles,
+        "lod0_obj",
+        dirs["masses"] / f"{city_id}_LOD0_index.json",
+        city_shift,
+        "lod0",
+        "masses_LOD0_obj",
+        keep_per_tile,
+    )
+    lod1_index = _write_asset_index(
+        city_id,
+        tiles,
+        "lod1_obj",
+        dirs["masses"] / f"{city_id}_LOD1_index.json",
+        city_shift,
+        "lod1",
+        "masses_LOD1_obj",
+        keep_per_tile,
+    )
+    terrain_index = _write_asset_index(
+        city_id,
+        tiles,
+        "ground_ply",
+        dirs["terrain"] / f"{city_id}_ground_index.json",
+        city_shift,
+        "terrain",
+        "ground_32611_1m_ply",
+        keep_per_tile,
+    )
+    tile_index = _write_tile_index(tiles, dirs["manifests"] / f"{city_id}_tile_index.json", city_shift)
+    metadata_result = _merge_metadata(tiles, dirs["metadata"] / f"{city_id}_masses_metadata.geojson", city_shift)
+    results["outputs"]["lod0_index"] = lod0_index
+    results["outputs"]["lod1_index"] = lod1_index
+    results["outputs"]["terrain_index"] = terrain_index
+    results["outputs"]["tile_index"] = tile_index
+    results["outputs"]["metadata"] = metadata_result
+
     if merge_geometry:
         results["outputs"]["lod0_merged_obj"] = _merge_obj(
-            tiles, "lod0_obj", dirs["masses"] / "city_masses_LOD0_merged.obj", city_shift
+            tiles, "lod0_obj", dirs["masses"] / f"{city_id}_masses_LOD0_merged.obj", city_shift
         )
         results["outputs"]["lod1_merged_obj"] = _merge_obj(
-            tiles, "lod1_obj", dirs["masses"] / "city_masses_LOD1_merged.obj", city_shift
+            tiles, "lod1_obj", dirs["masses"] / f"{city_id}_masses_LOD1_merged.obj", city_shift
         )
 
     if merge_terrain:
         results["outputs"]["terrain_merged_ply"] = _merge_ascii_ply(
-            tiles, dirs["terrain"] / "city_ground_32611_1m_merged_ascii.ply"
+            tiles, dirs["terrain"] / f"{city_id}_ground_32611_1m_merged_ascii.ply"
         )
 
-    manifest_path = dirs["manifests"] / "city_blender_manifest.json"
+    manifest_path = dirs["manifests"] / f"{city_id}_blender_manifest.json"
     if generate_blender_manifest or True:
         manifest_path.write_text(json.dumps(results, indent=2), encoding="utf-8")
     console.print(f"[green]Export manifest:[/green] {manifest_path}")
-    console.print(f"[green]Tile index:[/green] {index_result['path']}")
+    console.print(f"[green]LOD0 index:[/green] {lod0_index['path']}")
+    console.print(f"[green]LOD1 index:[/green] {lod1_index['path']}")
+    console.print(f"[green]Ground index:[/green] {terrain_index['path']}")
     console.print(f"[green]Merged metadata:[/green] {metadata_result['path']}")
     return manifest_path
 

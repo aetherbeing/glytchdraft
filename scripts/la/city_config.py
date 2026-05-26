@@ -29,7 +29,7 @@ from tile_config import PROC_DIR, LAZ_DIR, SRC_EPSG, DST_EPSG
 CITIES_ROOT = PROC_DIR / "cities"
 
 # Boundaries cache dir (shared across cities)
-BOUNDARIES_ROOT = Path("/mnt/t7/la/data_raw/boundaries")
+BOUNDARIES_ROOT = Path("/mnt/e/la/data_raw/boundaries")
 
 # City of LA approximate bounding box in EPSG:4326.
 # Used as the initial spatial query window for the TNM API and boundary download.
@@ -60,6 +60,9 @@ class CityConfig:
     usgs_project:     str
     bbox_4326:        dict[str, float] = field(default_factory=dict)
     boundary_sources: tuple[str, ...] = ("la_geohub", "census_tiger", "osm")
+    # Optional address source. If None, the address ingest stage is skipped.
+    # See scripts/common/ingest_addresses.py for the expected schema.
+    address_source:   dict | None = field(default=None)
 
     @property
     def output_root(self) -> Path:
@@ -85,6 +88,14 @@ class CityConfig:
     @property
     def city_manifest(self) -> Path:
         return self.output_root / f"{self.city_id}_manifest.json"
+
+    @property
+    def metadata_dir(self) -> Path:
+        return self.output_root / "metadata"
+
+    @property
+    def address_points(self) -> Path:
+        return self.metadata_dir / "address_points.geojson"
 
     def protected_path_check(self) -> list[str]:
         """Returns a list of conflicts if output_root overlaps protected paths."""

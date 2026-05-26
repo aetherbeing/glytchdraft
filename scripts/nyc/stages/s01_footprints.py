@@ -66,7 +66,7 @@ def _feature_count(path: Path) -> int:
 
 def run(tile: TileConfig) -> dict:
     """
-    Returns: {"count_4326": n, "count_32611": n}
+    Returns: {"count_4326": n, "count_32618": n}
     """
     if not BLOCK_FOOTPRINTS_RAW.exists():
         raise FileNotFoundError(
@@ -87,18 +87,24 @@ def run(tile: TileConfig) -> dict:
     _clip_and_reproject(BLOCK_FOOTPRINTS_RAW, tile.footprints_4326, bbox_4326, t_srs=None, out_format="GeoJSON")
     n_4326 = _feature_count(tile.footprints_4326)
 
-    # 2. Clipped + reprojected to EPSG:32611 (primary stage 03/04 input)
+    # 2. Clipped + reprojected to EPSG:32618 (primary stage 03/04 input)
     _clip_and_reproject(BLOCK_FOOTPRINTS_RAW, tile.footprints_32611, bbox_4326, t_srs=f"EPSG:{DST_EPSG}", out_format="GeoJSON")
-    n_32611 = _feature_count(tile.footprints_32611)
+    n_32618 = _feature_count(tile.footprints_32611)
 
-    if n_32611 == 0:
+    if n_32618 == 0:
         print(f"[{tile.tile_id}]   0 footprints after clip; marking terrain-only and continuing")
         return {
             "count_4326": n_4326,
-            "count_32611": n_32611,
+            "count_32618": n_32618,
+            "count_32611": n_32618,
             "no_footprints": True,
             "terrain_only": True,
         }
 
-    print(f"[{tile.tile_id}]   {n_4326} features (4326),  {n_32611} features (32611)")
-    return {"count_4326": n_4326, "count_32611": n_32611, "no_footprints": False}
+    print(f"[{tile.tile_id}]   {n_4326} features (4326),  {n_32618} features (32618)")
+    return {
+        "count_4326": n_4326,
+        "count_32618": n_32618,
+        "count_32611": n_32618,
+        "no_footprints": False,
+    }

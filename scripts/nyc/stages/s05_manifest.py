@@ -21,7 +21,7 @@ def write_tile_manifest(tile: TileConfig, stage_results: dict) -> Path:
 
     stage_results keys expected:
       s00: {"bbox_source": {...}, "bbox_projected": {...}, "shift": {"x":..,"y":..}}
-      s01: {"count_4326": n, "count_32611": n}
+      s01: {"count_4326": n, "count_32618": n}
       s02: {"ground_points": n, "elapsed_s": f}
       s03: {"passed": bool, "failures": [...], "batch_results": [...]}
       s04: {"lod0": n, "lod1": n, "quality": {...}, "footprints": n}
@@ -56,11 +56,12 @@ def write_tile_manifest(tile: TileConfig, stage_results: dict) -> Path:
             "s04_masses":     ("skipped: no_footprints" if terrain_only else ("ok" if "s04" in stage_results else ("error: " + errors.get("s04", "skipped")))),
         },
         "bbox_source":      s00.get("bbox_source") or s00.get("bbox_2229"),
-        "bbox_projected":   s00.get("bbox_projected") or s00.get("bbox_32611"),
+        "bbox_projected":   s00.get("bbox_projected") or s00.get("bbox_32618") or s00.get("bbox_32611"),
+        "bbox_32618":       s00.get("bbox_projected") or s00.get("bbox_32618") or s00.get("bbox_32611"),
         "bbox_2229":        s00.get("bbox_source") or s00.get("bbox_2229"),
-        "bbox_32611":       s00.get("bbox_projected") or s00.get("bbox_32611"),
+        "bbox_32611":       s00.get("bbox_projected") or s00.get("bbox_32618") or s00.get("bbox_32611"),
         "blender_shift":    s00.get("shift"),
-        "footprint_count":  s01.get("count_32611"),
+        "footprint_count":  s01.get("count_32618") or s01.get("count_32611"),
         "terrain_only":     terrain_only,
         "ground_points":    s02.get("ground_points"),
         "building_mass_lod0": s04.get("lod0"),
@@ -70,7 +71,7 @@ def write_tile_manifest(tile: TileConfig, stage_results: dict) -> Path:
         "errors":           errors,
         "outputs": {
             "extent_json":      str(tile.extent_json),
-            "footprints_32611": str(tile.footprints_32611),
+            "footprints_32618": str(tile.footprints_32618),
             "ground_ply":       str(tile.ground_ply),
             "lod0_obj":         str(tile.lod0_obj),
             "lod1_obj":         str(tile.lod1_obj),

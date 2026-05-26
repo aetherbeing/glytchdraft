@@ -1,8 +1,8 @@
 """
 tile_discovery.py  [NYC city pipeline - GlitchOS.io]
 
-Disk-first tile discovery: scan LAZ_DIR for on-disk .laz files,
-enrich with bbox/borough data from the NOAA catalog if available.
+Disk-first tile discovery: scan LAZ_DIR for on-disk COPC .laz files,
+enrich with bbox/borough data from a local catalog if available.
 No network access is required when tiles are already downloaded.
 
 Borough assignment uses coarse 4326 bboxes from city_config.BOROUGH_BBOXES_4326.
@@ -99,7 +99,7 @@ def _discover_from_disk() -> list[TileInfo]:
 
 
 def _enrich_from_catalog(tiles: list[TileInfo]) -> list[TileInfo]:
-    """Add bbox + borough data from the NOAA catalog if it exists on disk."""
+    """Add bbox + borough data from the local catalog if it exists on disk."""
     if not CATALOG_PATH.exists():
         return tiles
     try:
@@ -199,8 +199,12 @@ def discover_tiles(
                 console.print(f"    [dim]{borough}: ~{n} tile(s)[/dim]")
         return tiles
 
-    # ── Fallback: build from NOAA catalog (network) ───────────────────────
-    console.print("  [dim]No LAZ files on disk; loading catalog (may fetch from NOAA)...[/dim]")
+    # ── Optional fallback: load/build catalog only when explicitly allowed ──
+    if not use_api:
+        console.print(f"  [yellow]No LAZ files found under {LAZ_DIR}.[/yellow]")
+        return []
+
+    console.print("  [dim]No LAZ files on disk; loading catalog fallback...[/dim]")
     catalog = _load_catalog()
     records = catalog.get("tiles", [])
     if limit is not None:

@@ -23,9 +23,9 @@ ROOT = (
 # WSL:         /mnt/t7/miami/data_raw/laz
 
 LAZ_DIR = (
-    Path(r"E:\miami\data_raw\laz")
+    Path(r"T:\miami\data_raw\laz")
     if sys.platform == "win32"
-    else Path("/mnt/e/miami/data_raw/laz")
+    else Path("/mnt/t7/miami/data_raw/laz")
 )
 
 # Tile filenames to process. Both zones: Downtown/Brickell + South Beach.
@@ -150,3 +150,30 @@ MIN_POINTS_GOOD         = 8
 DEFAULT_FALLBACK_HEIGHT = 6.0
 LOD2_BUFFER_M           = 8.0
 LOD2_SIMPLIFY_M         = 3.0
+
+# ── address source (optional) ──────────────────────────────────────────────────
+#
+# Set ADDRESS_SOURCE to a dict to enable address ingestion for Miami Bikini.
+# Leave as None to skip silently (pipeline always succeeds either way).
+#
+# Download Miami-Dade open address data from:
+#   https://openaddresses.io/  or  https://gis-mdc.opendata.arcgis.com/
+#
+# Example:
+#   ADDRESS_SOURCE = {
+#       "path": "/mnt/t7/miami/data_raw/addresses/miami_addresses.geojson",
+#       "source_name": "Miami-Dade Open Addresses",
+#       "input_crs": "EPSG:4326",
+#       "field_map": {
+#           "house_number": "number",
+#           "street":       "street",
+#           "city":         "city",
+#           "state":        "region",
+#           "postcode":     "postcode",
+#       },
+#   }
+
+ADDRESS_SOURCE: dict | None = None
+
+# Convenience paths for address output (mirrors CityConfig.address_points)
+ADDRESS_POINTS = META_DIR / "address_points.geojson"

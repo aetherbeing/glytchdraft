@@ -1,9 +1,9 @@
 """
 tile_config.py  [NYC city pipeline - GlitchOS.io]
 
-Dynamic tile configuration for the NYC NOAA 2017 Topobathymetric LiDAR MVP.
+Dynamic tile configuration for NYC COPC LAZ processing.
 No hardcoded valid tile registry is used for city execution; TileConfig objects
-are created from catalog or manifest records at runtime.
+are created from files discovered under LAZ_DIR at runtime.
 """
 
 from __future__ import annotations
@@ -17,10 +17,10 @@ PROC_DIR = Path("/mnt/t7/nyc/data_processed")
 BLOCK_FOOTPRINTS_RAW = Path("/mnt/t7/nyc/data_raw/geojson/nyc_footprints_4326.geojson")
 BLOCK_MANIFEST_PATH = PROC_DIR / "tiles" / "nyc_dynamic_manifest.json"
 
-# NOAA 2017 NYC Topobathy: NAD83(2011) / UTM zone 18N, NAVD88 GEOID18 meters.
-SRC_SRS = "EPSG:6347"
+# NYC COPC tiles are WGS84 / UTM zone 18N. Z is meters.
+SRC_SRS = "EPSG:32618"
 DST_SRS = "EPSG:32618"
-SRC_EPSG = 6347
+SRC_EPSG = 32618
 DST_EPSG = 32618
 FTUS_TO_M = 1.0
 
@@ -79,8 +79,13 @@ class TileConfig:
         return self.notes_dir / "tile.shift.txt"
 
     @property
-    def footprints_32611(self) -> Path:
+    def footprints_32618(self) -> Path:
         return self.footprints_dir / f"{self.tile_id}_footprints_32618.geojson"
+
+    @property
+    def footprints_32611(self) -> Path:
+        """Backward-compatible alias for older stage code."""
+        return self.footprints_32618
 
     @property
     def footprints_4326(self) -> Path:

@@ -82,6 +82,7 @@ def run(tile: TileConfig) -> dict:
         "dst_epsg":  DST_EPSG,
         "bbox_source": bbox_source,
         "bbox_projected": bbox_projected,
+        "bbox_32618": bbox_projected,
         "bbox_2229": bbox_source,
         "bbox_32611": bbox_projected,
         "shift":     {"x": shift_x, "y": shift_y, "epsg": DST_EPSG},
@@ -109,6 +110,7 @@ def run(tile: TileConfig) -> dict:
     return {
         "bbox_source": bbox_source,
         "bbox_projected": bbox_projected,
+        "bbox_32618": bbox_projected,
         "bbox_2229": bbox_source,
         "bbox_32611": bbox_projected,
         "shift": {"x": shift_x, "y": shift_y},

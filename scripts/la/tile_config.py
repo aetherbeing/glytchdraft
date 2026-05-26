@@ -19,13 +19,19 @@ from pathlib import Path
 
 # ── storage roots ─────────────────────────────────────────────────────────────
 
-LAZ_DIR   = Path("/mnt/t7/la/data_raw/laz")
-PROC_DIR  = Path("/mnt/t7/la/data_processed")
+LAZ_DIR   = Path("/mnt/e/la/data_raw/laz")
+PROC_DIR  = Path("/mnt/e/la/data_processed")
 
-# Block-wide raw footprints — downloaded once for the entire 4-tile block.
+# Block-wide raw footprints — downloaded once for the 4-tile DTLA hero block.
 # Run 00_download_block_footprints.py to create this file.
 BLOCK_FOOTPRINTS_RAW = Path(
-    "/mnt/t7/la/data_raw/geojson/la_block_1836_footprints_4326.geojson"
+    "/mnt/e/la/data_raw/geojson/la_block_1836_footprints_4326.geojson"
+)
+
+# City-wide footprints covering the full LA municipal boundary.
+# Run scripts/la/download_city_footprints.py to create this file.
+CITY_FOOTPRINTS_RAW = Path(
+    "/mnt/e/la/data_raw/geojson/los_angeles_city_footprints_4326.geojson"
 )
 
 # Combined block manifest written by run_block.py after all tiles finish.
@@ -69,6 +75,10 @@ class TileConfig:
 
     # If set, overrides the default tiles/<tile_id> output root.
     output_root: Path | None = field(default=None)
+
+    # If set, s01_footprints uses this file as the footprint source instead
+    # of auto-detecting from CITY_FOOTPRINTS_RAW / BLOCK_FOOTPRINTS_RAW.
+    footprints_src: Path | None = field(default=None)
 
     # ── derived paths ──────────────────────────────────────────────────────────
 

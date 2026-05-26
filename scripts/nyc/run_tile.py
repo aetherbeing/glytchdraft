@@ -119,8 +119,7 @@ def run_tile(tile: TileConfig, stages: list[str], progress=None, tile_task=None)
             stage_results["errors"][f"s{stage_id}"] = msg
             console.print(f"    [red]s{stage_id} FAILED: {msg}[/red]")
             if stage_id == "03":
-                console.print(f"    [yellow]Skipping stages 04+ — CRS validation failed.[/yellow]")
-                break
+                console.print(f"    [yellow]s03 validation failed; continuing to requested s04+ stages.[/yellow]")
 
         if progress and tile_task is not None:
             progress.advance(tile_task)

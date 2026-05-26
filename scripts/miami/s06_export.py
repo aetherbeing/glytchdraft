@@ -247,26 +247,60 @@ def shift_obj(src: Path, dst: Path) -> tuple[int, int]:
 
 # ── OBJ → GLB (pure Python, no Blender) ───────────────────────────────────────
 
-def _parse_shifted_obj(path: Path) -> tuple[np.ndarray, np.ndarray]:
-    """Parse an already-shifted OBJ into (verts float32, faces uint32)."""
+def _polygon_normal(poly: np.ndarray) -> np.ndarray:
+    """Return one flat normal for an OBJ polygon using Newell's method."""
+    normal = np.zeros(3, dtype=np.float64)
+    for i, cur in enumerate(poly):
+        nxt = poly[(i + 1) % len(poly)]
+        normal[0] += (cur[1] - nxt[1]) * (cur[2] + nxt[2])
+        normal[1] += (cur[2] - nxt[2]) * (cur[0] + nxt[0])
+        normal[2] += (cur[0] - nxt[0]) * (cur[1] + nxt[1])
+    length = float(np.linalg.norm(normal))
+    if length <= 1e-9:
+        return np.array([0.0, 0.0, 1.0], dtype=np.float32)
+    return (normal / length).astype(np.float32)
+
+
+def _parse_shifted_obj(path: Path) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Parse shifted OBJ as flat polygon faces.
+
+    glTF mesh primitives are triangle-based, so source quads still need to be
+    triangulated for GLB. Duplicating vertices per source polygon lets both
+    triangles from a quad wall share one flat normal, hiding the diagonal seam.
+    """
+    src_verts = []
     verts = []
+    normals = []
     faces = []
     for line in path.read_text(encoding="utf-8").splitlines():
         if line.startswith("v "):
             parts = line.split()
-            verts.append((float(parts[1]), float(parts[2]), float(parts[3])))
+            src_verts.append((float(parts[1]), float(parts[2]), float(parts[3])))
         elif line.startswith("f "):
             tokens = line.split()[1:]
-            # Support quads and triangles; triangulate by fan
             idxs = [int(t.split("/")[0]) - 1 for t in tokens]
+            if len(idxs) < 3:
+                continue
+            poly = np.array([src_verts[i] for i in idxs], dtype=np.float32)
+            face_normal = _polygon_normal(poly)
             for k in range(1, len(idxs) - 1):
-                faces.append((idxs[0], idxs[k], idxs[k + 1]))
+                tri = (idxs[0], idxs[k], idxs[k + 1])
+                base = len(verts)
+                for idx in tri:
+                    verts.append(src_verts[idx])
+                    normals.append(face_normal)
+                faces.append((base, base + 1, base + 2))
     if not verts or not faces:
-        return np.empty((0, 3), dtype=np.float32), np.empty((0, 3), dtype=np.uint32)
-    return np.array(verts, dtype=np.float32), np.array(faces, dtype=np.uint32)
+        empty_v = np.empty((0, 3), dtype=np.float32)
+        return empty_v, np.empty((0, 3), dtype=np.uint32), empty_v
+    return (
+        np.array(verts, dtype=np.float32),
+        np.array(faces, dtype=np.uint32),
+        np.array(normals, dtype=np.float32),
+    )
 
 
-def _pack_glb(meshes: list[tuple[np.ndarray, np.ndarray, str]]) -> bytes:
+def _pack_glb(meshes: list[tuple[np.ndarray, np.ndarray, str] | tuple[np.ndarray, np.ndarray, str, np.ndarray | None]]) -> bytes:
     """
     Minimal GLB (GLTF binary) with one or more named meshes.
     GLTF spec: https://registry.khronos.org/glTF/specs/2.0/glTF-2.0.html
@@ -276,17 +310,30 @@ def _pack_glb(meshes: list[tuple[np.ndarray, np.ndarray, str]]) -> bytes:
     if not meshes:
         return b""
 
-    # Build binary buffer: [pos0 | pad | idx0 | pad | pos1 | pad | idx1 | pad | ...]
+    # Build binary buffer: [pos0 | pad | norm0 | pad | idx0 | pad | ...]
     bin_parts: list[bytes] = []
     buf_views: list[dict] = []
     accessors: list[dict] = []
+    mesh_accessors: list[tuple[int, int | None, int]] = []
+    mesh_names: list[str] = []
     cur = 0
 
-    for verts, faces, _ in meshes:
+    for mesh in meshes:
+        if len(mesh) == 3:
+            verts, faces, name = mesh
+            normals = None
+        else:
+            verts, faces, name, normals = mesh
+            if normals is not None and len(normals) != len(verts):
+                raise ValueError(f"normal count mismatch for {name}: {len(normals)} normals vs {len(verts)} verts")
+
+        mesh_names.append(name)
         pos_bytes = verts.tobytes()
         pos_pad   = (4 - len(pos_bytes) % 4) % 4
+        norm_bytes = b"" if normals is None else normals.astype(np.float32).tobytes()
+        norm_pad = (4 - (len(pos_bytes) + pos_pad + len(norm_bytes)) % 4) % 4
         idx_bytes = faces.tobytes()
-        idx_pad   = (4 - (len(pos_bytes) + pos_pad + len(idx_bytes)) % 4) % 4
+        idx_pad   = (4 - (len(pos_bytes) + pos_pad + len(norm_bytes) + norm_pad + len(idx_bytes)) % 4) % 4
 
         bv_pos_i = len(buf_views)
         buf_views.append({"buffer": 0, "byteOffset": cur, "byteLength": len(pos_bytes), "target": 34962})
@@ -298,6 +345,17 @@ def _pack_glb(meshes: list[tuple[np.ndarray, np.ndarray, str]]) -> bytes:
         })
         cur += len(pos_bytes) + pos_pad
 
+        acc_norm_i = None
+        if normals is not None:
+            bv_norm_i = len(buf_views)
+            buf_views.append({"buffer": 0, "byteOffset": cur, "byteLength": len(norm_bytes), "target": 34962})
+            acc_norm_i = len(accessors)
+            accessors.append({
+                "bufferView": bv_norm_i, "byteOffset": 0, "componentType": 5126,
+                "count": len(normals), "type": "VEC3",
+            })
+            cur += len(norm_bytes) + norm_pad
+
         bv_idx_i = len(buf_views)
         buf_views.append({"buffer": 0, "byteOffset": cur, "byteLength": len(idx_bytes), "target": 34963})
         acc_idx_i = len(accessors)
@@ -307,15 +365,22 @@ def _pack_glb(meshes: list[tuple[np.ndarray, np.ndarray, str]]) -> bytes:
         })
         cur += len(idx_bytes) + idx_pad
 
-        bin_parts.extend([pos_bytes, b"\x00" * pos_pad, idx_bytes, b"\x00" * idx_pad])
+        bin_parts.extend([
+            pos_bytes, b"\x00" * pos_pad,
+            norm_bytes, b"\x00" * norm_pad,
+            idx_bytes, b"\x00" * idx_pad,
+        ])
+        mesh_accessors.append((acc_pos_i, acc_norm_i, acc_idx_i))
 
     bin_data = b"".join(bin_parts)
 
-    nodes_j  = [{"name": name, "mesh": i} for i, (_, _, name) in enumerate(meshes)]
-    meshes_j = [
-        {"name": name, "primitives": [{"attributes": {"POSITION": i * 2}, "indices": i * 2 + 1}]}
-        for i, (_, _, name) in enumerate(meshes)
-    ]
+    nodes_j  = [{"name": name, "mesh": i} for i, name in enumerate(mesh_names)]
+    meshes_j = []
+    for name, (acc_pos_i, acc_norm_i, acc_idx_i) in zip(mesh_names, mesh_accessors):
+        attrs = {"POSITION": acc_pos_i}
+        if acc_norm_i is not None:
+            attrs["NORMAL"] = acc_norm_i
+        meshes_j.append({"name": name, "primitives": [{"attributes": attrs, "indices": acc_idx_i}]})
 
     gltf = {
         "asset": {"version": "2.0", "generator": "GlitchOS Bikini pipeline"},
@@ -347,14 +412,20 @@ def write_glb(
     terrain_ply: Path | None = None,
     terrain_step: int = 100,
 ) -> tuple[int, int]:
-    verts, faces = _parse_shifted_obj(shifted_obj)
+    verts, faces, normals = _parse_shifted_obj(shifted_obj)
     if len(verts) == 0:
         print(f"  WARNING: no geometry parsed from {shifted_obj.name}")
         return 0, 0
     # Rotate -90° on X (Z-up OBJ → Y-up glTF): (x,y,z) → (x, z-shift_z, -y).
     verts = np.stack([verts[:, 0], verts[:, 2] - shift_z, -verts[:, 1]], axis=1).astype(np.float32)
+    normals = np.stack([normals[:, 0], normals[:, 2], -normals[:, 1]], axis=1).astype(np.float32)
+    normal_lengths = np.linalg.norm(normals, axis=1)
+    valid_normals = normal_lengths > 1e-9
+    normals[valid_normals] /= normal_lengths[valid_normals, None]
 
-    mesh_list: list[tuple[np.ndarray, np.ndarray, str]] = [(verts, faces, out_path.stem)]
+    mesh_list: list[tuple[np.ndarray, np.ndarray, str] | tuple[np.ndarray, np.ndarray, str, np.ndarray | None]] = [
+        (verts, faces, out_path.stem, normals)
+    ]
 
     if terrain_ply is not None and terrain_ply.exists():
         try:

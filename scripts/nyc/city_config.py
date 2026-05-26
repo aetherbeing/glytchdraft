@@ -2,8 +2,8 @@
 city_config.py  [NYC city pipeline - GlitchOS.io]
 
 CityConfig registry for New York City / five boroughs.
-MVP boundary support is city-wide bbox; borough assignment is added at catalog
-time using coarse borough bboxes when possible.
+Borough assignment is added from tile bbox metadata using coarse borough bboxes
+when available.
 """
 
 from __future__ import annotations
@@ -31,7 +31,7 @@ BOROUGH_BBOXES_4326 = {
     "staten_island": {"xmin": -74.26, "ymin": 40.47, "xmax": -74.05, "ymax": 40.65},
 }
 
-DATASET_MATCH = "2017_nyc_topobathy_m9306"
+DATASET_MATCH = "nyc_copc_laz"
 
 
 @dataclass(frozen=True)
@@ -41,6 +41,9 @@ class CityConfig:
     usgs_project: str
     bbox_4326: dict[str, float] = field(default_factory=dict)
     boundary_sources: tuple[str, ...] = ("bbox",)
+    # Optional address source. If None, the address ingest stage is skipped.
+    # See scripts/common/ingest_addresses.py for the expected schema.
+    address_source: dict | None = field(default=None)
 
     @property
     def output_root(self) -> Path:
@@ -66,8 +69,25 @@ class CityConfig:
     def city_manifest(self) -> Path:
         return self.output_root / f"{self.city_id}_manifest.json"
 
+    @property
+    def metadata_dir(self) -> Path:
+        return self.output_root / "metadata"
+
+    @property
+    def address_points(self) -> Path:
+        return self.metadata_dir / "address_points.geojson"
+
     def protected_path_check(self) -> list[str]:
-        return []
+        protected = [
+            PROC_DIR / "tiles",
+            PROC_DIR / "sectors",
+            PROC_DIR / "hero_tile",
+        ]
+        conflicts = []
+        for p in protected:
+            if str(self.output_root).startswith(str(p)):
+                conflicts.append(str(p))
+        return conflicts
 
 
 CITIES: dict[str, CityConfig] = {
