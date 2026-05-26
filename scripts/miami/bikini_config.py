@@ -64,7 +64,7 @@ COUNTY_FP_PATH  = GEOJSON_RAW_DIR / "miami_footprints_4326.geojson"
 # ── output roots ───────────────────────────────────────────────────────────────
 
 OUT_ROOT    = _T7 / "data_processed" / "miami" / "bikini"
-EXPORT_ROOT = _T7 / "exports" / "bikini"
+EXPORT_ROOT = _T7 / "exports" / "MIAMI_BIKINI"
 
 PC_DIR      = OUT_ROOT / "pointcloud"
 CLUSTER_DIR = OUT_ROOT / "clusters"
