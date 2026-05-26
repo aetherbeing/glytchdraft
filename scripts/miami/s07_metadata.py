@@ -103,9 +103,9 @@ def compute_local_bounds(rows: list[dict], shift: dict) -> dict:
 def check_glb_inventory() -> dict:
     glbs = {}
     for lod, fname in (
-        ("LOD0", "bikini_masses_LOD0.glb"),
-        ("LOD1", "bikini_masses_LOD1.glb"),
-        ("LOD2", "bikini_masses_LOD2.glb"),
+        ("LOD0", "MIAMI_BIKINI_LOD0.glb"),
+        ("LOD1", "MIAMI_BIKINI_LOD1.glb"),
+        ("LOD2", "MIAMI_BIKINI_LOD2.glb"),
     ):
         p = CFG.EXPORT_ROOT / fname
         glbs[lod] = {
@@ -174,8 +174,8 @@ def main() -> int:
             "units":         "meters",
             "y_up":          True,
             "recommended_import_order": [
-                "bikini_masses_LOD2.glb  (fast overview — block silhouettes)",
-                "bikini_masses_LOD0.glb  (full detail — per-building convex hull prisms)",
+                "MIAMI_BIKINI_LOD2.glb  (fast overview — block silhouettes)",
+                "MIAMI_BIKINI_LOD0.glb  (full detail — per-building convex hull prisms)",
             ],
         },
     }

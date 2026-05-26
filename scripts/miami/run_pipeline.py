@@ -179,10 +179,11 @@ def _run_stage(script: str, log_tail: deque, live: Live, **render_kw) -> int:
 
 def main() -> int:
     args      = sys.argv[1:]
+    dry_run   = "--dry-run" in args
     requested = {a for a in args if a.isdigit() and len(a) == 2}
 
-    stages    = [s for s in ALL_STAGES if (not requested or s[0] in requested)]
-    run_ids   = {s[0] for s in stages}
+    stages  = [s for s in ALL_STAGES if (not requested or s[0] in requested)]
+    run_ids = {s[0] for s in stages}
 
     if not stages:
         print(f"No matching stages for: {args}")
@@ -204,6 +205,22 @@ def main() -> int:
     )
 
     console = Console()
+
+    if dry_run:
+        console.print(_render(log_tail=log_tail, **render_kw))
+        console.print()
+        console.print("[dim]DRY RUN — no stages will execute[/dim]")
+        console.print()
+        for sid, name, script in stages:
+            exists = "✓" if (SCRIPT_DIR / script).exists() else "[red]✗ missing[/red]"
+            console.print(f"  s{sid}  {name:<28}  {exists}  [dim]{script}[/dim]")
+        console.print()
+        console.print(f"  {_disk_info()}")
+        console.print(f"  {_building_count()}")
+        console.print(f"  exports → {CFG.EXPORT_ROOT}")
+        console.print()
+        console.print(f"Run:  [cyan]python scripts/miami/run_pipeline.py[/cyan]")
+        return 0
 
     with Live(
         _render(log_tail=log_tail, **render_kw),
