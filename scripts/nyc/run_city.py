@@ -1,19 +1,19 @@
 """
 run_city.py  [NYC city pipeline - GlitchOS.io]
 
-Process NOAA Coastal LiDAR tiles for New York City.
+Process NYC COPC LAZ tiles for New York City.
 
 Usage:
     python scripts/nyc/run_city.py new_york_city --dry-run
     python scripts/nyc/run_city.py new_york_city --execute
     python scripts/nyc/run_city.py new_york_city --execute --stages 00 01 02
-    python scripts/nyc/run_city.py new_york_city --execute --stages 06
+    python scripts/nyc/run_city.py new_york_city --execute --reprocess-failed
     python scripts/nyc/run_city.py new_york_city --dry-run --limit 20
 
 Dry-run shows:
   - city boundary source + bbox
-  - total tiles required, on-disk vs. missing
-  - estimated download size for missing tiles
+  - all COPC LAZ tiles discovered on disk
+  - borough assignment when catalog bbox metadata is available
   - pipeline commands that would execute
   - output paths
 
@@ -21,7 +21,6 @@ Execution:
   - Runs each tile via run_tile.py subprocess (process-isolated)
   - Rich progress bars per tile
   - Per-tile failure does NOT abort other tiles
-  - Stage 06 exports city-level Blender-ready indexes/merged assets
   - Writes city-level manifest after all tiles complete
 
 Outputs go to:
@@ -37,6 +36,7 @@ from __future__ import annotations
 
 import json
 import re
+import shutil
 import subprocess
 import sys
 import time
@@ -62,14 +62,23 @@ from rich import box
 console = Console()
 
 PIPELINE_VERSION = "1.0"
-ALL_STAGES = ["00", "01", "02", "03", "04", "05", "06"]
+ALL_STAGES = ["00", "01", "02", "03", "04", "05"]
 TILE_STAGES = {"00", "01", "02", "03", "04", "05"}
 
 PROTECTED_PATHS = [
     PROC_DIR / "tiles",
-    PROC_DIR / "sectors" / "dtla_core",
+    PROC_DIR / "sectors",
     PROC_DIR / "hero_tile",
 ]
+
+
+def _disk_stats() -> str:
+    path = r"T:/" if sys.platform == "win32" else "/mnt/t7"
+    try:
+        u = shutil.disk_usage(path)
+        return f"T7 {u.used/1e9:.0f} / {u.total/1e9:.0f} GB ({u.used/u.total*100:.0f}% used)"
+    except Exception:
+        return "T7: unavailable"
 
 
 # ── dry-run ───────────────────────────────────────────────────────────────────
@@ -108,6 +117,30 @@ def _load_cached_tiles(city_id: str) -> list[TileInfo] | None:
         return [_tile_info_from_manifest_record(t) for t in data.get("tiles", [])]
     except Exception:
         return None
+
+
+def _discover_current_tiles(
+    city_id: str,
+    use_api: bool = True,
+    no_grid: bool = False,
+    bbox_only: bool = False,
+    limit: int | None = None,
+) -> list[TileInfo]:
+    """
+    Discover the current run set directly from LAZ_DIR and refresh the manifest.
+
+    NYC is disk-authoritative: if 1,894 COPC LAZ files are present, every run
+    should see those files even when an older tile_manifest.json exists.
+    """
+    tiles = discover_tiles(
+        city_id,
+        use_api=use_api,
+        no_grid=no_grid,
+        bbox_only=bbox_only,
+        limit=limit,
+    )
+    write_tile_manifest(city_id, tiles)
+    return tiles
 
 
 def _discover_processed_tiles(city_id: str) -> list[TileInfo]:
@@ -171,6 +204,43 @@ def _merge_tiles(primary: list[TileInfo], extra: list[TileInfo]) -> list[TileInf
     return sorted(by_id.values(), key=lambda t: t.tile_id)
 
 
+def _tile_manifest_path(cfg, tile_id: str) -> Path:
+    return cfg.tiles_root / tile_id / "manifest" / f"{tile_id}_manifest.json"
+
+
+def _load_tile_manifest(cfg, tile_id: str) -> dict:
+    manifest_path = _tile_manifest_path(cfg, tile_id)
+    if not manifest_path.exists():
+        return {}
+    try:
+        return json.loads(manifest_path.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+
+
+def _tile_already_passed(cfg, tile_id: str) -> bool:
+    return _load_tile_manifest(cfg, tile_id).get("all_stages_passed") is True
+
+
+def _tile_has_failed_manifest(cfg, tile_id: str) -> bool:
+    manifest = _load_tile_manifest(cfg, tile_id)
+    return bool(manifest) and manifest.get("all_stages_passed") is not True
+
+
+def _results_from_manifest(manifest_data: dict, skipped: bool = False) -> dict:
+    return {
+        "s01": {"count_32611": manifest_data.get("footprint_count")},
+        "s02": {"ground_points": manifest_data.get("ground_points")},
+        "s04": {
+            "lod0": manifest_data.get("building_mass_lod0"),
+            "lod1": manifest_data.get("building_mass_lod1"),
+        },
+        "terrain_only": manifest_data.get("terrain_only", False),
+        "errors": manifest_data.get("errors", {}),
+        "skipped": skipped,
+    }
+
+
 def _tile_subprocess_code() -> str:
     import sys as _sys
     proj_data = str(Path(_sys.executable).parent.parent / "share" / "proj")
@@ -196,6 +266,7 @@ def dry_run(
     no_grid:   bool = False,
     bbox_only: bool = False,
     limit:     int | None = None,
+    reprocess_failed: bool = False,
 ):
     if city_id not in CITIES:
         console.print(f"[red]Unknown city: {city_id!r}[/red]")
@@ -224,21 +295,16 @@ def dry_run(
     console.print(f"[dim]Boundary cache:[/dim] {cfg.boundary_cache}")
     console.print(f"[dim]Tile manifest:[/dim] {cfg.tile_manifest}")
 
-    # Load or discover tiles
-    processed_tiles = _discover_processed_tiles(city_id)
-    tiles: list[TileInfo] | None = _load_cached_tiles(city_id)
-    if tiles:
-        try:
-            console.print(f"\n[dim]Using cached tile manifest ({len(tiles)} tiles).[/dim]")
-            console.print("[dim]Run list_city_tiles.py --refresh to re-discover.[/dim]")
-        except Exception:
-            tiles = None
-
-    if tiles is None:
-        console.print("\n[dim]Running tile discovery...[/dim]")
-        tiles = discover_tiles(city_id, use_api=use_api, no_grid=no_grid,
-                               bbox_only=bbox_only, limit=limit)
-        write_tile_manifest(city_id, tiles)
+    # Discover tiles dynamically from LAZ_DIR on every run.
+    processed_tiles = [] if limit is not None else _discover_processed_tiles(city_id)
+    console.print("\n[dim]Discovering tiles from LAZ files on disk...[/dim]")
+    tiles = _discover_current_tiles(
+        city_id,
+        use_api=use_api,
+        no_grid=no_grid,
+        bbox_only=bbox_only,
+        limit=limit,
+    )
 
     if processed_tiles:
         n_before = len(tiles)
@@ -252,6 +318,13 @@ def dry_run(
     n_missing  = len(tiles) - n_on_disk
     local_gb   = sum((t.file_size_mb or 0) for t in tiles if t.on_disk) / 1024
     dl_gb_est  = (n_missing * 300) / 1024
+    runnable_all = [t for t in tiles if t.on_disk]
+    skipped_passed = [t for t in runnable_all if _tile_already_passed(cfg, t.tile_id)]
+    failed_manifest_tiles = [t for t in runnable_all if _tile_has_failed_manifest(cfg, t.tile_id)]
+    if reprocess_failed:
+        runnable = failed_manifest_tiles
+    else:
+        runnable = [t for t in runnable_all if not _tile_already_passed(cfg, t.tile_id)]
 
     # Tile availability table
     console.print()
@@ -292,13 +365,15 @@ def dry_run(
     console.print(f"  Missing:          {'[red]' if n_missing else '[dim]'}{n_missing}{'[/red]' if n_missing else '[/dim]'}")
     console.print(f"  Local data:       [white]{local_gb:.1f} GB[/white]")
     console.print(f"  Est. to download: [yellow]{dl_gb_est:.1f} GB[/yellow]")
+    console.print(f"  Already passed:   [green]{len(skipped_passed)}[/green]")
+    console.print(f"  Failed manifests: [yellow]{len(failed_manifest_tiles)}[/yellow]")
+    console.print(f"  Would run:        [white]{len(runnable)}[/white]")
 
     # Pipeline stages that would execute
     console.print()
     console.rule("[cyan]Pipeline stages that would execute[/cyan]")
     if n_missing > 0:
         console.print(f"[yellow]  {n_missing} LAZ file(s) missing — only on-disk tiles will execute.[/yellow]")
-    runnable = [t for t in tiles if t.on_disk]
     tile_stages = [s for s in stages if s in TILE_STAGES]
     if tile_stages:
         for i, t in enumerate(runnable[:10]):
@@ -321,7 +396,7 @@ def dry_run(
         )
     elif n_on_disk == 0:
         console.print("[red]✗ No LAZ tiles on disk — cannot execute yet.[/red]")
-        console.print(f"  Download ~{dl_gb_est:.0f} GB from NOAA Coastal LiDAR S3 before running.")
+        console.print(f"  Put COPC LAZ files under {LAZ_DIR} before running.")
     else:
         console.print(f"[yellow]◐ {n_on_disk} of {len(tiles)} tiles ready. "
                       f"Will process available tiles only.[/yellow]")
@@ -336,7 +411,15 @@ def dry_run(
 
 # ── execute ───────────────────────────────────────────────────────────────────
 
-def execute(city_id: str, stages: list[str]):
+def execute(
+    city_id: str,
+    stages: list[str],
+    use_api: bool = True,
+    no_grid: bool = False,
+    bbox_only: bool = False,
+    limit: int | None = None,
+    reprocess_failed: bool = False,
+):
     if city_id not in CITIES:
         console.print(f"[red]Unknown city: {city_id!r}[/red]")
         return 1
@@ -350,9 +433,16 @@ def execute(city_id: str, stages: list[str]):
             console.print(f"  [red]{c}[/red]")
         return 1
 
-    tiles = _load_cached_tiles(city_id)
-    processed_tiles = _discover_processed_tiles(city_id)
-    if tiles is None:
+    console.print("[dim]Discovering tiles from LAZ files on disk...[/dim]")
+    tiles = _discover_current_tiles(
+        city_id,
+        use_api=use_api,
+        no_grid=no_grid,
+        bbox_only=bbox_only,
+        limit=limit,
+    )
+    processed_tiles = [] if limit is not None else _discover_processed_tiles(city_id)
+    if not tiles:
         if processed_tiles:
             tiles = processed_tiles
             console.print(
@@ -360,8 +450,7 @@ def execute(city_id: str, stages: list[str]):
                 f"{len(tiles)} tile dir(s) from {cfg.tiles_root}.[/dim]"
             )
         else:
-            console.print("[red]Tile manifest not found and no processed tile dirs found.[/red]")
-            console.print(f"  [cyan]python scripts/nyc/list_city_tiles.py --city {city_id}[/cyan]")
+            console.print(f"[red]No COPC LAZ files found under {LAZ_DIR}.[/red]")
             return 1
 
     if processed_tiles:
@@ -373,12 +462,30 @@ def execute(city_id: str, stages: list[str]):
         )
 
     tile_stages = [s for s in stages if s in TILE_STAGES]
-    run_export = "06" in stages
+    run_export = False
 
-    runnable = [t for t in tiles if t.on_disk]
+    tile_results:    dict = {}
+    tile_exit_codes: dict = {}
+
+    runnable_all = [t for t in tiles if t.on_disk]
+    skipped_passed = [t for t in runnable_all if _tile_already_passed(cfg, t.tile_id)]
+    if reprocess_failed:
+        runnable = [t for t in runnable_all if _tile_has_failed_manifest(cfg, t.tile_id)]
+    else:
+        runnable = [t for t in runnable_all if not _tile_already_passed(cfg, t.tile_id)]
+
+    for t in skipped_passed:
+        manifest_data = _load_tile_manifest(cfg, t.tile_id)
+        tile_exit_codes[t.tile_id] = 0
+        tile_results[t.tile_id] = _results_from_manifest(manifest_data, skipped=True)
+
     if tile_stages and not runnable:
-        console.print("[red]No on-disk LAZ tiles found. Nothing to execute.[/red]")
-        return 1
+        if reprocess_failed:
+            console.print("[green]No failed/incomplete tile manifests found. Nothing to reprocess.[/green]")
+        else:
+            console.print(f"[green]All {len(skipped_passed)} on-disk tile(s) already passed. Nothing to execute.[/green]")
+        _write_city_manifest(cfg, tile_results, tile_exit_codes)
+        return 0
 
     python   = sys.executable
     child_code = _tile_subprocess_code()
@@ -387,13 +494,13 @@ def execute(city_id: str, stages: list[str]):
     console.print(Panel(
         f"[bold magenta]GlitchOS.io - NYC City Pipeline[/bold magenta]\n"
         f"City: [cyan]{cfg.display_name}[/cyan]   "
-        f"Tiles: [white]{len(runnable)}[/white]   "
-        f"Stages: [white]{' '.join(stages)}[/white]",
+        f"Tiles to run: [white]{len(runnable)}[/white]   "
+        f"Skipped passed: [green]{len(skipped_passed)}[/green]   "
+        f"Stages: [white]{' '.join(stages)}[/white]"
+        + ("   [yellow](failed-only)[/yellow]" if reprocess_failed else "")
+        + f"\n[dim]{_disk_stats()}[/dim]",
         box=box.ROUNDED,
     ))
-
-    tile_results:    dict = {}
-    tile_exit_codes: dict = {}
 
     if tile_stages:
         with Progress(
@@ -506,12 +613,17 @@ def execute(city_id: str, stages: list[str]):
     n_ok   = sum(1 for rc in tile_exit_codes.values() if rc == 0)
     n_fail = len(tile_exit_codes) - n_ok
 
+    total_footprints = sum(
+        (r.get("s01") or {}).get("count_32611") or 0 for r in tile_results.values()
+    )
+
     console.print()
     console.print(Panel(
         "\n".join([
             f"[bold]City [cyan]{city_id}[/cyan] complete[/bold]",
             f"  {n_ok}/{len(tile_exit_codes)} tiles OK   "
-            f"{'[green]ALL PASSED[/green]' if n_fail == 0 else f'[red]{n_fail} FAILED[/red]'}"
+            f"{'[green]ALL PASSED[/green]' if n_fail == 0 else f'[red]{n_fail} FAILED[/red]'}",
+            f"  buildings: [white]{total_footprints:,}[/white]   [dim]{_disk_stats()}[/dim]",
         ]),
         box=box.ROUNDED,
     ))
@@ -563,6 +675,7 @@ def main():
 
     city_id = args[0]
     dry     = "--dry-run" in args or "--execute" not in args
+    reprocess_failed = "--reprocess-failed" in args
     stages  = []
 
     i = 1
@@ -583,9 +696,12 @@ def main():
 
     if dry:
         return dry_run(city_id, stages, use_api=use_api, no_grid=no_grid,
-                       bbox_only=bbox_only, limit=limit)
+                       bbox_only=bbox_only, limit=limit,
+                       reprocess_failed=reprocess_failed)
     else:
-        return execute(city_id, stages)
+        return execute(city_id, stages, use_api=use_api, no_grid=no_grid,
+                       bbox_only=bbox_only, limit=limit,
+                       reprocess_failed=reprocess_failed)
 
 
 if __name__ == "__main__":

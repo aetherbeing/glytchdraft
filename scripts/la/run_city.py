@@ -39,6 +39,7 @@ from __future__ import annotations
 
 import json
 import re
+import shutil
 import subprocess
 import sys
 import time
@@ -50,7 +51,7 @@ sys.path.insert(0, str(Path(__file__).parent / "stages"))
 
 from city_config import CITIES, CITY_ORDER
 from tile_discovery import discover_tiles, write_tile_manifest, TileInfo, _parse_discovery_flags
-from tile_config import LAZ_DIR, PROC_DIR
+from tile_config import LAZ_DIR, PROC_DIR, CITY_FOOTPRINTS_RAW
 
 from rich.console import Console
 from rich.table import Table
@@ -72,6 +73,15 @@ PROTECTED_PATHS = [
     PROC_DIR / "sectors" / "dtla_core",
     PROC_DIR / "hero_tile",
 ]
+
+
+def _disk_stats() -> str:
+    path = r"T:/" if sys.platform == "win32" else "/mnt/t7"
+    try:
+        u = shutil.disk_usage(path)
+        return f"T7 {u.used/1e9:.0f} / {u.total/1e9:.0f} GB ({u.used/u.total*100:.0f}% used)"
+    except Exception:
+        return "T7: unavailable"
 
 
 # ── dry-run ───────────────────────────────────────────────────────────────────
@@ -180,7 +190,8 @@ def _tile_subprocess_code() -> str:
         "from tile_config import TileConfig\n"
         "from run_tile import run_tile\n"
         "tile_id, laz_filename, output_root, stages_json = sys.argv[1:5]\n"
-        "tile = TileConfig(tile_id=tile_id, laz_filename=laz_filename, output_root=Path(output_root))\n"
+        "fp_src = Path(sys.argv[5]) if len(sys.argv) > 5 and sys.argv[5] else None\n"
+        "tile = TileConfig(tile_id=tile_id, laz_filename=laz_filename, output_root=Path(output_root), footprints_src=fp_src)\n"
         "results = run_tile(tile, json.loads(stages_json))\n"
         "sys.exit(1 if results.get('errors') else 0)\n"
     ) % (Path(__file__).parent, Path(__file__).parent)
@@ -374,7 +385,8 @@ def execute(city_id: str, stages: list[str]):
         f"[bold magenta]GlitchOS.io — LA City Pipeline[/bold magenta]\n"
         f"City: [cyan]{cfg.display_name}[/cyan]   "
         f"Tiles: [white]{len(runnable)}[/white]   "
-        f"Stages: [white]{' '.join(stages)}[/white]",
+        f"Stages: [white]{' '.join(stages)}[/white]\n"
+        f"[dim]{_disk_stats()}[/dim]",
         box=box.ROUNDED,
     ))
 
@@ -399,6 +411,7 @@ def execute(city_id: str, stages: list[str]):
                 tile_label = t.tile_id
                 tile_task = progress.add_task(f"  {tile_label}", total=1)
 
+                fp_src_str = str(CITY_FOOTPRINTS_RAW) if CITY_FOOTPRINTS_RAW.exists() else ""
                 cmd = [
                     python,
                     "-c", child_code,
@@ -406,6 +419,7 @@ def execute(city_id: str, stages: list[str]):
                     t.laz_filename,
                     str(cfg.tiles_root),
                     json.dumps(tile_stages),
+                    fp_src_str,
                 ]
 
                 t0   = time.time()
@@ -492,16 +506,199 @@ def execute(city_id: str, stages: list[str]):
     n_ok   = sum(1 for rc in tile_exit_codes.values() if rc == 0)
     n_fail = len(tile_exit_codes) - n_ok
 
+    total_footprints = sum(
+        (r.get("s01") or {}).get("count_32611") or 0 for r in tile_results.values()
+    )
+
     console.print()
     console.print(Panel(
         "\n".join([
             f"[bold]City [cyan]{city_id}[/cyan] complete[/bold]",
             f"  {n_ok}/{len(tile_exit_codes)} tiles OK   "
-            f"{'[green]ALL PASSED[/green]' if n_fail == 0 else f'[red]{n_fail} FAILED[/red]'}"
+            f"{'[green]ALL PASSED[/green]' if n_fail == 0 else f'[red]{n_fail} FAILED[/red]'}",
+            f"  buildings: [white]{total_footprints:,}[/white]   [dim]{_disk_stats()}[/dim]",
         ]),
         box=box.ROUNDED,
     ))
 
+    return 0 if n_fail == 0 else 1
+
+
+def rerun_missing_masses(city_id: str) -> int:
+    """
+    Re-run stages 01 + 03 + 04 + 05 for every tile that does not yet have a
+    LOD0 OBJ on disk.  This covers terrain-only tiles (old footprint source too
+    small), s03-failed tiles (Z range / CRS issues), and any unknown failures.
+
+    Stale crs_validation.json reports are deleted before rerunning so s03
+    always runs fresh.  Requires CITY_FOOTPRINTS_RAW or live ESRI/OSM access.
+    """
+    if city_id not in CITIES:
+        console.print(f"[red]Unknown city: {city_id!r}[/red]")
+        return 1
+
+    cfg = CITIES[city_id]
+
+    if not CITY_FOOTPRINTS_RAW.exists():
+        console.print(
+            f"[yellow]CITY_FOOTPRINTS_RAW not found: {CITY_FOOTPRINTS_RAW}[/yellow]\n"
+            "  Tiles will fall back to live ESRI/OSM queries (slower).\n"
+            "  Pre-download with:  python scripts/la/download_city_footprints.py los_angeles"
+        )
+
+    # Discover which tiles need a re-run
+    missing: list[TileInfo] = []
+    tiles_root = cfg.tiles_root
+    if not tiles_root.exists():
+        console.print(f"[red]tiles_root not found: {tiles_root}[/red]")
+        return 1
+
+    for tile_dir in sorted(p for p in tiles_root.iterdir() if p.is_dir()):
+        tile_id = tile_dir.name
+        manifest_path = tile_dir / "manifest" / f"{tile_id}_manifest.json"
+        if not manifest_path.exists():
+            continue
+        try:
+            m = json.loads(manifest_path.read_text(encoding="utf-8"))
+        except Exception:
+            continue
+        # Skip tiles that already have LOD0 masses on disk.
+        # Check both the constructed path and the manifest's stored path
+        # (which may have a stale /mnt/t7/ mount point).
+        constructed_lod0 = (
+            tile_dir / "blender_ready" / "masses"
+            / f"{tile_id}_masses_LOD0_individual.obj"
+        )
+        if not constructed_lod0.exists():
+            stored_lod0 = (m.get("outputs") or {}).get("lod0_obj", "")
+            if stored_lod0:
+                p = Path(stored_lod0)
+                remapped = Path(str(p).replace("/mnt/t7/", "/mnt/e/"))
+                if p.exists() or remapped.exists():
+                    continue
+        else:
+            continue
+
+        # Delete stale validation report so s03 re-runs fresh
+        val_report = tile_dir / "notes" / "crs_validation.json"
+        if val_report.exists():
+            try:
+                val_report.unlink()
+            except Exception:
+                pass
+
+        laz_filename = m.get("source_laz")
+        if not laz_filename:
+            continue
+        laz_on_disk = (LAZ_DIR / laz_filename).exists()
+        missing.append(TileInfo(
+            tile_id=tile_id,
+            laz_filename=laz_filename,
+            download_url=None,
+            bbox_2229=m.get("bbox_2229") or {},
+            bbox_4326=None,
+            on_disk=laz_on_disk,
+            file_size_mb=None,
+        ))
+
+    if not missing:
+        console.print("[green]All tiles already have LOD0 masses — nothing to rerun.[/green]")
+        return 0
+
+    laz_missing = [t for t in missing if not t.on_disk]
+    if laz_missing:
+        console.print(
+            f"[yellow]Warning: {len(laz_missing)} tiles missing LAZ — s04 will fail for those.[/yellow]"
+        )
+
+    stages = ["01", "03", "04", "05"]
+    python = sys.executable
+    child_code = _tile_subprocess_code()
+    fp_src_str = str(CITY_FOOTPRINTS_RAW) if CITY_FOOTPRINTS_RAW.exists() else ""
+
+    console.print()
+    console.print(Panel(
+        f"[bold magenta]GlitchOS.io — Rerun Missing Masses[/bold magenta]\n"
+        f"City: [cyan]{cfg.display_name}[/cyan]   "
+        f"Tiles to fix: [white]{len(missing)}[/white]   "
+        f"Stages: [white]{' '.join(stages)}[/white]\n"
+        f"Footprint src: [dim]{fp_src_str or 'live ESRI/OSM'}[/dim]\n"
+        f"[dim]Stale crs_validation.json deleted before each tile runs.[/dim]",
+        box=box.ROUNDED,
+    ))
+
+    tile_results: dict = {}
+    tile_exit_codes: dict = {}
+
+    with Progress(
+        SpinnerColumn(),
+        TextColumn("[bold cyan]{task.description}"),
+        BarColumn(bar_width=32),
+        MofNCompleteColumn(),
+        TimeElapsedColumn(),
+        console=console,
+        transient=False,
+    ) as progress:
+        city_task = progress.add_task(f"[magenta]{city_id}", total=len(missing))
+
+        for t in missing:
+            tile_task = progress.add_task(f"  {t.tile_id[:40]}", total=1)
+            cmd = [
+                python, "-c", child_code,
+                t.tile_id, t.laz_filename,
+                str(cfg.tiles_root),
+                json.dumps(stages),
+                fp_src_str,
+            ]
+            t0   = time.time()
+            proc = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace")
+            elapsed = time.time() - t0
+            ok = proc.returncode == 0
+            progress.update(
+                tile_task,
+                description=f"  {t.tile_id[:40]} [{'green' if ok else 'red'}]{'OK' if ok else 'FAIL'}[/] ({elapsed/60:.1f} min)",
+                completed=1,
+            )
+            progress.advance(city_task)
+            tile_exit_codes[t.tile_id] = proc.returncode
+
+            manifest_path = cfg.tiles_root / t.tile_id / "manifest" / f"{t.tile_id}_manifest.json"
+            manifest_data = {}
+            if manifest_path.exists():
+                try:
+                    manifest_data = json.loads(manifest_path.read_text(encoding="utf-8"))
+                except Exception:
+                    pass
+
+            tile_results[t.tile_id] = {
+                "s01": {"count_32611": manifest_data.get("footprint_count")},
+                "s02": {"ground_points": manifest_data.get("ground_points")},
+                "s04": {"lod0": manifest_data.get("building_mass_lod0"),
+                        "lod1": manifest_data.get("building_mass_lod1")},
+                "terrain_only": manifest_data.get("terrain_only", False),
+                "errors": manifest_data.get("errors", {}) if proc.returncode != 0 else {},
+            }
+            if proc.stdout:
+                for line in proc.stdout.strip().splitlines():
+                    console.print(f"    [dim]{line}[/dim]")
+            if proc.stderr and proc.returncode != 0:
+                for line in proc.stderr.strip().splitlines()[-10:]:
+                    console.print(f"    [red]{line}[/red]")
+
+    n_ok   = sum(1 for rc in tile_exit_codes.values() if rc == 0)
+    n_fail = len(tile_exit_codes) - n_ok
+    n_masses = sum(
+        1 for r in tile_results.values()
+        if (r.get("s04") or {}).get("lod0", 0) or 0 > 0
+    )
+    console.print()
+    console.print(Panel(
+        f"[bold]Rerun complete[/bold]\n"
+        f"  {n_ok}/{len(tile_exit_codes)} OK   "
+        f"{'[green]ALL PASSED[/green]' if n_fail == 0 else f'[red]{n_fail} FAILED[/red]'}\n"
+        f"  Tiles with new masses: [cyan]{n_masses}[/cyan]",
+        box=box.ROUNDED,
+    ))
     return 0 if n_fail == 0 else 1
 
 
@@ -567,7 +764,9 @@ def main():
     # Discovery flags (shared with tile_discovery / list_city_tiles)
     _, use_api, no_grid, bbox_only, _, limit = _parse_discovery_flags(args)
 
-    if dry:
+    if "--rerun-missing-masses" in args:
+        return rerun_missing_masses(city_id)
+    elif dry:
         return dry_run(city_id, stages, use_api=use_api, no_grid=no_grid,
                        bbox_only=bbox_only, limit=limit)
     else:

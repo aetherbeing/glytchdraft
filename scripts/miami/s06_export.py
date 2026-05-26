@@ -136,12 +136,18 @@ def _mass_floor_z(mass_paths: list[Path], pct: float = 1.0) -> float:
 
 
 def _build_terrain_mesh(
-    ply_path: Path, shift_z: float, step: int = 100
-) -> tuple[np.ndarray, np.ndarray]:
-    """Read ground PLY, decimate, Delaunay-triangulate, apply same transform as buildings.
+    ply_path: Path,
+    shift_z: float,
+    step: int = 100,
+    water_plane: bool = True,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray | None, np.ndarray | None]:
+    """Read ground PLY, filter water returns, Delaunay-triangulate land, add flat water plane.
 
-    Returns (verts float32 N×3, faces uint32 M×3) already in glTF Y-up space.
-    step=100 on a 1m-spaced PLY → ~10m terrain resolution, ~100k triangles.
+    Water filter: drops points where Z < shift_z (GLB Y < 0), which removes Biscayne Bay
+    LiDAR returns and any remaining ellipsoidal-datum outliers.
+
+    Returns (land_verts, land_faces, water_verts_or_None, water_faces_or_None).
+    All arrays already in glTF Y-up space: (local_easting, elev-shift_z, -local_northing).
     """
     from scipy.spatial import Delaunay
 
@@ -163,20 +169,57 @@ def _build_terrain_mesh(
         dtype = np.dtype(fields)
         data = np.frombuffer(f.read(n_verts * dtype.itemsize), dtype=dtype)
 
+    # IQR reject ellipsoidal-datum outliers (same logic as _ply_min_z)
     z_all = data["Z"]
     q1 = float(np.percentile(z_all, 25))
     q3 = float(np.percentile(z_all, 75))
     fence = q1 - 1.5 * (q3 - q1)
-    data = data[z_all >= fence][::step]
+    data  = data[z_all >= fence]
 
-    lx = (data["X"] - CFG.SHIFT_X).astype(np.float32)
-    ly = (data["Y"] - CFG.SHIFT_Y).astype(np.float32)
-    lz = data["Z"].astype(np.float32)
+    # Land filter: keep only points above the shifted sea level (GLB Y >= 0)
+    # This removes Biscayne Bay returns and coastal noise without needing a shapefile.
+    lz_full    = data["Z"]
+    land_mask  = lz_full >= shift_z
+    n_water    = int((~land_mask).sum())
+    if n_water > 0:
+        print(f"    terrain: dropped {n_water:,} water/sub-sea pts ({n_water/len(data)*100:.1f}%)")
+    land_data = data[land_mask]
 
-    tri = Delaunay(np.column_stack([lx, ly]))
-    verts = np.column_stack([lx, lz - shift_z, -ly]).astype(np.float32)
-    faces = tri.simplices.astype(np.uint32)
-    return verts, faces
+    if len(land_data) < 10:
+        print("    WARNING: too few land points after water filter")
+        return np.empty((0, 3), np.float32), np.empty((0, 3), np.uint32), None, None
+
+    # Capture full-resolution land bbox for the water plane extent before decimating
+    lx_all = (land_data["X"] - CFG.SHIFT_X).astype(np.float64)
+    ly_all = (land_data["Y"] - CFG.SHIFT_Y).astype(np.float64)
+    bbox   = (float(lx_all.min()), float(lx_all.max()),
+              float(ly_all.min()), float(ly_all.max()))
+
+    # Decimate
+    land_data = land_data[::step]
+    lx = (land_data["X"] - CFG.SHIFT_X).astype(np.float32)
+    ly = (land_data["Y"] - CFG.SHIFT_Y).astype(np.float32)
+    lz = land_data["Z"].astype(np.float32)
+
+    tri        = Delaunay(np.column_stack([lx, ly]))
+    land_verts = np.column_stack([lx, lz - shift_z, -ly]).astype(np.float32)
+    land_faces = tri.simplices.astype(np.uint32)
+
+    if not water_plane:
+        return land_verts, land_faces, None, None
+
+    # Flat water quad at GLB Y = -1.0, padded 500 m beyond land bbox
+    pad = 500.0
+    x0, x1, y0, y1 = bbox[0] - pad, bbox[1] + pad, bbox[2] - pad, bbox[3] + pad
+    wy = np.float32(-1.0)
+    water_verts = np.array([
+        [x0, wy, -y0],  # SW corner  (GLB Z = -northing)
+        [x1, wy, -y0],  # SE
+        [x1, wy, -y1],  # NE
+        [x0, wy, -y1],  # NW
+    ], dtype=np.float32)
+    water_faces = np.array([[0, 1, 2], [0, 2, 3]], dtype=np.uint32)
+    return land_verts, land_faces, water_verts, water_faces
 
 
 # ── OBJ shift ──────────────────────────────────────────────────────────────────
@@ -316,9 +359,14 @@ def write_glb(
     if terrain_ply is not None and terrain_ply.exists():
         try:
             t0 = time.time()
-            tv, tf = _build_terrain_mesh(terrain_ply, shift_z=shift_z, step=terrain_step)
-            print(f"    terrain mesh: {len(tv):,} verts  {len(tf):,} tris  ({time.time()-t0:.1f}s)")
-            mesh_list.append((tv, tf, "terrain"))
+            tv, tf, wv, wf = _build_terrain_mesh(terrain_ply, shift_z=shift_z, step=terrain_step)
+            elapsed_t = time.time() - t0
+            if len(tv) > 0:
+                print(f"    terrain: {len(tv):,} verts  {len(tf):,} tris  ({elapsed_t:.1f}s)")
+                mesh_list.append((tv, tf, "terrain"))
+            if wv is not None:
+                print(f"    water plane: {len(wv)} verts")
+                mesh_list.append((wv, wf, "water"))
         except Exception as exc:
             print(f"  WARNING: terrain mesh skipped: {exc}")
 
