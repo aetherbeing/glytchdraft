@@ -103,8 +103,8 @@ def write_json(path: Path, payload: object) -> None:
 
 def resolve_existing_path(paths: list[Path], label: str) -> Path:
     for path in paths:
-      if path.exists():
-        return path
+        if path.exists():
+            return path
     tried = ", ".join(str(path) for path in paths)
     raise FileNotFoundError(f"{label} not found. Tried: {tried}")
 
@@ -264,7 +264,8 @@ def build_streaming_manifest(tile_root: Path, city_offset: dict, source_tiles: l
         glb_path = tile_root / tile_id / "blender_ready" / f"{tile_id}.glb"
         offset_path = tile_root / tile_id / "blender_ready" / f"{tile_id}_glb_offset.json"
         has_glb = glb_path.exists()
-        bbox_4326 = tile_manifest_bbox(tile_root, tile_id) or normalize_bbox(tile.get("bbox_4326"))
+        per_tile_bbox = tile_manifest_bbox(tile_root, tile_id)
+        bbox_4326 = per_tile_bbox or normalize_bbox(tile.get("bbox_4326"))
 
         bounds = infer_tile_bounds(index)
         if has_glb and offset_path.exists():
@@ -296,7 +297,7 @@ def build_streaming_manifest(tile_root: Path, city_offset: dict, source_tiles: l
                 "url": f"/models/tiles/{tile_id}.glb",
                 "has_glb": has_glb,
                 "bbox_4326": bbox_4326,
-                "bbox_source": "tile_manifest" if tile_manifest_bbox(tile_root, tile_id) else tile.get("bbox_source", "city_tile_manifest"),
+                "bbox_source": "tile_manifest" if per_tile_bbox else tile.get("bbox_source", "city_tile_manifest"),
                 "bounds": bounds,
                 "cull_bounds": cull_bounds,
                 "center": center,
