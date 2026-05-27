@@ -1,8 +1,317 @@
-﻿/* Custom app styles */
-.glytch-button {
-  @apply bg-gradient-to-r from-glytch-pink to-glytch-purple text-white font-bold py-2 px-4 rounded-lg transition-all duration-300 hover:scale-105 hover:shadow-lg;
+:root {
+  color: #f5f1e8;
+  background: #101318;
 }
 
-.glytch-text {
-  @apply text-transparent bg-clip-text bg-gradient-to-r from-glytch-pink to-glytch-blue;
+.app-shell {
+  min-height: 100vh;
+  background:
+    linear-gradient(180deg, rgba(0, 229, 255, 0.08), rgba(16, 19, 24, 0) 42%),
+    #101318;
+  color: #f5f1e8;
+}
+
+.claim-page {
+  width: min(1280px, calc(100% - 32px));
+  margin: 0 auto;
+  padding: 42px 0;
+}
+
+.claim-hero {
+  max-width: 840px;
+  margin-bottom: 28px;
+}
+
+.claim-kicker,
+.panel-heading span {
+  margin: 0 0 8px;
+  color: rgba(0, 229, 255, 0.72);
+  font-size: 0.76rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.claim-hero h1 {
+  margin: 0;
+  color: #f8f3e7;
+  font-size: clamp(2.6rem, 8vw, 6rem);
+  line-height: 0.92;
+  letter-spacing: 0;
+}
+
+.claim-hero p:last-child {
+  max-width: 760px;
+  margin: 18px 0 0;
+  color: #b9c8ca;
+  line-height: 1.65;
+}
+
+.claim-layout {
+  display: grid;
+  grid-template-columns: 280px minmax(0, 1fr) 360px;
+  gap: 16px;
+  align-items: start;
+}
+
+.structure-list,
+.claim-panel,
+.activity-panel {
+  border: 1px solid rgba(0, 229, 255, 0.2);
+  border-radius: 6px;
+  background: rgba(2, 8, 12, 0.78);
+  box-shadow: 0 18px 60px rgba(0, 0, 0, 0.22);
+}
+
+.structure-list,
+.activity-panel {
+  padding: 14px;
+}
+
+.claim-panel {
+  padding: 20px;
+}
+
+.panel-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.panel-heading strong {
+  color: #f8f3e7;
+  font-size: 0.84rem;
+}
+
+.structure-row {
+  display: block;
+  width: 100%;
+  min-height: 92px;
+  margin-top: 10px;
+  padding: 12px;
+  border: 1px solid rgba(0, 229, 255, 0.14);
+  border-radius: 5px;
+  background: rgba(0, 229, 255, 0.035);
+  color: #f5f1e8;
+  text-align: left;
+}
+
+.structure-row:hover,
+.structure-row:focus-visible,
+.structure-row.active {
+  border-color: rgba(211, 161, 95, 0.85);
+  outline: none;
+}
+
+.structure-row span,
+.structure-row strong,
+.structure-row small {
+  display: block;
+}
+
+.structure-row span,
+.structure-row small {
+  color: #8fb6ba;
+  font-size: 0.76rem;
+}
+
+.structure-row strong {
+  margin: 8px 0;
+  line-height: 1.35;
+}
+
+.claim-panel h2 {
+  margin: 0 0 18px;
+  color: #f8f3e7;
+  font-size: clamp(1.8rem, 4vw, 3rem);
+  line-height: 1;
+}
+
+.claim-badge {
+  padding: 4px 8px;
+  border: 1px solid rgba(185, 200, 202, 0.32);
+  border-radius: 999px;
+  color: #b9c8ca;
+  font-size: 0.74rem;
+  text-transform: uppercase;
+}
+
+.claim-badge.claimed {
+  border-color: rgba(211, 161, 95, 0.8);
+  color: #d3a15f;
+}
+
+.claim-facts {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin: 0 0 20px;
+}
+
+.claim-facts div {
+  min-height: 76px;
+  padding: 12px;
+  border: 1px solid rgba(245, 241, 232, 0.1);
+  border-radius: 5px;
+  background: rgba(245, 241, 232, 0.035);
+}
+
+.claim-facts dt {
+  margin-bottom: 8px;
+  color: #8fb6ba;
+  font-size: 0.74rem;
+  text-transform: uppercase;
+}
+
+.claim-facts dd {
+  margin: 0;
+  color: #f5f1e8;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.claim-action-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 16px;
+  border: 1px solid rgba(211, 161, 95, 0.32);
+  border-radius: 5px;
+  background: rgba(211, 161, 95, 0.08);
+}
+
+.claim-action-row span,
+.post-meta span,
+.post-footer,
+.post-tags,
+.provenance-box span,
+.post-composer span {
+  color: #8fb6ba;
+  font-size: 0.78rem;
+}
+
+.claim-action-row strong {
+  display: block;
+  margin-top: 5px;
+  color: #f8f3e7;
+}
+
+.claim-button {
+  min-height: 42px;
+  padding: 0 16px;
+  border: 1px solid #d3a15f;
+  border-radius: 5px;
+  background: #d3a15f;
+  color: #101318;
+  font-weight: 700;
+}
+
+.claim-button:disabled {
+  cursor: not-allowed;
+  border-color: rgba(245, 241, 232, 0.18);
+  background: rgba(245, 241, 232, 0.1);
+  color: #7e8a8d;
+}
+
+.provenance-box {
+  display: grid;
+  gap: 8px;
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px solid rgba(245, 241, 232, 0.1);
+}
+
+.provenance-box code {
+  color: #cfd9d6;
+  font-size: 0.8rem;
+  line-height: 1.5;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.post-composer {
+  padding: 12px;
+  border: 1px dashed rgba(0, 229, 255, 0.24);
+  border-radius: 5px;
+  background: rgba(0, 229, 255, 0.035);
+}
+
+.post-composer p {
+  margin: 6px 0 0;
+  color: #b9c8ca;
+  font-size: 0.86rem;
+  line-height: 1.5;
+}
+
+.post-list {
+  display: grid;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.post-card {
+  padding: 12px;
+  border: 1px solid rgba(245, 241, 232, 0.1);
+  border-radius: 5px;
+  background: rgba(245, 241, 232, 0.035);
+}
+
+.post-meta,
+.post-footer,
+.post-tags {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.post-meta strong {
+  color: #f8f3e7;
+}
+
+.post-card p {
+  margin: 10px 0;
+  color: #d8e0df;
+  line-height: 1.5;
+}
+
+.post-tags {
+  justify-content: flex-start;
+  margin-bottom: 10px;
+}
+
+.post-tags span {
+  padding: 3px 7px;
+  border: 1px solid rgba(0, 229, 255, 0.18);
+  border-radius: 999px;
+}
+
+@media (max-width: 1120px) {
+  .claim-layout {
+    grid-template-columns: 260px minmax(0, 1fr);
+  }
+
+  .activity-panel {
+    grid-column: 1 / -1;
+  }
+}
+
+@media (max-width: 760px) {
+  .claim-page {
+    width: min(100% - 24px, 1280px);
+    padding: 28px 0;
+  }
+
+  .claim-layout,
+  .claim-facts {
+    grid-template-columns: 1fr;
+  }
+
+  .claim-action-row {
+    align-items: stretch;
+    flex-direction: column;
+  }
 }

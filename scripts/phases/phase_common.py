@@ -134,6 +134,7 @@ def _import_module(module_path: Path, module_name: str, import_dir: Path):
         if spec is None or spec.loader is None:
             raise ImportError(f"Cannot import {module_path}")
         module = importlib.util.module_from_spec(spec)
+        sys.modules[module_name] = module
         spec.loader.exec_module(module)
         return module
     finally:
@@ -145,9 +146,9 @@ def load_city(city: str) -> CityRuntime:
     config_path = CITY_CONFIG_DIR / f"{city.lower()}.json"
     if config_path.exists():
         data = json.loads(config_path.read_text(encoding="utf-8"))
-        output_root = Path(data.get("output_root") or Path(data["tiles_root"]).parent)
+        output_root = resolve_cross_platform_path(Path(data.get("output_root") or Path(data["tiles_root"]).parent))
         metadata_dir = output_root / "metadata"
-        audit_dir = Path(data.get("audit_dir") or output_root / "audit")
+        audit_dir = resolve_cross_platform_path(Path(data.get("audit_dir") or output_root / "audit"))
         raw = SimpleNamespace(
             DBSCAN_EPS=data.get("dbscan_eps", 3.0),
             DBSCAN_MIN_SAMPLES=data.get("dbscan_min_samples", 10),
@@ -155,12 +156,14 @@ def load_city(city: str) -> CityRuntime:
             HAG_MAX_M=data.get("hag_max_m", 300.0),
             BUILDING_SOURCE_CLASS=data.get("building_source_class", 1),
             GROUND_CLASS=data.get("ground_class", 2),
+            VEGETATION_ENABLED=bool(data.get("vegetation_enabled", True)),
             VEGETATION_CLASSES=tuple(data.get("vegetation_classes", [3, 4, 5])),
             OUTLIER_MEAN_K=data.get("outlier_mean_k", 12),
             OUTLIER_MULTIPLIER=data.get("outlier_multiplier", 2.2),
             RING_BUFFER_M=data.get("ring_buffer_m", 5.0),
             MIN_POINTS_GOOD=data.get("min_points_good", 8),
             DEFAULT_FALLBACK_HEIGHT=data.get("default_fallback_height", 6.0),
+            COUNTY_FP_PATH=resolve_cross_platform_path(Path(data["county_footprints_path"])) if data.get("county_footprints_path") else None,
         )
         return CityRuntime(
             requested_city=city,
@@ -168,11 +171,11 @@ def load_city(city: str) -> CityRuntime:
             city_id=data.get("city_slug", city),
             display_name=data.get("display_name", city),
             output_root=output_root,
-            tiles_root=Path(data["tiles_root"]),
+            tiles_root=resolve_cross_platform_path(Path(data["tiles_root"])),
             metadata_dir=metadata_dir,
             audit_dir=audit_dir,
-            tile_manifest=Path(data.get("tile_manifest") or output_root / "tile_manifest.json"),
-            city_manifest=Path(data["city_manifest"]),
+            tile_manifest=resolve_cross_platform_path(Path(data.get("tile_manifest") or output_root / "tile_manifest.json")),
+            city_manifest=resolve_cross_platform_path(Path(data["city_manifest"])),
             address_points=metadata_dir / "address_points.geojson",
             structures_enriched=metadata_dir / "structures_enriched.geojson",
             laz_dir=resolve_cross_platform_path(Path(data["laz_dir"])),

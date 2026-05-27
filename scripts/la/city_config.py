@@ -64,6 +64,8 @@ class CityConfig:
     # See scripts/common/ingest_addresses.py for the expected schema.
     address_source: dict | None = field(default=None)
     address_join_radius_m: float = 100.0
+    DBSCAN_EPS: float = 3.0
+    DBSCAN_MIN_SAMPLES: int = 10
     preserve_raw_laz: bool = True
     pipeline_version: str = "1.0"
 

@@ -1,15 +1,17 @@
 // Scene coordinate extents (from GLB accessor bounds)
 export const SCENE = {
-  // Buildings LOD1 extents in GLB Y-up space
-  xMin: -0,   xMax: 7661,
-  yMin:  0,   yMax: 308,
-  zMin: -4826, zMax: 949,
+  // Full City of Miami extents in GLB Y-up space
+  xMin: 0,     xMax: 15235,
+  yMin: -21,   yMax: 313,
+  zMin: -18282, zMax: 0,
   // Convenient center
-  cx: 3500, cy: 60, cz: -2000,
+  cx: 7617, cy: 60, cz: -9141,
 }
 
 // GLB URL — served from public/models symlink
-export const GLB_URL = '/models/MIAMI_BIKINI/MIAMI_BIKINI_LOD1.glb'
+export const GLB_URL = '/models/miami.glb'
+export const TILE_MANIFEST_URL = '/models/tile_manifest.json'
+export const MAX_STREAMED_TILES = 10
 
 // Decimated point cloud (float32 XYZ, GLB-space coords)
 export const POINTS_URL = '/models/building_points.f32'

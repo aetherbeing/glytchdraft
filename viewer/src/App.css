@@ -1,184 +1,290 @@
-.counter {
-  font-size: 16px;
-  padding: 5px 10px;
-  border-radius: 5px;
-  color: var(--accent);
-  background: var(--accent-bg);
-  border: 2px solid transparent;
-  transition: border-color 0.3s;
-  margin-bottom: 24px;
-
-  &:hover {
-    border-color: var(--accent-border);
-  }
-  &:focus-visible {
-    outline: 2px solid var(--accent);
-    outline-offset: 2px;
-  }
-}
-
-.hero {
+.app-shell {
   position: relative;
+  width: 100vw;
+  height: 100vh;
+  color: #edf7f5;
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  overflow: hidden;
+}
 
-  .base,
-  .framework,
-  .vite {
-    inset-inline: 0;
-    margin: 0 auto;
+.landing-shell {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  overflow-y: auto;
+  padding: clamp(20px, 4vw, 56px);
+  background:
+    linear-gradient(90deg, rgba(7, 10, 13, 0.96), rgba(7, 10, 13, 0.74) 48%, rgba(7, 10, 13, 0.9)),
+    radial-gradient(circle at 75% 16%, rgba(177, 232, 214, 0.12), transparent 28%);
+  backdrop-filter: blur(2px);
+}
+
+.entry-panel {
+  min-height: min(760px, calc(100vh - 96px));
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(300px, 460px);
+  align-items: center;
+  gap: clamp(28px, 6vw, 96px);
+  max-width: 1240px;
+  margin: 0 auto;
+  padding-bottom: 34px;
+  border-bottom: 1px solid rgba(237, 247, 245, 0.14);
+}
+
+.entry-copy {
+  max-width: 720px;
+}
+
+.eyebrow,
+.section-kicker,
+.order-card span {
+  color: #a8d8c8;
+  font-family: "JetBrains Mono", "Fira Code", Consolas, monospace;
+  font-size: 0.72rem;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+}
+
+.entry-copy h1 {
+  margin-top: 18px;
+  color: #f8fffb;
+  font-size: clamp(4rem, 12vw, 9.5rem);
+  font-weight: 700;
+  letter-spacing: 0;
+  line-height: 0.86;
+}
+
+.entry-text {
+  max-width: 640px;
+  margin-top: 30px;
+  color: rgba(237, 247, 245, 0.78);
+  font-size: clamp(1.05rem, 2vw, 1.45rem);
+  line-height: 1.45;
+}
+
+.entry-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 14px;
+  margin-top: 34px;
+}
+
+.enter-button,
+.orders-link {
+  min-height: 44px;
+  border-radius: 4px;
+  font-family: "JetBrains Mono", "Fira Code", Consolas, monospace;
+  font-size: 0.72rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.enter-button {
+  border: 1px solid rgba(232, 255, 247, 0.76);
+  background: #e8fff7;
+  color: #071014;
+  padding: 0 22px;
+  cursor: pointer;
+}
+
+.orders-link {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid rgba(232, 255, 247, 0.22);
+  color: rgba(237, 247, 245, 0.82);
+  padding: 0 18px;
+  text-decoration: none;
+  background: rgba(232, 255, 247, 0.04);
+}
+
+.helm-placeholder {
+  position: relative;
+  min-height: 460px;
+  border: 1px solid rgba(237, 247, 245, 0.16);
+  background:
+    linear-gradient(rgba(232, 255, 247, 0.05) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(232, 255, 247, 0.05) 1px, transparent 1px),
+    rgba(2, 8, 10, 0.38);
+  background-size: 34px 34px;
+  overflow: hidden;
+}
+
+.helm-placeholder::before,
+.helm-placeholder::after {
+  content: "";
+  position: absolute;
+  inset: 9%;
+  border: 1px solid rgba(168, 216, 200, 0.26);
+}
+
+.helm-placeholder::after {
+  inset: 18%;
+  border-color: rgba(0, 229, 255, 0.18);
+  transform: rotate(45deg);
+}
+
+.helm-ring {
+  position: absolute;
+  inset: 22%;
+  border: 1px solid rgba(232, 255, 247, 0.36);
+  border-radius: 50%;
+}
+
+.helm-axis {
+  position: absolute;
+  background: rgba(232, 255, 247, 0.26);
+}
+
+.helm-axis-x {
+  left: -18%;
+  right: -18%;
+  top: 50%;
+  height: 1px;
+}
+
+.helm-axis-y {
+  top: -18%;
+  bottom: -18%;
+  left: 50%;
+  width: 1px;
+}
+
+.helm-core {
+  position: absolute;
+  width: 10px;
+  height: 10px;
+  left: calc(50% - 5px);
+  top: calc(50% - 5px);
+  border: 1px solid #e8fff7;
+  background: #00e5ff;
+}
+
+.helm-meta {
+  position: absolute;
+  left: 20px;
+  right: 20px;
+  bottom: 20px;
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  color: rgba(237, 247, 245, 0.76);
+  font-family: "JetBrains Mono", "Fira Code", Consolas, monospace;
+  font-size: 0.68rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.orders-teaser {
+  max-width: 1240px;
+  margin: 0 auto;
+  padding: 34px 0;
+  display: grid;
+  grid-template-columns: minmax(0, 0.95fr) minmax(280px, 0.75fr);
+  gap: 36px;
+  border-bottom: 1px solid rgba(237, 247, 245, 0.14);
+}
+
+.orders-teaser h2 {
+  max-width: 680px;
+  margin-top: 10px;
+  color: #f8fffb;
+  font-size: clamp(1.8rem, 4vw, 3.5rem);
+  font-weight: 620;
+  letter-spacing: 0;
+  line-height: 1;
+}
+
+.orders-teaser p:last-child {
+  align-self: end;
+  color: rgba(237, 247, 245, 0.68);
+  font-size: 1rem;
+  line-height: 1.55;
+}
+
+.orders-grid {
+  max-width: 1240px;
+  margin: 0 auto;
+  padding: 28px 0 12px;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  border-left: 1px solid rgba(237, 247, 245, 0.12);
+}
+
+.order-card {
+  min-height: 184px;
+  padding: 20px;
+  border-right: 1px solid rgba(237, 247, 245, 0.12);
+  border-bottom: 1px solid rgba(237, 247, 245, 0.12);
+  background: rgba(232, 255, 247, 0.025);
+}
+
+.order-card h3 {
+  margin-top: 34px;
+  color: #f8fffb;
+  font-size: 1.18rem;
+  font-weight: 650;
+  letter-spacing: 0;
+}
+
+.order-card p {
+  margin-top: 12px;
+  color: rgba(237, 247, 245, 0.66);
+  font-size: 0.92rem;
+  line-height: 1.45;
+}
+
+@media (max-width: 900px) {
+  .landing-shell {
+    padding: 18px;
   }
 
-  .base {
-    width: 170px;
-    position: relative;
-    z-index: 0;
+  .entry-panel,
+  .orders-teaser {
+    grid-template-columns: 1fr;
   }
 
-  .framework,
-  .vite {
-    position: absolute;
+  .entry-panel {
+    min-height: auto;
+    padding-top: 24px;
   }
 
-  .framework {
-    z-index: 1;
-    top: 34px;
-    height: 28px;
-    transform: perspective(2000px) rotateZ(300deg) rotateX(44deg) rotateY(39deg)
-      scale(1.4);
+  .helm-placeholder {
+    min-height: 300px;
   }
 
-  .vite {
-    z-index: 0;
-    top: 107px;
-    height: 26px;
-    width: auto;
-    transform: perspective(2000px) rotateZ(300deg) rotateX(40deg) rotateY(39deg)
-      scale(0.8);
+  .orders-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 
-#center {
-  display: flex;
-  flex-direction: column;
-  gap: 25px;
-  place-content: center;
-  place-items: center;
-  flex-grow: 1;
-
-  @media (max-width: 1024px) {
-    padding: 32px 20px 24px;
-    gap: 18px;
-  }
-}
-
-#next-steps {
-  display: flex;
-  border-top: 1px solid var(--border);
-  text-align: left;
-
-  & > div {
-    flex: 1 1 0;
-    padding: 32px;
-    @media (max-width: 1024px) {
-      padding: 24px 20px;
-    }
+@media (max-width: 560px) {
+  .entry-copy h1 {
+    font-size: clamp(3.35rem, 19vw, 5rem);
   }
 
-  .icon {
-    margin-bottom: 16px;
-    width: 22px;
-    height: 22px;
+  .entry-text {
+    margin-top: 22px;
   }
 
-  @media (max-width: 1024px) {
+  .entry-actions {
+    align-items: stretch;
     flex-direction: column;
-    text-align: center;
-  }
-}
-
-#docs {
-  border-right: 1px solid var(--border);
-
-  @media (max-width: 1024px) {
-    border-right: none;
-    border-bottom: 1px solid var(--border);
-  }
-}
-
-#next-steps ul {
-  list-style: none;
-  padding: 0;
-  display: flex;
-  gap: 8px;
-  margin: 32px 0 0;
-
-  .logo {
-    height: 18px;
   }
 
-  a {
-    color: var(--text-h);
-    font-size: 16px;
-    border-radius: 6px;
-    background: var(--social-bg);
-    display: flex;
-    padding: 6px 12px;
-    align-items: center;
-    gap: 8px;
-    text-decoration: none;
-    transition: box-shadow 0.3s;
-
-    &:hover {
-      box-shadow: var(--shadow);
-    }
-    .button-icon {
-      height: 18px;
-      width: 18px;
-    }
-  }
-
-  @media (max-width: 1024px) {
-    margin-top: 20px;
-    flex-wrap: wrap;
+  .enter-button,
+  .orders-link {
     justify-content: center;
-
-    li {
-      flex: 1 1 calc(50% - 8px);
-    }
-
-    a {
-      width: 100%;
-      justify-content: center;
-      box-sizing: border-box;
-    }
-  }
-}
-
-#spacer {
-  height: 88px;
-  border-top: 1px solid var(--border);
-  @media (max-width: 1024px) {
-    height: 48px;
-  }
-}
-
-.ticks {
-  position: relative;
-  width: 100%;
-
-  &::before,
-  &::after {
-    content: '';
-    position: absolute;
-    top: -4.5px;
-    border: 5px solid transparent;
+    width: 100%;
   }
 
-  &::before {
-    left: 0;
-    border-left-color: var(--border);
+  .helm-meta {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 6px;
   }
-  &::after {
-    right: 0;
-    border-right-color: var(--border);
+
+  .orders-grid {
+    grid-template-columns: 1fr;
   }
 }

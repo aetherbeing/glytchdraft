@@ -53,10 +53,17 @@ def main(argv: list[str] | None = None) -> int:
                 continue
             glb.write_bytes(pack_glb([{"name": tile.tile_id, "vertices": verts, "faces": faces, "normals": normals}]))
             write_json(offset, {"crs": f"EPSG:{city.out_epsg or 32617}", "shift_x": shift[0], "shift_y": shift[1], "shift_z": shift[2], "note": "Add these values back to recover source coordinates."})
-            print(f"  {tile.tile_id}: {glb}")
+            print(f"  {tile.tile_id}: {glb} ({len(faces):,} flat triangles from quad/ngon source faces)")
             outputs.extend([glb, offset])
             details["processed"] += 1
-            write_tile_manifest(tile, "export", {"tile_id": tile.tile_id, "glb": str(glb), "offset": str(offset)})
+            write_tile_manifest(tile, "export", {
+                "tile_id": tile.tile_id,
+                "glb": str(glb),
+                "offset": str(offset),
+                "geometry_mode": "flat_quad_source_faces",
+                "triangles": int(len(faces)),
+                "vertices": int(len(verts)),
+            })
         except Exception as exc:
             print(f"  ERROR {tile.tile_id}: {exc}")
             details["failed"] += 1

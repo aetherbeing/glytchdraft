@@ -1,0 +1,100 @@
+export const MOCK_CURRENT_USER = {
+  id: 'user_demo_001',
+  display_name: 'Demo Operator',
+  available_trace: 24,
+  charity_allocation_percentage: 12,
+}
+
+export const MOCK_STRUCTURES = [
+  {
+    structure_id: 'mia_struct_00041',
+    tile_id: 'miami_hero_tile_v001',
+    address: '101 Biscayne Blvd',
+    label: 'Bayfront edge structure',
+    order_id: 'signal-choir',
+    coordinates: { lat: 25.7752, lng: -80.1868 },
+    trace_cost: 1,
+  },
+  {
+    structure_id: 'mia_struct_00077',
+    tile_id: 'miami_hero_tile_v001',
+    address: 'NE 2nd St parcel',
+    label: 'Downtown midblock tower',
+    order_id: 'mirrorsweat',
+    coordinates: { lat: 25.7776, lng: -80.1902 },
+    trace_cost: 1,
+  },
+  {
+    structure_id: 'mia_struct_00112',
+    tile_id: 'miami_tile_bay_003',
+    address: null,
+    label: 'Unaddressed waterfront mass',
+    order_id: 'crooked-datum',
+    coordinates: { lat: 25.7811, lng: -80.1851 },
+    trace_cost: 1,
+  },
+]
+
+export const MOCK_CLAIMS = [
+  {
+    id: 'claim_demo_0001',
+    user_id: 'user_demo_001',
+    owner_display_name: 'Demo Operator',
+    structure_id: 'mia_struct_00041',
+    order_id: 'signal-choir',
+    claim_status: 'active',
+    claim_cost_trace: 1,
+    structure_provenance: {
+      source: 'frontend_mock',
+      tile_id: 'miami_hero_tile_v001',
+      selected_from: 'claim_viewer_mock',
+    },
+    claimed_at: '2026-05-27T15:20:00Z',
+    released_at: null,
+  },
+]
+
+export const MOCK_GEOSOCIAL_POSTS = [
+  {
+    id: 'post_001',
+    author: { user_id: 'user_demo_001', display_name: 'Demo Operator' },
+    body: 'Claim marker is readable from the bay side. Needs a quieter hover state before public launch.',
+    visibility: 'public',
+    structure_id: 'mia_struct_00041',
+    tile_id: 'miami_hero_tile_v001',
+    coordinates: { lat: 25.7752, lng: -80.1868 },
+    media: [{ type: 'image_placeholder', label: 'facade crop pending' }],
+    reactions: { trace: 4, signal: 2 },
+    comments_count: 1,
+    provenance: { source: 'mock_feed', captured_by: 'claim_viewer' },
+    created_at: '2026-05-27T15:28:00Z',
+  },
+  {
+    id: 'post_002',
+    author: { user_id: 'user_guest_014', display_name: 'Field Visitor' },
+    body: 'Good candidate for a first unclaimed tutorial structure. Address confidence is low.',
+    visibility: 'unlisted',
+    structure_id: 'mia_struct_00112',
+    tile_id: 'miami_tile_bay_003',
+    coordinates: { lat: 25.7811, lng: -80.1851 },
+    media: [],
+    reactions: { trace: 1, signal: 0 },
+    comments_count: 0,
+    provenance: { source: 'mock_feed', address_confidence: 'low' },
+    created_at: '2026-05-27T15:07:00Z',
+  },
+  {
+    id: 'post_003',
+    author: { user_id: 'user_guest_027', display_name: 'Map Reader' },
+    body: 'Tile loads cleanly here. Claim plaque should sit outside the coordinate readout.',
+    visibility: 'friends',
+    structure_id: null,
+    tile_id: 'miami_hero_tile_v001',
+    coordinates: { lat: 25.777, lng: -80.1889 },
+    media: [{ type: 'video_placeholder', label: 'walkthrough clip pending' }],
+    reactions: { trace: 2, signal: 3 },
+    comments_count: 2,
+    provenance: { source: 'mock_feed', attached_to: 'tile' },
+    created_at: '2026-05-27T14:44:00Z',
+  },
+]

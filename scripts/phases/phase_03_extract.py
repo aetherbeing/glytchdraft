@@ -9,7 +9,7 @@ from phase_common import add_phase_args, load_city, print_header, resolve_mode
 from phase_tile_common import (
     cfg_value, ensure_tile_dirs, existing, load_tiles, out_epsg, output_summary,
     require_execute, run_pdal_array, should_skip_phase, validate_or_fail, write_ply,
-    write_tile_manifest,
+    write_empty_ply, write_tile_manifest,
 )
 
 
@@ -58,8 +58,10 @@ def main(argv: list[str] | None = None) -> int:
     outputs = []
     details = {"tiles": len(tiles), "processed": 0, "skipped": 0, "failed": 0, "points": {}}
     print(f"  tiles: {len(tiles)}")
+    vegetation_enabled = bool(cfg_value(city, "VEGETATION_ENABLED", True))
     if not require_execute(args):
         for tile in tiles:
+            print(f"  {tile.tile_id}: vegetation_enabled={vegetation_enabled}")
             print(f"  would extract: {tile.tile_id} -> {tile.tile_dir / 'pointcloud'}")
         return 0
 
@@ -67,10 +69,14 @@ def main(argv: list[str] | None = None) -> int:
         ("building_1m", "building", 1.0, "_building_1m.ply", "X,Y,Z,Intensity,HeightAboveGround"),
         ("building_025m", "building", 0.25, "_building_025m.ply", "X,Y,Z,Intensity,HeightAboveGround"),
         ("ground_1m", "ground", 1.0, "_ground_1m.ply", "X,Y,Z,Intensity,Classification"),
-        ("vegetation_1m", "vegetation", 1.0, "_vegetation_1m.ply", "X,Y,Z,Intensity,Classification"),
     ]
+    if vegetation_enabled:
+        targets.append(("vegetation_1m", "vegetation", 1.0, "_vegetation_1m.ply", "X,Y,Z,Intensity,Classification"))
+    else:
+        print("  vegetation extraction disabled by VEGETATION_ENABLED")
     for tile in tiles:
         ensure_tile_dirs(tile)
+        print(f"  {tile.tile_id}: vegetation_enabled={vegetation_enabled}")
         if not tile.laz_path.exists():
             print(f"  missing LAZ: {tile.laz_path}")
             details["failed"] += 1
@@ -85,8 +91,11 @@ def main(argv: list[str] | None = None) -> int:
                 continue
             try:
                 t0 = time.time()
+                if mode == "vegetation":
+                    classes = cfg_value(city, "VEGETATION_CLASSES", (3, 4, 5))
+                    print(f"  {tile.tile_id}: running vegetation extraction classes={tuple(classes)} -> {out.name}")
                 arr = run_pdal_array(_steps(city, tile.laz_path, mode, spacing))
-                n = 0 if arr is None else write_ply(arr, out, dims)
+                n = write_empty_ply(out, dims) if arr is None else write_ply(arr, out, dims)
                 print(f"  {tile.tile_id}: {suffix} {n:,} pts ({time.time() - t0:.1f}s)")
                 tile_result["outputs"][key] = {"path": str(out), "points": n}
                 details["points"][key] = details["points"].get(key, 0) + n

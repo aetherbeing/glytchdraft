@@ -93,8 +93,8 @@ export function HUD({
         <div style={{ fontWeight: 700, fontSize: 13, letterSpacing: '0.12em' }}>
           GLYTCHOS
         </div>
-        <div style={{ ...DIM, marginTop: 2 }}>MIAMI BIKINI · LOD1</div>
-        <div style={DIM}>7,618 buildings</div>
+        <div style={{ ...DIM, marginTop: 2 }}>CITY OF MIAMI · FULL GLB</div>
+        <div style={DIM}>buildings · terrain · vegetation</div>
       </div>
 
       {/* Top-right coordinate panel — only when hovering or selected */}

@@ -29,6 +29,7 @@ from phase_common import (
     phase_completed,
     print_header,
     refuse_or_skip,
+    resolve_cross_platform_path,
     utc_now,
     validate_city_config,
     write_phase_status,
@@ -84,7 +85,7 @@ def load_tiles(city: CityRuntime, limit: int | None = None) -> list[TileRecord]:
         if not filename:
             continue
         tile_id = row.get("tile_id") or Path(filename).name.replace(".copc.laz", "").replace(".laz", "")
-        laz_path = Path(row.get("local_path") or (city.laz_dir / filename))
+        laz_path = resolve_cross_platform_path(Path(row.get("local_path") or (city.laz_dir / filename)))
         out.append(TileRecord(
             tile_id=tile_id,
             laz_filename=filename,
@@ -171,6 +172,19 @@ def write_ply(arr: np.ndarray, out_path: Path, dims: str) -> int:
         f.write(header.encode("ascii"))
         packed.tofile(f)
     return n
+
+
+def write_empty_ply(out_path: Path, dims: str) -> int:
+    dim_list = [d.strip() for d in dims.split(",") if d.strip()]
+    header = (
+        "ply\nformat binary_little_endian 1.0\n"
+        "element vertex 0\n"
+        + "".join(f"property {_PLY_TYPES[d][0]} {d}\n" for d in dim_list)
+        + "end_header\n"
+    )
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    out_path.write_bytes(header.encode("ascii"))
+    return 0
 
 
 def read_ply_xyz(path: Path) -> np.ndarray:
@@ -272,16 +286,18 @@ def obj_to_flat_triangles(path: Path, shift: tuple[float, float, float] = (0, 0,
         # Z-up OBJ to Y-up glTF plus local shift.
         poly_shifted = np.column_stack([poly[:, 0] - sx, poly[:, 2] - sz, -(poly[:, 1] - sy)]).astype(np.float32)
         nrm = polygon_normal(poly_shifted)
-        # Duplicate vertices per source polygon, then fan triangulate. Both
-        # triangles from a quad share the same flat normal, eliminating visible
-        # diagonal seams on walls and roofs.
-        base_indices: list[int] = []
-        for p in poly_shifted:
-            base_indices.append(len(verts))
-            verts.append(tuple(float(v) for v in p))
-            normals.append(nrm)
-        for i in range(1, len(base_indices) - 1):
-            faces.append((base_indices[0], base_indices[i], base_indices[i + 1]))
+        # glTF stores polygon meshes as triangles. Keep each OBJ quad/ngon as a
+        # flat source face by duplicating the vertices per emitted triangle and
+        # assigning the same face normal to every emitted vertex. Nothing is
+        # shared across the internal diagonal, so walls and roofs render as one
+        # continuous flat face instead of exposing a lighting seam.
+        for i in range(1, len(poly_shifted) - 1):
+            tri_indices: list[int] = []
+            for p in (poly_shifted[0], poly_shifted[i], poly_shifted[i + 1]):
+                tri_indices.append(len(verts))
+                verts.append(tuple(float(v) for v in p))
+                normals.append(nrm)
+            faces.append((tri_indices[0], tri_indices[1], tri_indices[2]))
     if not verts:
         return np.empty((0, 3), dtype=np.float32), np.empty((0, 3), dtype=np.uint32), np.empty((0, 3), dtype=np.float32)
     return np.array(verts, dtype=np.float32), np.array(faces, dtype=np.uint32), np.array(normals, dtype=np.float32)
@@ -331,7 +347,7 @@ def pack_glb(meshes: list[dict[str, Any]]) -> bytes:
             attrs["COLOR_0"] = len(accessors)
             accessors.append({"bufferView": col_view, "componentType": 5126, "count": len(colors), "type": "VEC4"})
 
-        primitive: dict[str, Any] = {"attributes": attrs}
+        primitive: dict[str, Any] = {"attributes": attrs, "material": 0}
         if len(faces):
             idx_view = add_blob(faces.tobytes(), 34963)
             primitive["indices"] = len(accessors)
@@ -348,6 +364,7 @@ def pack_glb(meshes: list[dict[str, Any]]) -> bytes:
         "scenes": [{"nodes": list(range(len(nodes)))}],
         "nodes": nodes,
         "meshes": mesh_defs,
+        "materials": [{"name": "massing_flat_quads", "doubleSided": True, "pbrMetallicRoughness": {"metallicFactor": 0.0, "roughnessFactor": 1.0}}],
         "accessors": accessors,
         "bufferViews": buffer_views,
         "buffers": [{"byteLength": len(bin_data)}],
