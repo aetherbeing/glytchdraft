@@ -5,12 +5,13 @@ import argparse
 import json
 import sys
 import time
+import urllib.request
 from pathlib import Path
 
 import numpy as np
 from pyproj import Transformer
 from shapely.geometry import MultiPoint, MultiPolygon, Polygon, box, mapping, shape
-from shapely.ops import transform as shp_transform
+from shapely.ops import transform as shp_transform, unary_union
 
 from phase_common import add_phase_args, load_city, print_header, resolve_mode
 from phase_tile_common import (
@@ -24,6 +25,71 @@ TITLE = "footprints from county source or convex hull fallback"
 AREA_MIN_M2_DEFAULT = 9.0
 AREA_MAX_M2_DEFAULT = 200_000.0
 
+# Primary expected location (user-specified raw data path).
+CITY_BOUNDARY_RAW_PATH = Path("/mnt/t7/miami/data_raw/geojson/miami_city_boundary.geojson")
+
+# Miami Open Data — City of Miami City Limits (ArcGIS Hub GeoJSON endpoint).
+# Update if the dataset URL changes; the file is cached on first download.
+CITY_BOUNDARY_DOWNLOAD_URL = (
+    "https://opendata.miamigov.com/datasets/city-of-miami-city-limits.geojson"
+)
+
+
+# ── city boundary ──────────────────────────────────────────────────────────────
+
+def load_city_boundary(city) -> Polygon | MultiPolygon | None:
+    """
+    Return the city boundary as a single Shapely geometry in EPSG:4326, or None
+    if unavailable (caller logs a warning and proceeds without clipping).
+
+    Search order:
+      1. CITY_BOUNDARY_RAW_PATH  (/mnt/t7/miami/data_raw/geojson/miami_city_boundary.geojson)
+      2. city.raw_config.BOUNDARY_CACHE  (processed/boundaries/ cache)
+      3. Download from CITY_BOUNDARY_DOWNLOAD_URL → save to CITY_BOUNDARY_RAW_PATH
+    """
+    candidates: list[Path] = [CITY_BOUNDARY_RAW_PATH]
+
+    boundary_cache = getattr(city.raw_config, "BOUNDARY_CACHE", None)
+    if boundary_cache:
+        candidates.append(Path(boundary_cache))
+
+    for path in candidates:
+        if path.exists() and path.stat().st_size > 0:
+            print(f"  city boundary: {path}")
+            return _parse_boundary(path)
+
+    # Neither cache nor raw path present — attempt download.
+    print(f"  city boundary not found, downloading from Miami Open Data …")
+    print(f"    → {CITY_BOUNDARY_DOWNLOAD_URL}")
+    try:
+        CITY_BOUNDARY_RAW_PATH.parent.mkdir(parents=True, exist_ok=True)
+        tmp = CITY_BOUNDARY_RAW_PATH.with_suffix(".tmp")
+        urllib.request.urlretrieve(CITY_BOUNDARY_DOWNLOAD_URL, tmp)
+        tmp.rename(CITY_BOUNDARY_RAW_PATH)
+        print(f"  downloaded → {CITY_BOUNDARY_RAW_PATH}")
+        return _parse_boundary(CITY_BOUNDARY_RAW_PATH)
+    except Exception as exc:
+        print(f"  WARNING: city boundary download failed: {exc}")
+        print(f"  Place boundary manually at: {CITY_BOUNDARY_RAW_PATH}")
+        print("  Proceeding without city boundary clip (county + tile bbox only).")
+        return None
+
+
+def _parse_boundary(path: Path) -> Polygon | MultiPolygon | None:
+    data = json.loads(path.read_text(encoding="utf-8"))
+    features = data.get("features", [])
+    geoms = [shape(f["geometry"]) for f in features if f.get("geometry")]
+    if not geoms:
+        return None
+    merged = unary_union(geoms)
+    if merged.is_empty:
+        return None
+    if not merged.is_valid:
+        merged = merged.buffer(0)
+    return merged
+
+
+# ── helpers ────────────────────────────────────────────────────────────────────
 
 def hull(pts: np.ndarray) -> Polygon | None:
     if len(pts) < 3:
@@ -45,9 +111,18 @@ def make_from_clusters(tile, city) -> tuple[list[dict], list[dict]]:
         if poly is None or poly.area < 9.0:
             continue
         obb = poly.minimum_rotated_rectangle
-        props = {"cluster_id": int(cid), "point_count": int((labels == cid).sum()), "footprint_area_m2": round(poly.area, 2), "footprint_method": "convex_hull"}
+        props = {
+            "cluster_id": int(cid),
+            "point_count": int((labels == cid).sum()),
+            "footprint_area_m2": round(poly.area, 2),
+            "footprint_method": "convex_hull",
+        }
         convex.append({"type": "Feature", "properties": props, "geometry": mapping(poly)})
-        bbox.append({"type": "Feature", "properties": {**props, "footprint_area_m2": round(obb.area, 2), "footprint_method": "rotated_bbox"}, "geometry": mapping(obb)})
+        bbox.append({
+            "type": "Feature",
+            "properties": {**props, "footprint_area_m2": round(obb.area, 2), "footprint_method": "rotated_bbox"},
+            "geometry": mapping(obb),
+        })
     return convex, bbox
 
 
@@ -64,7 +139,6 @@ def reproject_polygon(poly: Polygon, xform: Transformer) -> Polygon:
     def _transform_coords(x, y, z=None):
         xs, ys = xform.transform(x, y)
         return (xs, ys) if z is None else (xs, ys, z)
-
     return shp_transform(_transform_coords, poly)
 
 
@@ -77,6 +151,7 @@ def make_from_county(
     county_features: list[dict],
     tile_bbox_4326: dict[str, float],
     city,
+    city_boundary: Polygon | MultiPolygon | None = None,
     area_min: float = AREA_MIN_M2_DEFAULT,
     area_max: float = AREA_MAX_M2_DEFAULT,
 ) -> tuple[list[dict], list[dict]]:
@@ -94,9 +169,24 @@ def make_from_county(
         if not geom_raw:
             continue
         geom_4326 = best_polygon(shape(geom_raw))
-        if geom_4326 is None or not clip_box.intersects(geom_4326):
+        if geom_4326 is None:
             continue
 
+        # ── 1. Clip to city boundary polygon ────────────────────────────────
+        if city_boundary is not None:
+            if not city_boundary.intersects(geom_4326):
+                continue
+            geom_4326 = best_polygon(geom_4326.intersection(city_boundary))
+            if geom_4326 is None or geom_4326.is_empty:
+                continue
+            if not geom_4326.is_valid:
+                geom_4326 = best_polygon(geom_4326.buffer(0))
+                if geom_4326 is None:
+                    continue
+
+        # ── 2. Clip to tile bbox ─────────────────────────────────────────────
+        if not clip_box.intersects(geom_4326):
+            continue
         clipped = best_polygon(geom_4326.intersection(clip_box))
         if clipped is None or clipped.is_empty:
             continue
@@ -105,6 +195,7 @@ def make_from_county(
             if clipped is None:
                 continue
 
+        # ── 3. Reproject to output CRS and area-filter ───────────────────────
         poly = reproject_polygon(clipped, xform)
         if poly is None or poly.is_empty:
             continue
@@ -142,36 +233,53 @@ def main(argv: list[str] | None = None) -> int:
     if not validate_or_fail(city, PHASE_ID, args):
         return 1
     tiles = load_tiles(city, args.limit)
+
     county_source = getattr(city.raw_config, "COUNTY_FP_PATH", None)
     county_features = None
     if county_source and Path(county_source).exists():
-        print(f"  county footprint source configured: {county_source}")
+        print(f"  county footprint source: {county_source}")
         if args.execute:
             t0 = time.time()
             county_features = load_county_features(Path(county_source))
-            print(f"  loaded county footprints: {len(county_features):,} ({time.time() - t0:.1f}s)")
+            print(f"  loaded {len(county_features):,} county features ({time.time() - t0:.1f}s)")
     elif county_source:
         print(f"  county footprint source missing: {county_source}; using convex hull fallback")
     else:
         print("  no county footprint source configured; using convex hull fallback")
+
+    # Load city boundary for clipping (county path only — cluster fallback is
+    # already spatially constrained by the tile's LAZ extent).
+    city_boundary: Polygon | MultiPolygon | None = None
+    if county_features is not None and args.execute:
+        city_boundary = load_city_boundary(city)
+        if city_boundary is not None:
+            print("  will clip county footprints: city boundary → tile bbox")
+        else:
+            print("  will clip county footprints: tile bbox only (no city boundary)")
+
     if not require_execute(args):
         for tile in tiles:
             print(f"  would write footprints: {tile.tile_id}")
         return 0
 
+    epsg = city.out_epsg or 32617
     outputs = []
     details = {"tiles": len(tiles), "processed": 0, "failed": 0, "footprints": 0}
+
     for tile in tiles:
         ensure_tile_dirs(tile)
-        convex_path = tile.tile_dir / "footprints" / f"{tile.tile_id}_footprints_convex_{out_epsg(city) if False else city.out_epsg or 32617}.geojson"
-        bbox_path = tile.tile_dir / "footprints" / f"{tile.tile_id}_footprints_rotated_bbox_{city.out_epsg or 32617}.geojson"
+        convex_path = tile.tile_dir / "footprints" / f"{tile.tile_id}_footprints_convex_{epsg}.geojson"
+        bbox_path   = tile.tile_dir / "footprints" / f"{tile.tile_id}_footprints_rotated_bbox_{epsg}.geojson"
         if existing(convex_path, args.force) and existing(bbox_path, args.force):
             outputs.extend([convex_path, bbox_path])
             details["processed"] += 1
             continue
         try:
             if county_features is not None and tile.bbox_4326:
-                convex, bbox = make_from_county(county_features, tile.bbox_4326, city)
+                convex, bbox = make_from_county(
+                    county_features, tile.bbox_4326, city,
+                    city_boundary=city_boundary,
+                )
             else:
                 convex, bbox = make_from_clusters(tile, city)
             write_geojson(convex, convex_path, city, f"{tile.tile_id}_footprints_convex")
@@ -184,6 +292,7 @@ def main(argv: list[str] | None = None) -> int:
         except Exception as exc:
             print(f"  ERROR {tile.tile_id}: {exc}")
             details["failed"] += 1
+
     status = "complete" if details["failed"] == 0 else "failed"
     return output_summary(city, PHASE_ID, status, details, outputs)
 
