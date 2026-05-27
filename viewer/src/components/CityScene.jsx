@@ -29,28 +29,41 @@ const VISUAL_STATES = {
 }
 
 // --- fog shader injection -------------------------------------------
-// Replaces Three.js fog_fragment with an XZ-distance wave-clearing version.
-// All materials share WAVE_UNIFORMS references so one frame-update covers all.
-const FOG_VERT_PARS = `#include <fog_pars_vertex>\nvarying vec2 vWorldXZ;`
-const FOG_VERT = `#include <fog_vertex>\nvWorldXZ = (modelMatrix * vec4(position, 1.0)).xz;`
-const FOG_FRAG_PARS = [
-  '#include <fog_pars_fragment>',
-  'varying vec2 vWorldXZ;',
-  'uniform vec2 uCamXZ;',
-  'uniform float uWaveRadius;',
-].join('\n')
-const FOG_FRAG = `#ifdef USE_FOG
-  float fogDist = length(vWorldXZ - uCamXZ);
-  #ifdef FOG_EXP2
-    float fogFactor = 1.0 - exp(-fogDensity * fogDensity * fogDist * fogDist);
-  #else
-    float fogFactor = smoothstep(fogNear, fogFar, fogDist);
-  #endif
-  float clearing = 1.0 - smoothstep(uWaveRadius - ${WAVE_EDGE_SOFT.toFixed(1)},
-                                     uWaveRadius + ${WAVE_EDGE_SOFT.toFixed(1)}, fogDist);
-  fogFactor *= (1.0 - clearing);
-  gl_FragColor.rgb = mix(gl_FragColor.rgb, fogColor, fogFactor);
-#endif`
+// fog_pars_vertex / fog_pars_fragment have NO leading tab in Three.js r184.
+// fog_vertex / fog_fragment DO have a leading tab — replacements must match exactly.
+const FOG_VERT_PARS_SEARCH = '#include <fog_pars_vertex>'
+const FOG_VERT_SEARCH      = '\t#include <fog_vertex>'
+const FOG_FRAG_PARS_SEARCH = '#include <fog_pars_fragment>'
+const FOG_FRAG_SEARCH      = '\t#include <fog_fragment>'
+
+const FOG_VERT_PARS_REPLACE = `#include <fog_pars_vertex>
+varying vec2 vWorldXZ;`
+
+const FOG_VERT_REPLACE = `\t#include <fog_vertex>
+\tvWorldXZ = (modelMatrix * vec4(position, 1.0)).xz;`
+
+const FOG_FRAG_PARS_REPLACE = `#include <fog_pars_fragment>
+varying vec2 vWorldXZ;
+uniform vec2 uCamXZ;
+uniform float uWaveRadius;`
+
+// Wave clearing: per-fragment XZ distance from camera origin,
+// with a soft gaussian-like edge. vWorldXZ is interpolated per-fragment
+// so each building face clears individually — no tile-block appearance.
+const FOG_FRAG_REPLACE = `\t#ifdef USE_FOG
+\t  float fogDist = length(vWorldXZ - uCamXZ);
+\t  #ifdef FOG_EXP2
+\t    float fogFactor = 1.0 - exp(-fogDensity * fogDensity * fogDist * fogDist);
+\t  #else
+\t    float fogFactor = smoothstep(fogNear, fogFar, fogDist);
+\t  #endif
+\t  float clearing = 1.0 - smoothstep(
+\t    uWaveRadius - ${WAVE_EDGE_SOFT.toFixed(1)},
+\t    uWaveRadius + ${WAVE_EDGE_SOFT.toFixed(1)},
+\t    fogDist);
+\t  fogFactor *= (1.0 - clearing);
+\t  gl_FragColor.rgb = mix(gl_FragColor.rgb, fogColor, fogFactor);
+\t#endif`
 
 function injectWaveFog(mat) {
   mat.fog = true
@@ -58,11 +71,11 @@ function injectWaveFog(mat) {
     shader.uniforms.uCamXZ = WAVE_UNIFORMS.uCamXZ
     shader.uniforms.uWaveRadius = WAVE_UNIFORMS.uWaveRadius
     shader.vertexShader = shader.vertexShader
-      .replace('#include <fog_pars_vertex>', FOG_VERT_PARS)
-      .replace('#include <fog_vertex>', FOG_VERT)
+      .replace(FOG_VERT_PARS_SEARCH, FOG_VERT_PARS_REPLACE)
+      .replace(FOG_VERT_SEARCH, FOG_VERT_REPLACE)
     shader.fragmentShader = shader.fragmentShader
-      .replace('#include <fog_pars_fragment>', FOG_FRAG_PARS)
-      .replace('#include <fog_fragment>', FOG_FRAG)
+      .replace(FOG_FRAG_PARS_SEARCH, FOG_FRAG_PARS_REPLACE)
+      .replace(FOG_FRAG_SEARCH, FOG_FRAG_REPLACE)
   }
   return mat
 }
@@ -216,7 +229,7 @@ function TileStreamer({ mats, onHover, onSelect, selected, visualMode }) {
 
   // Wave origin state (local, drives WAVE_UNIFORMS every frame)
   const waveOriginRef = useRef(new THREE.Vector2(WAVE_UNIFORMS.uCamXZ.value.x, WAVE_UNIFORMS.uCamXZ.value.y))
-  const waveInitRef = useRef(false)
+  const waveStartTimeRef = useRef(-1) // set to clock.elapsedTime on first frame
   const tmpXZ = useRef(new THREE.Vector2())
 
   const tileById = useMemo(() => new Map(tiles.map(t => [t.tile_id, t])), [tiles])
@@ -247,21 +260,23 @@ function TileStreamer({ mats, onHover, onSelect, selected, visualMode }) {
     return () => { cancelled = true; ghostMat.dispose() }
   }, [ghostMat])
 
-  useFrame(({ clock }, delta) => {
-    // Seed wave origin at camera on very first frame
-    if (!waveInitRef.current) {
+  useFrame(({ clock }) => {
+    // Seed wave origin and start time on very first frame
+    if (waveStartTimeRef.current < 0) {
       waveOriginRef.current.set(camera.position.x, camera.position.z)
-      waveInitRef.current = true
+      waveStartTimeRef.current = clock.elapsedTime
     }
 
     // Wave origin trails camera — debounces rapid movement naturally
     tmpXZ.current.set(camera.position.x, camera.position.z)
     waveOriginRef.current.lerp(tmpXZ.current, WAVE_ORIGIN_LERP)
 
-    // Wave radius expands from origin at WAVE_SPEED m/s
-    WAVE_UNIFORMS.uWaveRadius.value = Math.min(
-      WAVE_UNIFORMS.uWaveRadius.value + WAVE_SPEED * delta,
-      MAX_WAVE_RADIUS,
+    // Wave radius: strictly monotonic using absolute elapsed time — never oscillates.
+    // Math.max ensures it never decreases even across HMR reloads in dev.
+    const elapsed = clock.elapsedTime - waveStartTimeRef.current
+    WAVE_UNIFORMS.uWaveRadius.value = Math.max(
+      WAVE_UNIFORMS.uWaveRadius.value,
+      Math.min(elapsed * WAVE_SPEED, MAX_WAVE_RADIUS),
     )
     WAVE_UNIFORMS.uCamXZ.value.copy(waveOriginRef.current)
 
