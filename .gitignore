@@ -79,6 +79,14 @@ __pycache__/
 # Pipeline outputs (generated data — not source)
 atlas_output/
 data_processed/
+data_raw/
+*.laz
+*.las
+*.ply
+*.blend
+*.blend1
+*.obj
+*.npz
 exports/
 viewer/public/models/MIAMI_BIKINI
 viewer/public/models/tile_manifest.json
