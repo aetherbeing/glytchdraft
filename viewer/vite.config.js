@@ -156,7 +156,13 @@ function buildStreamingManifest() {
   const source = readJson(manifestPath)
   const sourceTiles = Array.isArray(source)
     ? source
-    : source.tiles ?? source.tile_manifest?.tiles ?? source.tile_manifest ?? []
+    : Array.isArray(source.tiles)
+      ? source.tiles
+      : Array.isArray(source.tile_manifest?.tiles)
+        ? source.tile_manifest.tiles
+        : Array.isArray(source.tile_manifest)
+          ? source.tile_manifest
+          : []
   const extent = geoExtent(sourceTiles)
   const sceneBounds = {
     min: [0, -21, -18282],
