@@ -1,40 +1,32 @@
 """
-build_miami_catalog.py  [GlitchOS city pipeline — Miami]
+new_orleans_build_catalog.py  [GlitchOS city pipeline — New Orleans]
 
-Query the USGS TNM API for all FL_MiamiDade_D23 LAZ tiles and save
-a local catalog JSON alongside the LAZ directory.
-
-Catalog path:  /mnt/e/miami/data_raw/miami_d23_catalog.json
-               (E:\\miami\\data_raw\\miami_d23_catalog.json on Windows)
+Preflight / catalog tool for the New Orleans LAZ dataset.
+Scans the on-disk LAZ directory, groups files by project prefix,
+and reports statistics.  Does NOT run the processing pipeline.
 
 Usage:
-    python scripts/miami/build_miami_catalog.py
-    python scripts/miami/build_miami_catalog.py --force    # re-query even if cached
-    python scripts/miami/build_miami_catalog.py --dry-run  # print summary, don't write
-
-Exit codes:
-    0  catalog written (or already exists)
-    1  API returned no tiles matching FL_MiamiDade_D23
+    python scripts/new_orleans_build_catalog.py --help
+    python scripts/new_orleans_build_catalog.py --dry-run
+    python scripts/new_orleans_build_catalog.py --config configs/cities/new_orleans.json --dry-run
+    python scripts/new_orleans_build_catalog.py --output /tmp/nola_catalog.json
 """
 
 from __future__ import annotations
 
+import argparse
 import json
+import re
 import sys
-import time
-import urllib.error
-import urllib.parse
-import urllib.request
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).parent))
-import miami_city_config as CFG
+REPO_ROOT = Path(__file__).resolve().parents[1]
+DEFAULT_CONFIG = REPO_ROOT / "configs" / "cities" / "new_orleans.json"
 
 try:
     from rich import box
     from rich.console import Console
     from rich.panel import Panel
-    from rich.progress import Progress, SpinnerColumn, TextColumn, TimeElapsedColumn
     from rich.table import Table
     HAS_RICH = True
 except ImportError:
@@ -42,291 +34,158 @@ except ImportError:
 
 console = Console() if HAS_RICH else None
 
-# ── USGS TNM API ───────────────────────────────────────────────────────────────
 
-TNM_BASE    = "https://tnmaccess.nationalmap.gov/api/v1/products"
-HTTP_TIMEOUT = 90
-
-# Search bbox: full Miami-Dade county (wider than the city, we filter afterwards)
-SEARCH_BBOX = "-80.90,25.08,-80.07,25.98"
-
-# Max items per request (TNM hard limit is 1000)
-PAGE_MAX = 1000
-
-DATASET_MATCH = CFG.USGS_DATASET_MATCH     # "MiamiDade_D23"
-DATASET_FULL  = CFG.USGS_PROJECT_FULL      # "FL_MiamiDade_D23_LID2024"
-
-
-# ── helpers ────────────────────────────────────────────────────────────────────
-
-def _get_json(url: str) -> dict | None:
-    try:
-        req = urllib.request.Request(url, headers={"User-Agent": "GlitchOS/1.0"})
-        with urllib.request.urlopen(req, timeout=HTTP_TIMEOUT) as resp:
-            return json.loads(resp.read().decode("utf-8"))
-    except (urllib.error.URLError, urllib.error.HTTPError, json.JSONDecodeError) as exc:
-        _warn(f"HTTP error: {exc}")
-        return None
-
-
-def _warn(msg: str):
+def _print(msg: str):
     if console:
-        console.print(f"  [yellow]{msg}[/yellow]")
+        console.print(msg)
     else:
-        print(f"  WARN: {msg}", file=sys.stderr)
+        print(msg)
 
 
-def _matches_dataset(item: dict) -> bool:
-    """Return True if the TNM item belongs to the FL_MiamiDade_D23 dataset."""
-    for field in ("title", "sourceName", "sourceId", "metaUrl", "downloadURL"):
-        val = str(item.get(field) or "")
-        if DATASET_MATCH in val:
-            return True
-    return False
+def _extract_project(filename: str) -> str:
+    """Strip trailing _NNNNNN tile index to get the project prefix."""
+    stem = Path(filename).stem
+    if stem.endswith(".laz"):
+        stem = Path(stem).stem  # .laz.laz double-extension (download artifact)
+    m = re.match(r"^(.+?)_(\d{4,})$", stem)
+    return m.group(1) if m else stem
 
 
-def _laz_url(item: dict) -> str | None:
-    """Extract the LAZ download URL from a TNM product item."""
-    urls = item.get("urls") or {}
-    if isinstance(urls, dict):
-        for key in ("LAZ", "laz", "LiDAR", "lidar"):
-            if urls.get(key):
-                return urls[key]
-    if item.get("downloadURL"):
-        url = item["downloadURL"]
-        if url.lower().endswith(".laz"):
-            return url
-    return None
+def load_config(config_path: Path) -> dict:
+    if not config_path.exists():
+        sys.exit(f"Config not found: {config_path}")
+    return json.loads(config_path.read_text(encoding="utf-8"))
 
 
-def _filename_from_url(url: str) -> str | None:
-    path = urllib.parse.urlparse(url).path
-    name = urllib.parse.unquote(path.rsplit("/", 1)[-1])
-    return name if name.lower().endswith(".laz") else None
+def scan_laz(laz_dir: Path) -> list[Path]:
+    if not laz_dir.exists():
+        return []
+    return sorted(laz_dir.glob("*.laz"))
 
 
-def _bbox_from_item(item: dict) -> dict | None:
-    bb = item.get("boundingBox") or {}
-    try:
-        return {
-            "xmin": float(bb.get("minX") or bb.get("xmin") or bb.get("minLon")),
-            "ymin": float(bb.get("minY") or bb.get("ymin") or bb.get("minLat")),
-            "xmax": float(bb.get("maxX") or bb.get("xmax") or bb.get("maxLon")),
-            "ymax": float(bb.get("maxY") or bb.get("ymax") or bb.get("maxLat")),
-        }
-    except (TypeError, ValueError):
-        return None
+def build_catalog(cfg: dict, laz_dir: Path | None = None) -> dict:
+    if laz_dir is None:
+        laz_dir = Path(cfg["laz_dir"])
 
+    files = scan_laz(laz_dir)
+    total_bytes = sum(f.stat().st_size for f in files)
 
-def _tile_id(filename: str) -> str:
-    return Path(filename).stem   # strips .laz
+    groups: dict[str, list[str]] = {}
+    for f in files:
+        proj = _extract_project(f.name)
+        groups.setdefault(proj, []).append(f.name)
 
-
-# ── catalog build ──────────────────────────────────────────────────────────────
-
-def _query_tnm_pages() -> list[dict]:
-    """Page through USGS TNM API and collect all FL_MiamiDade_D23 LAZ items."""
-    params = {
-        "datasets":   "Lidar Point Cloud (LPC)",
-        "bbox":       SEARCH_BBOX,
-        "prodFormats":"LAZ",
-        "outputFormat": "JSON",
-        "max":        PAGE_MAX,
-        "offset":     0,
+    return {
+        "schema_version": "1.0",
+        "city_slug": cfg.get("city_slug", "new_orleans"),
+        "laz_dir": str(laz_dir),
+        "laz_count": len(files),
+        "total_bytes": total_bytes,
+        "total_gb": round(total_bytes / 1_073_741_824, 2),
+        "project_groups": {k: len(v) for k, v in groups.items()},
+        "first_file": files[0].name if files else None,
+        "last_file": files[-1].name if files else None,
+        "output_root": cfg.get("output_root"),
+        "tile_manifest": cfg.get("tile_manifest"),
+        "city_manifest": cfg.get("city_manifest"),
+        "keep_raw_laz": cfg.get("keep_raw_laz", True),
+        "output_epsg": cfg.get("output_epsg"),
     }
 
-    items: list[dict] = []
-    page = 1
 
-    while True:
-        url = f"{TNM_BASE}?{urllib.parse.urlencode(params)}"
-        if console:
-            console.print(f"  [dim]page {page}: {url[:100]}…[/dim]")
-        else:
-            print(f"  page {page}: querying TNM…")
+def print_report(catalog: dict):
+    laz_dir = catalog["laz_dir"]
+    count = catalog["laz_count"]
+    total_gb = catalog["total_gb"]
 
-        data = _get_json(url)
-        if data is None:
-            _warn("TNM API returned no data; stopping pagination")
-            break
-
-        page_items = data.get("items") or []
-        items.extend(page_items)
-
-        total = data.get("total", 0)
-        if not page_items or len(items) >= total:
-            break
-
-        params["offset"] = len(items)
-        page += 1
-        time.sleep(0.5)   # be polite
-
-    return items
-
-
-def build_catalog(force: bool = False, dry_run: bool = False) -> dict | None:
-    catalog_path = CFG.CATALOG_PATH
-    laz_dir      = CFG.LAZ_DIR
-
-    if catalog_path.exists() and not force and not dry_run:
-        data = json.loads(catalog_path.read_text(encoding="utf-8"))
-        n = data.get("tile_count", 0)
-        if console:
-            console.print(f"[dim]Catalog cached: {catalog_path} ({n} tiles) — use --force to refresh[/dim]")
-        else:
-            print(f"Catalog cached: {catalog_path} ({n} tiles)")
-        return data
-
-    if console:
+    if HAS_RICH and console:
         console.print(Panel(
-            "[bold magenta]GlitchOS.io — Miami LAZ Catalog Builder[/bold magenta]\n"
-            f"Dataset: [cyan]{DATASET_FULL}[/cyan]\n"
-            f"Search bbox: [dim]{SEARCH_BBOX}[/dim]\n"
-            f"Catalog: [dim]{catalog_path}[/dim]",
+            "[bold cyan]GlitchOS.io — New Orleans LAZ Preflight[/bold cyan]",
             box=box.ROUNDED,
         ))
-    else:
-        print(f"Querying USGS TNM for {DATASET_FULL}…")
-
-    raw_items = _query_tnm_pages()
-
-    # Filter to the target dataset only
-    matched = [it for it in raw_items if _matches_dataset(it)]
-    if console:
-        console.print(f"  [dim]TNM returned {len(raw_items)} item(s); "
-                      f"{len(matched)} match '{DATASET_MATCH}'[/dim]")
-    else:
-        print(f"  {len(raw_items)} items from TNM; {len(matched)} match {DATASET_MATCH!r}")
-
-    if not matched:
-        _warn(
-            f"No TNM items matched '{DATASET_MATCH}'.\n"
-            "Falling back to on-disk tile discovery."
-        )
-        matched = []
-
-    # Build tile records
-    local_files = sorted(laz_dir.glob("*.laz")) if laz_dir.exists() else []
-    local_by_name: dict[str, Path] = {p.name: p for p in local_files}
-
-    tiles: list[dict] = []
-    seen_filenames: set[str] = set()
-
-    for item in matched:
-        laz_url = _laz_url(item)
-        if not laz_url:
-            continue
-        filename = _filename_from_url(laz_url)
-        if not filename:
-            continue
-        if filename in seen_filenames:
-            continue
-        seen_filenames.add(filename)
-
-        local_path = laz_dir / filename
-        on_disk    = local_path.exists()
-        size_bytes = item.get("sizeInBytes") or (
-            local_path.stat().st_size if on_disk else None
-        )
-
-        tiles.append({
-            "tile_id":      _tile_id(filename),
-            "filename":     filename,
-            "laz_filename": filename,
-            "download_url": laz_url,
-            "local_path":   str(local_path),
-            "project":      DATASET_FULL,
-            "dataset":      DATASET_MATCH,
-            "bbox_4326":    _bbox_from_item(item),
-            "on_disk":      on_disk,
-            "size_bytes":   size_bytes,
-            "size_mb":      round(size_bytes / 1_048_576, 1) if size_bytes else None,
-        })
-
-    # Add on-disk files not in TNM response (can happen for tiles outside bbox query)
-    for fname, fpath in local_by_name.items():
-        if fname in seen_filenames:
-            continue
-        if DATASET_MATCH not in fname and DATASET_FULL not in fname:
-            continue
-        tiles.append({
-            "tile_id":      _tile_id(fname),
-            "filename":     fname,
-            "laz_filename": fname,
-            "download_url": None,
-            "local_path":   str(fpath),
-            "project":      DATASET_FULL,
-            "dataset":      DATASET_MATCH,
-            "bbox_4326":    None,
-            "on_disk":      True,
-            "size_bytes":   fpath.stat().st_size,
-            "size_mb":      round(fpath.stat().st_size / 1_048_576, 1),
-        })
-        seen_filenames.add(fname)
-
-    tiles.sort(key=lambda t: t["tile_id"])
-    n_on_disk = sum(1 for t in tiles if t["on_disk"])
-
-    catalog = {
-        "schema_version": "1.0",
-        "project":        DATASET_FULL,
-        "dataset":        DATASET_MATCH,
-        "tnm_query_bbox": SEARCH_BBOX,
-        "generated_at":   time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-        "tile_count":     len(tiles),
-        "on_disk_count":  n_on_disk,
-        "tiles":          tiles,
-    }
-
-    # Pretty summary table
-    if console and tiles:
-        tbl = Table(box=box.SIMPLE, show_header=True, header_style="dim cyan")
-        tbl.add_column("Tile ID",     min_width=50)
-        tbl.add_column("On Disk",     min_width=10)
-        tbl.add_column("Size MB",     min_width=8, justify="right")
-        tbl.add_column("BBox West",   min_width=10, justify="right")
-        for t in tiles[:30]:
-            bb = t["bbox_4326"] or {}
-            disk = "[green]✓[/green]" if t["on_disk"] else "[dim]—[/dim]"
-            sz   = str(t["size_mb"]) if t["size_mb"] else "[dim]?[/dim]"
-            west = f"{bb.get('xmin','?'):.4f}" if bb else "[dim]?[/dim]"
-            tbl.add_row(t["tile_id"], disk, sz, west)
-        if len(tiles) > 30:
-            tbl.add_row(f"… {len(tiles)-30} more …", "", "", "")
+        tbl = Table(box=box.SIMPLE, show_header=False)
+        tbl.add_column("Key",   style="dim cyan", min_width=24)
+        tbl.add_column("Value", style="white")
+        tbl.add_row("LAZ directory",   laz_dir)
+        tbl.add_row("LAZ file count",  str(count))
+        tbl.add_row("Total size",      f"{total_gb:.2f} GB")
+        tbl.add_row("Output root",     str(catalog["output_root"]))
+        tbl.add_row("Tile manifest",   str(catalog["tile_manifest"]))
+        tbl.add_row("City manifest",   str(catalog["city_manifest"]))
+        tbl.add_row("keep_raw_laz",    str(catalog["keep_raw_laz"]))
+        tbl.add_row("Output EPSG",     str(catalog["output_epsg"]))
+        tbl.add_row("First file",      str(catalog["first_file"]))
+        tbl.add_row("Last file",       str(catalog["last_file"]))
         console.print(tbl)
 
-        total_gb = sum(t["size_mb"] or 0 for t in tiles) / 1024
-        console.print(f"  [white]{len(tiles)}[/white] tiles   "
-                      f"[green]{n_on_disk}[/green] on disk   "
-                      f"[dim]{total_gb:.1f} GB total[/dim]")
+        grp_tbl = Table(box=box.SIMPLE, show_header=True, header_style="dim cyan")
+        grp_tbl.add_column("Project / Dataset Group", min_width=40)
+        grp_tbl.add_column("File Count", justify="right")
+        for proj, cnt in sorted(catalog["project_groups"].items()):
+            grp_tbl.add_row(proj, str(cnt))
+        console.print(grp_tbl)
     else:
-        total_gb = sum(t["size_mb"] or 0 for t in tiles) / 1024
-        print(f"  {len(tiles)} tiles, {n_on_disk} on disk, {total_gb:.1f} GB total")
+        print(f"  LAZ directory : {laz_dir}")
+        print(f"  LAZ count     : {count}")
+        print(f"  Total size    : {total_gb:.2f} GB")
+        print(f"  Output root   : {catalog['output_root']}")
+        print(f"  Tile manifest : {catalog['tile_manifest']}")
+        print(f"  City manifest : {catalog['city_manifest']}")
+        print(f"  keep_raw_laz  : {catalog['keep_raw_laz']}")
+        print(f"  Output EPSG   : {catalog['output_epsg']}")
+        print(f"  First file    : {catalog['first_file']}")
+        print(f"  Last file     : {catalog['last_file']}")
+        print("  Project groups:")
+        for proj, cnt in sorted(catalog["project_groups"].items()):
+            print(f"    {proj:<40} {cnt}")
 
-    if dry_run:
-        if console:
-            console.print("[dim]Dry run — catalog not written.[/dim]")
-        return catalog
-
-    catalog_path.parent.mkdir(parents=True, exist_ok=True)
-    catalog_path.write_text(json.dumps(catalog, indent=2), encoding="utf-8")
-    if console:
-        console.print(f"[green]Catalog written:[/green] {catalog_path}")
-    else:
-        print(f"Catalog written: {catalog_path}")
-
-    return catalog
-
-
-# ── CLI ────────────────────────────────────────────────────────────────────────
 
 def main() -> int:
-    args    = sys.argv[1:]
-    force   = "--force"   in args
-    dry_run = "--dry-run" in args
+    parser = argparse.ArgumentParser(
+        description="New Orleans LAZ preflight / catalog tool. "
+                    "Scans on-disk LAZ files and reports statistics. "
+                    "Does NOT run the processing pipeline.",
+    )
+    parser.add_argument(
+        "--config",
+        type=Path,
+        default=DEFAULT_CONFIG,
+        help=f"City config JSON (default: {DEFAULT_CONFIG})",
+    )
+    parser.add_argument(
+        "--laz-dir",
+        type=Path,
+        default=None,
+        help="Override LAZ directory from config",
+    )
+    parser.add_argument(
+        "--output",
+        type=Path,
+        default=None,
+        help="Write catalog JSON to this path (skipped if --dry-run)",
+    )
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Print report only; do not write any output files",
+    )
 
-    result = build_catalog(force=force, dry_run=dry_run)
-    return 0 if result is not None else 1
+    args = parser.parse_args()
+
+    cfg = load_config(args.config)
+    catalog = build_catalog(cfg, laz_dir=args.laz_dir)
+    print_report(catalog)
+
+    if args.dry_run:
+        _print("[dim]Dry run — no files written.[/dim]" if HAS_RICH else "Dry run — no files written.")
+        return 0
+
+    if args.output:
+        args.output.parent.mkdir(parents=True, exist_ok=True)
+        args.output.write_text(json.dumps(catalog, indent=2), encoding="utf-8")
+        _print(f"Catalog written: {args.output}")
+
+    return 0
 
 
 if __name__ == "__main__":
