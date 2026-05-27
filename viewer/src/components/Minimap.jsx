@@ -1,18 +1,25 @@
 import { useEffect, useRef } from 'react'
-import { SCENE } from '../config'
+import { SCENE, TILE_MANIFEST_URL } from '../config'
 import { MINIMAP_DATA } from '../waveState'
 
 const SIZE = 200
-const PAD = 12 // world-space margin around city bounds
 
-const xRange = SCENE.xMax - SCENE.xMin + PAD * 2
-const zRange = SCENE.zMax - SCENE.zMin + PAD * 2
+// World X [SCENE.xMin..SCENE.xMax] → lon [extent.xmin..extent.xmax]
+function worldXToLon(wx, ext) {
+  return ext.xmin + ((wx - SCENE.xMin) / (SCENE.xMax - SCENE.xMin)) * (ext.xmax - ext.xmin)
+}
 
-function toCanvas(wx, wz) {
-  return [
-    ((wx - SCENE.xMin + PAD) / xRange) * SIZE,
-    ((wz - SCENE.zMin + PAD) / zRange) * SIZE,
-  ]
+// World Z: SCENE.zMax(0) = south(ext.ymin), SCENE.zMin(-18282) = north(ext.ymax)
+function worldZToLat(wz, ext) {
+  return ext.ymin + ((wz - SCENE.zMax) / (SCENE.zMin - SCENE.zMax)) * (ext.ymax - ext.ymin)
+}
+
+// Lon/lat → canvas pixel (lat is flipped: north = canvas top)
+function lonToCanvasX(lon, ext) {
+  return ((lon - ext.xmin) / (ext.xmax - ext.xmin)) * SIZE
+}
+function latToCanvasY(lat, ext) {
+  return (1 - (lat - ext.ymin) / (ext.ymax - ext.ymin)) * SIZE
 }
 
 const STYLE = {
@@ -32,15 +39,57 @@ const STYLE = {
 
 export function Minimap() {
   const canvasRef = useRef()
-  const rafRef = useRef()
+  const rafRef    = useRef()
+  const tilesRef  = useRef([])   // pre-computed { x, y, w, h } in canvas px
+  const extentRef = useRef(null) // lat/lon extent of all tiles
 
+  // Fetch manifest once, compute canvas rects for all tiles with bbox_4326
+  useEffect(() => {
+    let cancelled = false
+    fetch(TILE_MANIFEST_URL)
+      .then(r => r.json())
+      .then(data => {
+        if (cancelled) return
+        const raw = data.tiles ?? []
+        let lonMin = Infinity, lonMax = -Infinity
+        let latMin = Infinity, latMax = -Infinity
+        let missing = 0
+
+        for (const t of raw) {
+          const b = t.bbox_4326
+          if (!b) { missing++; continue }
+          lonMin = Math.min(lonMin, b.xmin)
+          lonMax = Math.max(lonMax, b.xmax)
+          latMin = Math.min(latMin, b.ymin)
+          latMax = Math.max(latMax, b.ymax)
+        }
+
+        if (!isFinite(lonMin)) return
+        if (missing) console.log(`[Minimap] ${missing}/${raw.length} tiles missing bbox_4326 — skipped`)
+
+        const ext = { xmin: lonMin, ymin: latMin, xmax: lonMax, ymax: latMax }
+        extentRef.current = ext
+
+        tilesRef.current = raw
+          .filter(t => t.bbox_4326)
+          .map(t => {
+            const b = t.bbox_4326
+            const x = lonToCanvasX(b.xmin, ext)
+            const y = latToCanvasY(b.ymax, ext) // ymax = north = canvas top
+            const w = lonToCanvasX(b.xmax, ext) - x
+            const h = latToCanvasY(b.ymin, ext) - y // ymin = south = canvas bottom
+            return { x, y, w, h }
+          })
+      })
+      .catch(err => console.error('[Minimap] manifest fetch failed', err))
+    return () => { cancelled = true }
+  }, [])
+
+  // RAF draw loop — reads tilesRef and extentRef directly, no React state churn
   useEffect(() => {
     const canvas = canvasRef.current
     if (!canvas) return
     const ctx = canvas.getContext('2d')
-
-    const [x0, z0] = toCanvas(SCENE.xMin, SCENE.zMin)
-    const [x1, z1] = toCanvas(SCENE.xMax, SCENE.zMax)
 
     function draw() {
       ctx.clearRect(0, 0, SIZE, SIZE)
@@ -50,26 +99,35 @@ export function Minimap() {
       ctx.arc(SIZE / 2, SIZE / 2, SIZE / 2, 0, Math.PI * 2)
       ctx.clip()
 
-      // City extent outline
-      ctx.strokeStyle = 'rgba(0,229,255,0.10)'
-      ctx.lineWidth = 1
-      ctx.strokeRect(
-        Math.min(x0, x1), Math.min(z0, z1),
-        Math.abs(x1 - x0), Math.abs(z1 - z0),
-      )
+      // Tile bboxes
+      const tiles = tilesRef.current
+      if (tiles.length) {
+        ctx.fillStyle   = 'rgba(0,229,255,0.05)'
+        ctx.strokeStyle = 'rgba(0,229,255,0.20)'
+        ctx.lineWidth   = 0.5
+        for (const { x, y, w, h } of tiles) {
+          ctx.fillRect(x, y, w, h)
+          ctx.strokeRect(x, y, w, h)
+        }
+      }
 
-      // Camera position dot
-      const [cx, cz] = toCanvas(MINIMAP_DATA.camX, MINIMAP_DATA.camZ)
-      ctx.fillStyle = '#00e5ff'
-      ctx.shadowColor = '#00e5ff'
-      ctx.shadowBlur = 8
-      ctx.beginPath()
-      ctx.arc(cx, cz, 4, 0, Math.PI * 2)
-      ctx.fill()
-      ctx.shadowBlur = 0
+      // Camera dot
+      const ext = extentRef.current
+      if (ext) {
+        const lon = worldXToLon(MINIMAP_DATA.camX, ext)
+        const lat = worldZToLat(MINIMAP_DATA.camZ, ext)
+        const cx  = lonToCanvasX(lon, ext)
+        const cy  = latToCanvasY(lat, ext)
+        ctx.fillStyle   = '#00e5ff'
+        ctx.shadowColor = '#00e5ff'
+        ctx.shadowBlur  = 8
+        ctx.beginPath()
+        ctx.arc(cx, cy, 4, 0, Math.PI * 2)
+        ctx.fill()
+        ctx.shadowBlur = 0
+      }
 
       ctx.restore()
-
       rafRef.current = requestAnimationFrame(draw)
     }
 

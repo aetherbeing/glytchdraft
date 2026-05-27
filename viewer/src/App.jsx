@@ -1,4 +1,4 @@
-import { Suspense, useState, useCallback, useEffect, useRef } from 'react'
+import { useState, useCallback, useEffect, useRef } from 'react'
 import { Canvas } from '@react-three/fiber'
 import { OrbitControls, AdaptiveDpr, AdaptiveEvents } from '@react-three/drei'
 import { createXRStore, XR, XROrigin, useXRControllerLocomotion } from '@react-three/xr'
@@ -224,16 +224,13 @@ export default function App() {
           <XRPlayerRig />
           <color attach="background" args={[C.bg]} />
 
-          <Suspense fallback={null}>
-            <CityScene
-              onHover={handleHover}
-              onSelect={handleSelect}
-              hovered={hovered}
-              selected={selected}
-              visualMode={visualMode}
-              fogEnabled={fogEnabled}
-            />
-          </Suspense>
+          <CityScene
+            onHover={handleHover}
+            onSelect={handleSelect}
+            hovered={hovered}
+            selected={selected}
+            visualMode={visualMode}
+          />
 
           <FPVController active={fpvMode} onToggle={handleFPV} />
 

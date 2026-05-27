@@ -14,7 +14,7 @@ import {
 const STREAM_UPDATE_INTERVAL = 0.15
 const EMERGE_Y_START  = -50   // meters below ground
 const EMERGE_DURATION = 0.6   // seconds
-const EMERGE_STAGGER  = 0.020 // seconds between buildings (20 ms)
+const EMERGE_STAGGER  = 0.015 // seconds between buildings (15 ms)
 
 const VISUAL_STATES = {
   hover:      HOVER_GHOST,
