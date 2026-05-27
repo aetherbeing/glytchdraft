@@ -1,109 +1,160 @@
 #!/usr/bin/env python3
 """
-Validate the viewer streaming tile manifest against the on-disk GLB files.
-
-Exits non-zero if any of the following are true:
-  - All tiles have has_glb=false/null (manifest is blank / not generated)
-  - A tile has has_glb=true but its referenced GLB is unreachable from disk
-  - GLB files exist on disk for tiles that have has_glb=false in the manifest
-
-Usage:
-    python scripts/validate_tile_manifest.py
-    python scripts/validate_tile_manifest.py --manifest path/to/tile_manifest.json
-    python scripts/validate_tile_manifest.py --tile-root path/to/tiles
+Validate a viewer streaming tile manifest.
 """
 from __future__ import annotations
 
 import argparse
+import csv
 import json
 import sys
 from pathlib import Path
 
-MIAMI_TILE_ROOTS = [
-    Path('/mnt/t7/miami/data_processed/miami_city/tiles'),
-    Path('E:/miami/data_processed/miami_city/tiles'),
-]
 REPO_ROOT = Path(__file__).resolve().parent.parent
 MANIFEST_DEFAULT = REPO_ROOT / 'viewer/public/models/tile_manifest.json'
 
 
-def resolve_existing(paths: list[Path]) -> Path | None:
-    for p in paths:
-        if p.exists():
-            return p
-    return None
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        description='Validate viewer tile manifest schema, GLB reachability, and stale zero-building counts.',
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+    )
+    parser.add_argument('--manifest', type=Path, default=MANIFEST_DEFAULT, help='Viewer tile manifest JSON to validate.')
+    parser.add_argument('--tile-root', type=Path, help='Optional tile root containing <tile_id>/blender_ready/<tile_id>.glb and support outputs.')
+    parser.add_argument('--public-root', type=Path, help='Optional public root used to resolve URL paths such as /models/tiles/x.glb.')
+    parser.add_argument('--strict-warnings', action='store_true', help='Return non-zero when warnings are present.')
+    return parser
 
 
 def glb_disk_path(tile_root: Path, tile_id: str) -> Path:
     return tile_root / tile_id / 'blender_ready' / f'{tile_id}.glb'
 
 
+def url_disk_path(public_root: Path, url: str) -> Path:
+    return public_root.joinpath(*url.lstrip('/').split('/'))
+
+
+def csv_row_count(path: Path) -> int:
+    if not path.exists():
+        return 0
+    try:
+        with path.open(newline='', encoding='utf-8') as fh:
+            return sum(1 for _ in csv.DictReader(fh))
+    except Exception:
+        return 0
+
+
+def supporting_output_count(tile_root: Path | None, tile_id: str) -> int:
+    if tile_root is None:
+        return 0
+    tile_dir = tile_root / tile_id
+    count = 0
+    count += sum(csv_row_count(path) for path in (tile_dir / 'masses').glob('*_masses_metadata.csv'))
+    count += sum(csv_row_count(path) for path in (tile_dir / 'blender_ready' / 'masses').glob('*_masses_metadata.csv'))
+    count += 1 if glb_disk_path(tile_root, tile_id).exists() else 0
+    return count
+
+
+def manifest_zero_building(tile: dict) -> bool:
+    values = []
+    for key in ('building_count', 'structure_count', 'mass_metadata_count', 'manifest_building_count', 'n_footprints', 'n_clusters'):
+        if key not in tile:
+            continue
+        value = tile.get(key)
+        if value in (None, ''):
+            values.append(0)
+            continue
+        try:
+            values.append(float(value))
+        except (TypeError, ValueError):
+            continue
+    return bool(values) and max(values) <= 0
+
+
+def validate_manifest(manifest: dict, *, tile_root: Path | None = None, public_root: Path | None = None) -> tuple[list[str], list[str]]:
+    errors: list[str] = []
+    warnings: list[str] = []
+    tiles = manifest.get('tiles', [])
+    if not isinstance(tiles, list) or not tiles:
+        return ['manifest has no tiles array'], warnings
+
+    for index, tile in enumerate(tiles):
+        if not isinstance(tile, dict):
+            errors.append(f'tile[{index}] is not an object')
+            continue
+
+        tile_id = str(tile.get('tile_id') or '').strip()
+        if not tile_id:
+            errors.append(f'tile[{index}] missing tile_id')
+            continue
+
+        bbox = tile.get('bbox_4326')
+        if not isinstance(bbox, dict):
+            errors.append(f'{tile_id}: missing bbox_4326')
+        else:
+            for key in ('xmin', 'ymin', 'xmax', 'ymax'):
+                if key not in bbox:
+                    errors.append(f'{tile_id}: bbox_4326 missing {key}')
+
+        has_glb = tile.get('has_glb')
+        if not isinstance(has_glb, bool):
+            errors.append(f'{tile_id}: has_glb must be boolean')
+
+        if has_glb is True:
+            candidates: list[Path] = []
+            if tile_root is not None:
+                candidates.append(glb_disk_path(tile_root, tile_id))
+            if public_root is not None and tile.get('url'):
+                candidates.append(url_disk_path(public_root, str(tile['url'])))
+            if tile.get('glb_path'):
+                raw_glb_path = Path(str(tile['glb_path']))
+                candidates.append(raw_glb_path)
+                if public_root is not None and not raw_glb_path.is_absolute():
+                    candidates.append(public_root / raw_glb_path)
+            if candidates and not any(path.exists() for path in candidates):
+                errors.append(f'{tile_id}: has_glb=true but GLB is missing')
+
+        if has_glb is False and tile_root is not None and glb_disk_path(tile_root, tile_id).exists():
+            warnings.append(f'{tile_id}: GLB exists on disk but has_glb=false')
+
+        if manifest_zero_building(tile) and supporting_output_count(tile_root, tile_id) > 0:
+            warnings.append(f'{tile_id}: suspicious_manifest_false_positive')
+
+    has_glb_true = [tile for tile in tiles if isinstance(tile, dict) and tile.get('has_glb') is True]
+    if not has_glb_true:
+        errors.append(f'ALL {len(tiles)} tiles have has_glb=false/null')
+
+    return errors, warnings
+
+
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description='Validate viewer tile manifest vs disk GLBs')
-    parser.add_argument('--manifest', type=Path, default=MANIFEST_DEFAULT)
-    parser.add_argument(
-        '--tile-root',
-        type=Path,
-        help='Path to the tile root containing per-tile GLBs. Defaults to Miami shared-data locations.',
-    )
+    parser = build_parser()
     args = parser.parse_args(argv)
 
     if not args.manifest.exists():
         print(f'ERROR: manifest not found: {args.manifest}')
-        print('  Run: python scripts/generate_viewer_manifest.py')
         return 1
 
-    tile_root = args.tile_root or resolve_existing(MIAMI_TILE_ROOTS)
-    if not tile_root:
-        print('WARNING: tile root not found - skipping disk checks')
-
-    manifest = json.loads(args.manifest.read_text())
-    tiles = manifest.get('tiles', [])
-    if not tiles:
-        print('ERROR: manifest has no tiles array')
+    try:
+        manifest = json.loads(args.manifest.read_text(encoding='utf-8'))
+    except Exception as exc:
+        print(f'ERROR: invalid manifest JSON: {exc}')
+        return 1
+    if not isinstance(manifest, dict):
+        print('ERROR: manifest root must be an object')
         return 1
 
-    errors: list[str] = []
-    warnings: list[str] = []
+    errors, warnings = validate_manifest(manifest, tile_root=args.tile_root, public_root=args.public_root)
+    tiles = manifest.get('tiles', []) if isinstance(manifest.get('tiles'), list) else []
+    has_glb_true = [tile for tile in tiles if isinstance(tile, dict) and tile.get('has_glb') is True]
+    has_glb_false = [tile for tile in tiles if isinstance(tile, dict) and tile.get('has_glb') is False]
 
-    has_glb_true = [t for t in tiles if t.get('has_glb') is True]
-    has_glb_false = [t for t in tiles if not t.get('has_glb')]
-
-    # Check 1: all has_glb are null/false
-    if not has_glb_true:
-        errors.append(f'ALL {len(tiles)} tiles have has_glb=false/null - manifest was not generated correctly')
-
-    # Disk checks require tile root
-    if tile_root:
-        # Check 2: has_glb=true but GLB missing on disk
-        for t in has_glb_true:
-            tid = t.get('tile_id', '')
-            disk_path = glb_disk_path(tile_root, tid)
-            if not disk_path.exists():
-                errors.append(f'has_glb=true but GLB missing: {tid}')
-
-        # Check 3: GLBs exist on disk but manifest says has_glb=false
-        for t in has_glb_false:
-            tid = t.get('tile_id', '')
-            if not tid:
-                continue
-            disk_path = glb_disk_path(tile_root, tid)
-            if disk_path.exists():
-                warnings.append(f'GLB exists on disk but has_glb=false in manifest: {tid}')
-
-    # Check 4: tiles missing bbox_4326 or cull_bounds (breaks minimap + frustum culling)
-    no_bbox = [t['tile_id'] for t in tiles if not t.get('bbox_4326')]
-    no_cull = [t['tile_id'] for t in tiles if not t.get('cull_bounds')]
-    if no_bbox:
-        warnings.append(f'{len(no_bbox)} tiles missing bbox_4326')
-    if no_cull:
-        warnings.append(f'{len(no_cull)} tiles missing cull_bounds')
-
-    # Report
     print(f'manifest: {args.manifest}')
     print(f'tiles: {len(tiles)} total | has_glb=true: {len(has_glb_true)} | has_glb=false: {len(has_glb_false)}')
-    if tile_root:
-        print(f'tile root: {tile_root}')
+    if args.tile_root:
+        print(f'tile root: {args.tile_root}')
+    if args.public_root:
+        print(f'public root: {args.public_root}')
 
     for w in warnings:
         print(f'  WARNING: {w}')
@@ -111,6 +162,8 @@ def main(argv: list[str] | None = None) -> int:
         print(f'  ERROR: {e}')
 
     if errors:
+        return 1
+    if warnings and args.strict_warnings:
         return 1
 
     print('OK: manifest is valid')

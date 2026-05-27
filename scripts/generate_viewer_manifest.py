@@ -16,6 +16,7 @@ You can override every path on the command line.
 from __future__ import annotations
 
 import argparse
+import csv
 import json
 import struct
 import sys
@@ -65,6 +66,12 @@ def build_parser() -> argparse.ArgumentParser:
         type=Path,
         default=DEFAULT_OUTPUT,
         help="Output manifest path.",
+    )
+    parser.add_argument(
+        "--structures-enriched",
+        type=Path,
+        default=None,
+        help="Optional structures_enriched.geojson used to add per-tile structure counts.",
     )
     parser.add_argument(
         "--max-streamed-tiles",
@@ -169,6 +176,54 @@ def load_city_offset(city_offset_path: Path) -> dict:
     return payload
 
 
+def structure_counts_by_tile(path: Path | None) -> dict[str, int]:
+    if path is None or not path.exists():
+        return {}
+    payload = read_json(path)
+    if not isinstance(payload, dict):
+        return {}
+    counts: dict[str, int] = {}
+    for feature in payload.get("features") or []:
+        props = feature.get("properties") or {}
+        tile_id = props.get("tile_id")
+        if tile_id:
+            counts[str(tile_id)] = counts.get(str(tile_id), 0) + 1
+    return counts
+
+
+def csv_row_count(path: Path) -> int:
+    if not path.exists():
+        return 0
+    try:
+        with path.open(newline="", encoding="utf-8") as fh:
+            return sum(1 for _ in csv.DictReader(fh))
+    except Exception:
+        return 0
+
+
+def mass_metadata_count(tile_root: Path, tile_id: str) -> int:
+    tile_dir = tile_root / tile_id
+    count = sum(csv_row_count(path) for path in (tile_dir / "masses").glob("*_masses_metadata.csv"))
+    if count:
+        return count
+    return sum(csv_row_count(path) for path in (tile_dir / "blender_ready" / "masses").glob("*_masses_metadata.csv"))
+
+
+def source_building_count(tile: dict) -> int | None:
+    values = []
+    for key in ("building_count", "building_mass_lod0", "building_mass_lod1", "lod0_count", "lod1_count", "n_footprints", "n_clusters"):
+        if key not in tile:
+            continue
+        value = tile.get(key)
+        if value in (None, ""):
+            continue
+        try:
+            values.append(int(float(value)))
+        except (TypeError, ValueError):
+            continue
+    return max(values) if values else None
+
+
 def source_to_scene_bounds(local_min: list[float], local_max: list[float], tile_offset: dict, city_offset: dict) -> dict:
     position = [
         tile_offset["shift_x"] - city_offset["shift_x"],
@@ -249,8 +304,20 @@ def tile_manifest_bbox(tile_root: Path, tile_id: str) -> dict | None:
     )
 
 
-def build_streaming_manifest(tile_root: Path, city_offset: dict, source_tiles: list[dict], scene_bounds: dict, max_streamed_tiles: int) -> dict:
+def source_relative_glb_path(tile_root: Path, tile_id: str) -> str:
+    return f"tiles/{tile_id}/blender_ready/{tile_id}.glb"
+
+
+def build_streaming_manifest(
+    tile_root: Path,
+    city_offset: dict,
+    source_tiles: list[dict],
+    scene_bounds: dict,
+    max_streamed_tiles: int,
+    structures_by_tile: dict[str, int] | None = None,
+) -> dict:
     extent = geo_extent(source_tiles)
+    structures_by_tile = structures_by_tile or {}
     tiles: list[dict] = []
     missing_glb = 0
     missing_offset = 0
@@ -264,6 +331,10 @@ def build_streaming_manifest(tile_root: Path, city_offset: dict, source_tiles: l
         glb_path = tile_root / tile_id / "blender_ready" / f"{tile_id}.glb"
         offset_path = tile_root / tile_id / "blender_ready" / f"{tile_id}_glb_offset.json"
         has_glb = glb_path.exists()
+        structure_count = structures_by_tile.get(tile_id)
+        mass_count = mass_metadata_count(tile_root, tile_id)
+        manifest_count = source_building_count(tile)
+        building_count = max(count for count in (structure_count, mass_count, manifest_count) if count is not None) if any(count is not None for count in (structure_count, mass_count, manifest_count)) else None
         per_tile_bbox = tile_manifest_bbox(tile_root, tile_id)
         bbox_4326 = per_tile_bbox or normalize_bbox(tile.get("bbox_4326"))
 
@@ -295,8 +366,13 @@ def build_streaming_manifest(tile_root: Path, city_offset: dict, source_tiles: l
             {
                 "tile_id": tile_id,
                 "url": f"/models/tiles/{tile_id}.glb",
+                "glb_path": source_relative_glb_path(tile_root, tile_id),
                 "has_glb": has_glb,
                 "bbox_4326": bbox_4326,
+                "building_count": building_count,
+                "structure_count": structure_count,
+                "mass_metadata_count": mass_count,
+                "manifest_building_count": manifest_count,
                 "bbox_source": "tile_manifest" if per_tile_bbox else tile.get("bbox_source", "city_tile_manifest"),
                 "bounds": bounds,
                 "cull_bounds": cull_bounds,
@@ -359,6 +435,8 @@ def main(argv: list[str] | None = None) -> int:
             print(f"ERROR: no tiles found in {tile_manifest_path}", file=sys.stderr)
             return 1
         city_offset = load_city_offset(city_offset_path)
+        structures_path = args.structures_enriched or source_dir / "metadata" / "structures_enriched.geojson"
+        structures_by_tile = structure_counts_by_tile(structures_path)
         scene_bounds = {"min": list(args.scene_min), "max": list(args.scene_max)}
     except (ValueError, OSError, json.JSONDecodeError) as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
@@ -369,7 +447,7 @@ def main(argv: list[str] | None = None) -> int:
     print(f"city offset:    {city_offset_path}", file=sys.stderr)
     print(f"output:         {args.output}", file=sys.stderr)
 
-    manifest = build_streaming_manifest(tile_root, city_offset, source_tiles, scene_bounds, args.max_streamed_tiles)
+    manifest = build_streaming_manifest(tile_root, city_offset, source_tiles, scene_bounds, args.max_streamed_tiles, structures_by_tile)
 
     if args.dry_run:
         glb_true = sum(1 for tile in manifest["tiles"] if tile["has_glb"])
