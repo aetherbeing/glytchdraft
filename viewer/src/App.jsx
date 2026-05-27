@@ -5,6 +5,7 @@ import { createXRStore, XR, XROrigin, useXRControllerLocomotion } from '@react-t
 import { CityScene } from './components/CityScene'
 import { FPVController } from './components/FPVController'
 import { HUD } from './components/HUD'
+import { Minimap } from './components/Minimap'
 import { SCENE, C, ENABLE_SCENE_FOG, NAVIGATION } from './config'
 import './index.css'
 import './App.css'
@@ -318,6 +319,7 @@ export default function App() {
           />
 
           <LoadingOverlay />
+          <Minimap />
         </>
       )}
 
