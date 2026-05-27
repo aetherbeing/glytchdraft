@@ -1,6 +1,6 @@
 import { Suspense, useState, useCallback, useEffect, useRef } from 'react'
 import { Canvas } from '@react-three/fiber'
-import { OrbitControls, AdaptiveDpr, AdaptiveEvents, useProgress } from '@react-three/drei'
+import { OrbitControls, AdaptiveDpr, AdaptiveEvents } from '@react-three/drei'
 import { createXRStore, XR, XROrigin, useXRControllerLocomotion } from '@react-three/xr'
 import { CityScene } from './components/CityScene'
 import { FPVController } from './components/FPVController'
@@ -58,25 +58,6 @@ const CROSSHAIR = {
   zIndex: 10,
 }
 
-const LOAD_OVERLAY = {
-  position: 'fixed',
-  inset: 0,
-  display: 'grid',
-  placeItems: 'center',
-  pointerEvents: 'none',
-  zIndex: 20,
-  background: 'linear-gradient(180deg, rgba(8,11,15,0.92), rgba(8,11,15,0.72))',
-}
-
-const LOAD_PANEL = {
-  width: 'min(560px, calc(100vw - 48px))',
-  border: '1px solid rgba(0,229,255,0.28)',
-  background: 'rgba(2, 8, 12, 0.82)',
-  padding: '18px 20px',
-  fontFamily: "'JetBrains Mono', 'Fira Code', 'Consolas', monospace",
-  color: '#00e5ff',
-  boxShadow: '0 24px 80px rgba(0,0,0,0.45)',
-}
 
 const ORDERS = [
   ['Threshold', 'Entry logic, access rituals, and the first read of a place.'],
@@ -149,31 +130,6 @@ function Landing({ onEnter }) {
   )
 }
 
-function LoadingOverlay() {
-  const { active, progress, item, loaded, total } = useProgress()
-  const pct = Number.isFinite(progress) ? Math.max(0, Math.min(100, progress)) : 0
-  if (!active && pct >= 100) return null
-
-  return (
-    <div style={LOAD_OVERLAY}>
-      <div style={LOAD_PANEL}>
-        <div style={{ fontSize: 12, letterSpacing: '0.14em', marginBottom: 10 }}>
-          STREAMING CITY OF MIAMI TILES
-        </div>
-        <div style={{ height: 8, border: '1px solid rgba(0,229,255,0.35)', background: 'rgba(0,229,255,0.08)' }}>
-          <div style={{ width: `${pct}%`, height: '100%', background: '#00e5ff', transition: 'width 160ms linear' }} />
-        </div>
-        <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 10, fontSize: 11, color: 'rgba(180,245,255,0.78)' }}>
-          <span>{pct.toFixed(1)}%</span>
-          <span>{loaded}/{total || 1}</span>
-        </div>
-        <div style={{ marginTop: 8, fontSize: 10, color: 'rgba(180,245,255,0.58)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-          {item || 'Preparing city model stream'}
-        </div>
-      </div>
-    </div>
-  )
-}
 
 function XRPlayerRig() {
   const originRef = useRef(null)
@@ -318,7 +274,6 @@ export default function App() {
             onZoomOut={() => zoomBy(1)}
           />
 
-          <LoadingOverlay />
           <Minimap />
         </>
       )}

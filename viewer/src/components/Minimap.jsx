@@ -1,11 +1,10 @@
 import { useEffect, useRef } from 'react'
-import { SCENE, C } from '../config'
+import { SCENE } from '../config'
 import { MINIMAP_DATA } from '../waveState'
 
 const SIZE = 200
 const PAD = 12 // world-space margin around city bounds
 
-// World → canvas coordinate mapping
 const xRange = SCENE.xMax - SCENE.xMin + PAD * 2
 const zRange = SCENE.zMax - SCENE.zMin + PAD * 2
 
@@ -40,14 +39,12 @@ export function Minimap() {
     if (!canvas) return
     const ctx = canvas.getContext('2d')
 
-    // Pre-compute city extent rect in canvas space
     const [x0, z0] = toCanvas(SCENE.xMin, SCENE.zMin)
     const [x1, z1] = toCanvas(SCENE.xMax, SCENE.zMax)
 
     function draw() {
       ctx.clearRect(0, 0, SIZE, SIZE)
 
-      // Clip to circle
       ctx.save()
       ctx.beginPath()
       ctx.arc(SIZE / 2, SIZE / 2, SIZE / 2, 0, Math.PI * 2)
@@ -61,23 +58,8 @@ export function Minimap() {
         Math.abs(x1 - x0), Math.abs(z1 - z0),
       )
 
-      // Wave clearing radius ring
-      const [cx, cz] = toCanvas(MINIMAP_DATA.camX, MINIMAP_DATA.camZ)
-      const waveR = (MINIMAP_DATA.waveRadius / xRange) * SIZE
-
-      if (waveR > 2) {
-        const grad = ctx.createRadialGradient(cx, cz, Math.max(0, waveR - 40), cx, cz, waveR + 40)
-        grad.addColorStop(0, 'rgba(0,229,255,0.00)')
-        grad.addColorStop(0.45, 'rgba(0,229,255,0.06)')
-        grad.addColorStop(0.7, 'rgba(0,229,255,0.18)')
-        grad.addColorStop(1, 'rgba(0,229,255,0.00)')
-        ctx.fillStyle = grad
-        ctx.beginPath()
-        ctx.arc(cx, cz, waveR + 40, 0, Math.PI * 2)
-        ctx.fill()
-      }
-
       // Camera position dot
+      const [cx, cz] = toCanvas(MINIMAP_DATA.camX, MINIMAP_DATA.camZ)
       ctx.fillStyle = '#00e5ff'
       ctx.shadowColor = '#00e5ff'
       ctx.shadowBlur = 8
