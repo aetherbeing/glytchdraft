@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import csv
 import json
 import sys
 from pathlib import Path
@@ -16,6 +17,18 @@ from phase_common import (
 
 
 STATUS_ORDER = {"PASS": 0, "WARN": 1, "FAIL": 2}
+BUILDING_COUNT_KEYS = (
+    "building_count",
+    "building_mass_lod0",
+    "building_mass_lod1",
+    "lod0_count",
+    "lod1_count",
+    "lod0",
+    "lod1",
+    "n_footprints",
+    "footprint_count",
+    "n_clusters",
+)
 
 
 def status_line(status: str, label: str, detail: str = "") -> str:
@@ -105,6 +118,123 @@ def tile_outputs(tile_dir: Path, tile_id: str, out_epsg: int | None) -> dict[str
     if epsg:
         checks["epsg_footprints"] = any((tile_dir / "footprints").glob(f"*_{epsg}.geojson")) if (tile_dir / "footprints").exists() else False
     return checks
+
+
+def manifest_reports_zero_buildings(manifest_tile: dict[str, Any]) -> bool:
+    values = [manifest_tile.get(key) for key in BUILDING_COUNT_KEYS if key in manifest_tile]
+    if not values:
+        return False
+    numeric = []
+    for value in values:
+        if value in (None, ""):
+            numeric.append(0)
+            continue
+        try:
+            numeric.append(float(value))
+        except (TypeError, ValueError):
+            continue
+    return bool(numeric) and max(numeric) <= 0
+
+
+def csv_row_count(path: Path) -> int:
+    if not path.exists():
+        return 0
+    try:
+        with path.open(newline="", encoding="utf-8") as fh:
+            return sum(1 for _ in csv.DictReader(fh))
+    except Exception:
+        return 0
+
+
+def geojson_feature_count(path: Path) -> int:
+    count, error = feature_count(path)
+    return count if error is None and count is not None else 0
+
+
+def structure_counts_by_tile(path: Path) -> dict[str, int]:
+    resolved = resolve_cross_platform_path(path)
+    data, error = read_json(resolved)
+    if error or not isinstance(data, dict):
+        return {}
+    out: dict[str, int] = {}
+    for feat in data.get("features") or []:
+        props = feat.get("properties") or {}
+        tile_id = props.get("tile_id")
+        if tile_id:
+            out[str(tile_id)] = out.get(str(tile_id), 0) + 1
+    return out
+
+
+def classify_zero_building_tile(
+    tile_id: str,
+    tile_dir: Path,
+    manifest_tile: dict[str, Any],
+    structures_by_tile: dict[str, int] | None = None,
+    out_epsg: int | None = None,
+) -> dict[str, Any]:
+    structures_by_tile = structures_by_tile or {}
+    epsg = out_epsg or 0
+    mass_rows = sum(csv_row_count(path) for path in (tile_dir / "masses").glob("*_masses_metadata.csv"))
+    if not mass_rows:
+        mass_rows = sum(csv_row_count(path) for path in (tile_dir / "blender_ready" / "masses").glob("*_masses_metadata.csv"))
+    footprint_features = 0
+    footprint_dir = tile_dir / "footprints"
+    if footprint_dir.exists():
+        patterns = [f"*_{epsg}.geojson"] if epsg else ["*.geojson"]
+        for pattern in patterns:
+            footprint_features += sum(geojson_feature_count(path) for path in footprint_dir.glob(pattern))
+    has_glb = any((tile_dir / "blender_ready").glob("*.glb"))
+    structure_records = structures_by_tile.get(tile_id, 0)
+    manifest_zero = manifest_reports_zero_buildings(manifest_tile)
+    supporting_count = mass_rows + footprint_features + structure_records
+
+    if not manifest_zero:
+        classification = "not_manifest_zero"
+    elif supporting_count > 0 or has_glb:
+        classification = "suspicious_manifest_false_positive"
+    else:
+        classification = "expected_zero"
+
+    return {
+        "tile_id": tile_id,
+        "classification": classification,
+        "manifest_reports_zero_buildings": manifest_zero,
+        "expected_zero": classification == "expected_zero",
+        "suspicious_manifest_false_positive": classification == "suspicious_manifest_false_positive",
+        "mass_metadata_rows": mass_rows,
+        "footprint_features": footprint_features,
+        "structure_records": structure_records,
+        "has_glb": has_glb,
+        "glb_paths": [str(path) for path in sorted((tile_dir / "blender_ready").glob("*.glb"))],
+    }
+
+
+def zero_building_consistency(city_manifest: dict[str, Any] | None, city) -> dict[str, Any]:
+    tiles = (city_manifest or {}).get("tiles") or {}
+    if not isinstance(tiles, dict):
+        return {"reviewed": 0, "suspicious": [], "expected_zero": []}
+    structures = structure_counts_by_tile(city.structures_enriched)
+    suspicious = []
+    expected_zero = []
+    for tile_id, manifest_tile in tiles.items():
+        if not isinstance(manifest_tile, dict) or not manifest_reports_zero_buildings(manifest_tile):
+            continue
+        result = classify_zero_building_tile(
+            str(tile_id),
+            city.tiles_root / str(tile_id),
+            manifest_tile,
+            structures,
+            city.out_epsg,
+        )
+        if result["classification"] == "suspicious_manifest_false_positive":
+            suspicious.append(result)
+        elif result["classification"] == "expected_zero":
+            expected_zero.append(result)
+    return {
+        "reviewed": len(suspicious) + len(expected_zero),
+        "suspicious": suspicious,
+        "expected_zero": expected_zero,
+    }
 
 
 def structures_address_stats(path: Path) -> dict[str, Any]:
@@ -242,6 +372,16 @@ def assess(args: argparse.Namespace) -> tuple[int, list[str], dict[str, Any]]:
         add("FAIL", "city_manifest.json", city_manifest_error)
     else:
         add("PASS", "city_manifest.json", "valid JSON")
+    zero_consistency = zero_building_consistency(city_manifest, city) if city_manifest else {"reviewed": 0, "suspicious": [], "expected_zero": []}
+    if zero_consistency["suspicious"]:
+        add(
+            "WARN",
+            "zero-building manifest consistency",
+            f"{len(zero_consistency['suspicious'])} suspicious false positive(s); "
+            f"{len(zero_consistency['expected_zero'])} expected zero tile(s)",
+        )
+    elif zero_consistency["expected_zero"]:
+        add("PASS", "zero-building manifest consistency", f"{len(zero_consistency['expected_zero'])} expected zero tile(s)")
 
     metadata_files = []
     metadata_dir = resolve_cross_platform_path(city.metadata_dir)
@@ -310,6 +450,8 @@ def assess(args: argparse.Namespace) -> tuple[int, list[str], dict[str, Any]]:
         "structures_enriched": str(city.structures_enriched),
         "address_coverage_pct": addr_stats["coverage_pct"],
         "missing_output_tiles": len(missing_outputs),
+        "suspicious_zero_building_tiles": len(zero_consistency["suspicious"]),
+        "expected_zero_building_tiles": len(zero_consistency["expected_zero"]),
     }
     return STATUS_ORDER[worst], lines, summary
 
