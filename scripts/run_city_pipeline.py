@@ -4,11 +4,30 @@ from __future__ import annotations
 import argparse
 import subprocess
 import sys
+import time
 from pathlib import Path
+
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+if hasattr(sys.stderr, "reconfigure"):
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 PHASE_DIR = REPO_ROOT / "scripts" / "phases"
+sys.path.insert(0, str(PHASE_DIR))
+
+from phase_common import PHASE_NAMES, load_city, read_phase_status
+
+try:
+    from rich.console import Console
+    from rich.panel import Panel
+    from rich.progress import BarColumn, Progress, SpinnerColumn, TextColumn, TimeElapsedColumn
+    from rich.table import Table
+    HAS_RICH = True
+except ImportError:
+    HAS_RICH = False
+    Console = None
 
 IMPLEMENTED_PHASES = {
     "00": PHASE_DIR / "phase_00_validate_config.py",
@@ -36,7 +55,7 @@ def _norm_phase(value: str) -> str:
 
 def _selected(args) -> list[str]:
     if args.all:
-        return [p for p in PHASE_ORDER if p in IMPLEMENTED_PHASES]
+        return PHASE_ORDER[:]
     if args.phase:
         return [args.phase]
     if args.from_phase or args.to_phase:
@@ -67,6 +86,13 @@ def main(argv: list[str] | None = None) -> int:
         print("DRY RUN: no files will be created or modified. Pass --execute to write outputs.")
 
     phases = _selected(args)
+    missing = [p for p in phases if p not in IMPLEMENTED_PHASES]
+    if missing:
+        raise SystemExit(f"Phase(s) not implemented: {', '.join(missing)}")
+
+    if HAS_RICH:
+        return _run_with_rich(args, phases)
+
     for phase in phases:
         script = IMPLEMENTED_PHASES.get(phase)
         if not script:
@@ -86,6 +112,100 @@ def main(argv: list[str] | None = None) -> int:
         if result.returncode != 0:
             print(f"Phase {phase} failed with exit code {result.returncode}")
             return result.returncode
+    return 0
+
+
+def _phase_command(args, phase: str) -> list[str]:
+    script = IMPLEMENTED_PHASES[phase]
+    cmd = [sys.executable, str(script), "--city", args.city]
+    cmd.append("--execute" if args.execute else "--dry-run")
+    if args.force:
+        cmd.append("--force")
+    if args.resume:
+        cmd.append("--resume")
+    if args.limit is not None:
+        cmd.extend(["--limit", str(args.limit)])
+    return cmd
+
+
+def _status_label(status: str | None) -> str:
+    if status == "complete":
+        return "[green]complete[/green]"
+    if status == "failed":
+        return "[red]failed[/red]"
+    if status == "skipped":
+        return "[yellow]skipped[/yellow]"
+    if status == "running":
+        return "[cyan]running[/cyan]"
+    return "[dim]pending[/dim]"
+
+
+def _render_phase_table(city, phases: list[str], active: str | None) -> Table:
+    table = Table(expand=True)
+    table.add_column("Phase", style="cyan", width=6)
+    table.add_column("Signal")
+    table.add_column("Status", width=14)
+    table.add_column("Tiles", width=16)
+    for phase in phases:
+        status = read_phase_status(city, phase) or {}
+        state = "running" if phase == active else status.get("status")
+        complete = status.get("tiles_complete", 0)
+        total = status.get("tiles_total", 0)
+        failed = status.get("tiles_failed", 0)
+        tile_text = f"{complete}/{total}" if total else "-"
+        if failed:
+            tile_text += f" [red]fail {failed}[/red]"
+        table.add_row(phase, PHASE_NAMES.get(phase, phase).replace("_", " "), _status_label(state), tile_text)
+    return table
+
+
+def _run_with_rich(args, phases: list[str]) -> int:
+    console = Console()
+    city = load_city(args.city)
+    header = (
+        "╔════════════════════════════════════════════╗\n"
+        "║        GLITCHOS URBAN PIPELINE            ║\n"
+        "║ circuitry → urban fabric → massing model  ║\n"
+        "╚════════════════════════════════════════════╝"
+    )
+    console.print(Panel(header, style="cyan"))
+    console.print(f"[bold]{city.display_name}[/bold]  [dim]{city.output_root}[/dim]")
+
+    progress = Progress(
+        SpinnerColumn(),
+        TextColumn("[bold cyan]{task.description}"),
+        BarColumn(),
+        TextColumn("{task.completed}/{task.total}"),
+        TimeElapsedColumn(),
+        console=console,
+    )
+
+    with progress:
+        overall = progress.add_task("urban fabric compilation", total=len(phases))
+        for phase in phases:
+            console.print(Panel(_render_phase_table(city, phases, phase), title=f"Phase {phase}", border_style="cyan"))
+            cmd = _phase_command(args, phase)
+            console.print(f"[dim]$ {' '.join(cmd)}[/dim]")
+            proc = subprocess.Popen(
+                cmd,
+                cwd=str(REPO_ROOT),
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                bufsize=1,
+            )
+            assert proc.stdout is not None
+            for line in proc.stdout:
+                console.print(line.rstrip())
+            rc = proc.wait()
+            if rc != 0:
+                console.print(f"[red]Phase {phase} failed with exit code {rc}[/red]")
+                return rc
+            progress.advance(overall)
+            time.sleep(0.05)
+    console.print(Panel(_render_phase_table(city, phases, None), title="Pipeline Status", border_style="green"))
     return 0
 
 

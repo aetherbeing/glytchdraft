@@ -19,12 +19,28 @@ import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any, Iterable
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-PHASE_STATUS_DIRNAME = "phase_status"
+CITY_CONFIG_DIR = REPO_ROOT / "configs" / "cities"
+PHASE_STATUS_DIRNAME = "status"
 LOG_DIRNAME = "logs"
+
+PHASE_NAMES = {
+    "00": "validate_config",
+    "01": "inventory_raw_laz_files",
+    "02": "build_tile_manifest",
+    "03": "process_normalize_laz_tiles",
+    "04": "extract_ground_building_points",
+    "05": "derive_footprints_or_building_clusters",
+    "06": "generate_per_tile_masses",
+    "07": "join_addresses_to_per_tile_masses",
+    "08": "combine_tiles_into_city_level_files",
+    "09": "export_blender_ue_ready_packages",
+    "10": "audit_everything",
+}
 
 
 CITY_ALIASES = {
@@ -87,6 +103,30 @@ def path_exists_cross_platform(path: Path) -> bool:
     return any(candidate.exists() for candidate in candidates)
 
 
+def resolve_cross_platform_path(path: Path) -> Path:
+    """Return an existing native equivalent for common WSL mount paths."""
+    if path.exists() or os.name != "nt":
+        return path
+    raw = str(path).replace("\\", "/")
+    if not raw.startswith("/mnt/"):
+        return path
+    parts = raw.split("/")
+    if len(parts) <= 3:
+        return path
+    mount = parts[2]
+    rest = parts[3:]
+    candidates: list[Path] = []
+    if len(mount) == 1:
+        candidates.append(Path(f"{mount.upper()}:/", *rest))
+    elif mount.lower() == "t7":
+        candidates.append(Path("T:/", *rest))
+        candidates.append(Path("E:/", *rest))
+    for candidate in candidates:
+        if candidate.exists():
+            return candidate
+    return path
+
+
 def _import_module(module_path: Path, module_name: str, import_dir: Path):
     sys.path.insert(0, str(import_dir))
     try:
@@ -102,6 +142,50 @@ def _import_module(module_path: Path, module_name: str, import_dir: Path):
 
 
 def load_city(city: str) -> CityRuntime:
+    config_path = CITY_CONFIG_DIR / f"{city.lower()}.json"
+    if config_path.exists():
+        data = json.loads(config_path.read_text(encoding="utf-8"))
+        output_root = Path(data.get("output_root") or Path(data["tiles_root"]).parent)
+        metadata_dir = output_root / "metadata"
+        audit_dir = Path(data.get("audit_dir") or output_root / "audit")
+        raw = SimpleNamespace(
+            DBSCAN_EPS=data.get("dbscan_eps", 3.0),
+            DBSCAN_MIN_SAMPLES=data.get("dbscan_min_samples", 10),
+            HAG_MIN_M=data.get("hag_min_m", 2.5),
+            HAG_MAX_M=data.get("hag_max_m", 300.0),
+            BUILDING_SOURCE_CLASS=data.get("building_source_class", 1),
+            GROUND_CLASS=data.get("ground_class", 2),
+            VEGETATION_CLASSES=tuple(data.get("vegetation_classes", [3, 4, 5])),
+            OUTLIER_MEAN_K=data.get("outlier_mean_k", 12),
+            OUTLIER_MULTIPLIER=data.get("outlier_multiplier", 2.2),
+            RING_BUFFER_M=data.get("ring_buffer_m", 5.0),
+            MIN_POINTS_GOOD=data.get("min_points_good", 8),
+            DEFAULT_FALLBACK_HEIGHT=data.get("default_fallback_height", 6.0),
+        )
+        return CityRuntime(
+            requested_city=city,
+            city_key=data.get("city_slug", city),
+            city_id=data.get("city_slug", city),
+            display_name=data.get("display_name", city),
+            output_root=output_root,
+            tiles_root=Path(data["tiles_root"]),
+            metadata_dir=metadata_dir,
+            audit_dir=audit_dir,
+            tile_manifest=Path(data.get("tile_manifest") or output_root / "tile_manifest.json"),
+            city_manifest=Path(data["city_manifest"]),
+            address_points=metadata_dir / "address_points.geojson",
+            structures_enriched=metadata_dir / "structures_enriched.geojson",
+            laz_dir=resolve_cross_platform_path(Path(data["laz_dir"])),
+            catalog_path=resolve_cross_platform_path(Path(data["catalog_path"])) if data.get("catalog_path") else None,
+            address_source=data.get("address_source"),
+            address_join_radius_m=float(data.get("address_join_radius_m", 100.0)),
+            preserve_raw_laz=bool(data.get("keep_raw_laz", True)),
+            pipeline_version=str(data.get("pipeline_version", "1.0")),
+            out_epsg=int(data["output_epsg"]),
+            bbox_4326=dict(data["bbox_4326"]),
+            raw_config=raw,
+        )
+
     city_key = CITY_ALIASES.get(city.lower())
     if not city_key:
         valid = ", ".join(sorted(CITY_ALIASES))
@@ -182,7 +266,7 @@ def validate_city_config(city: CityRuntime) -> tuple[list[str], list[str]]:
         errors.append("preserve_raw_laz/PRESERVE_RAW_LAZ must be True")
     if not city.laz_dir:
         errors.append("missing LAZ directory config")
-    elif not city.laz_dir.exists():
+    elif not path_exists_cross_platform(city.laz_dir):
         errors.append(f"LAZ directory does not exist: {city.laz_dir}")
     if not city.output_root:
         errors.append("missing output_root")
@@ -264,8 +348,12 @@ def phase_log_path(city: CityRuntime, phase_id: str) -> Path:
 
 def read_phase_status(city: CityRuntime, phase_id: str) -> dict[str, Any] | None:
     path = phase_status_path(city, phase_id)
+    legacy = city.output_root / "phase_status" / f"phase_{phase_id}.json"
     if not path.exists():
-        return None
+        if legacy.exists():
+            path = legacy
+        else:
+            return None
     try:
         return json.loads(path.read_text(encoding="utf-8"))
     except Exception:
@@ -286,14 +374,35 @@ def write_phase_status(
     outputs: Iterable[Path] = (),
 ) -> Path:
     ensure_execute_dirs(city)
+    now = utc_now()
+    details = details or {}
+    tiles_total = int(details.get("tiles_total", details.get("tiles", 0)) or 0)
+    tiles_complete = int(details.get("tiles_complete", details.get("processed", 0)) or 0)
+    tiles_failed = int(details.get("tiles_failed", details.get("failed", 0)) or 0)
+    tiles_skipped = int(details.get("tiles_skipped", details.get("skipped", 0)) or 0)
+    percent = details.get("percent_complete")
+    if percent is None:
+        percent = round(100.0 * tiles_complete / tiles_total, 1) if tiles_total else (100.0 if status == "complete" else 0.0)
     payload = {
         "schema_version": "1.0",
-        "phase": phase_id,
-        "city_id": city.city_id,
+        "phase_number": phase_id,
+        "phase_name": PHASE_NAMES.get(phase_id, f"phase_{phase_id}"),
+        "city": city.requested_city,
         "status": status,
-        "generated_at": utc_now(),
-        "details": details or {},
+        "started_at": details.get("started_at", now),
+        "finished_at": now if status in {"complete", "failed", "skipped"} else None,
+        "elapsed_seconds": details.get("elapsed_seconds", 0),
+        "tiles_total": tiles_total,
+        "tiles_complete": tiles_complete,
+        "tiles_failed": tiles_failed,
+        "tiles_skipped": tiles_skipped,
+        "current_tile": details.get("current_tile"),
+        "percent_complete": percent,
+        "message": details.get("message", PHASE_NAMES.get(phase_id, f"phase {phase_id}")),
+        "warnings": details.get("warnings", []),
+        "errors": details.get("errors", []),
         "outputs": [str(p) for p in outputs],
+        "details": details,
     }
     path = phase_status_path(city, phase_id)
     path.write_text(json.dumps(payload, indent=2), encoding="utf-8")

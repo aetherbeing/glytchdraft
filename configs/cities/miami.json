@@ -1,0 +1,44 @@
+{
+  "schema_version": "1.0",
+  "city_slug": "miami",
+  "display_name": "City of Miami",
+  "region": "Florida, USA",
+  "laz_dir": "/mnt/t7/miami/data_raw/laz",
+  "tiles_root": "/mnt/t7/miami/data_processed/miami_city/tiles",
+  "output_root": "/mnt/t7/miami/data_processed/miami_city",
+  "tile_manifest": "/mnt/t7/miami/data_processed/miami_city/tile_manifest.json",
+  "city_manifest": "/mnt/t7/miami/data_processed/miami_city/metadata/miami_city_manifest.json",
+  "output_epsg": 32617,
+  "bbox_4326": {
+    "xmin": -80.2659,
+    "ymin": 25.709,
+    "xmax": -80.1311,
+    "ymax": 25.8589
+  },
+  "boundary_geojson": "/mnt/t7/miami/data_processed/miami_city/boundaries/miami_city_boundary_4326.geojson",
+  "address_source": {
+    "path": "/mnt/t7/miami/data_raw/addresses/miami_addresses.geojson",
+    "source_name": "Miami-Dade GeoAddress",
+    "input_crs": "EPSG:3857",
+    "field_map": {
+      "house_number": "HSE_NUM",
+      "street": "SNAME",
+      "city": "MUNIC_NAME",
+      "postcode": "ZIP"
+    }
+  },
+  "footprint_source": null,
+  "dbscan_eps": 3.0,
+  "dbscan_min_samples": 10,
+  "hag_min_m": 2.5,
+  "hag_max_m": 300.0,
+  "building_source_class": 1,
+  "ground_class": 2,
+  "vegetation_classes": [3, 4, 5],
+  "address_join_radius_m": 100.0,
+  "keep_raw_laz": true,
+  "status_dir": "/mnt/t7/miami/data_processed/miami_city/status",
+  "logs_dir": "/mnt/t7/miami/data_processed/miami_city/logs",
+  "audit_dir": "/mnt/t7/miami/data_processed/miami_city/audit",
+  "pipeline_version": "1.0"
+}
