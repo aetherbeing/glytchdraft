@@ -198,6 +198,26 @@
   color: #f8f3e7;
 }
 
+.claim-status-row {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 12px;
+  color: #8fb6ba;
+  font-size: 0.8rem;
+}
+
+.claim-error-banner {
+  margin-bottom: 12px;
+  padding: 10px 12px;
+  border: 1px solid rgba(232, 103, 103, 0.38);
+  border-radius: 5px;
+  background: rgba(232, 103, 103, 0.12);
+  color: #ffd6d6;
+  line-height: 1.45;
+}
+
 .claim-button {
   min-height: 42px;
   padding: 0 16px;

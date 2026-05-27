@@ -1,8 +1,9 @@
-import React, { useMemo, useState } from 'react'
+import React, { useEffect, useState } from 'react'
 import {
-  createMockClaim,
   formatTrace,
   getClaimViewerSnapshot,
+  loadClaimViewerSnapshot,
+  submitStructureClaim,
 } from '../services/claimSocialService.js'
 
 const VISIBILITY_LABELS = {
@@ -13,23 +14,149 @@ const VISIBILITY_LABELS = {
 }
 
 export default function ClaimViewer() {
-  const initial = useMemo(() => getClaimViewerSnapshot(), [])
+  const initial = getClaimViewerSnapshot()
   const [selectedId, setSelectedId] = useState(initial.selectedStructure.structure_id)
-  const [localClaims, setLocalClaims] = useState([])
+  const [snapshot, setSnapshot] = useState(initial)
+  const [isLoading, setIsLoading] = useState(false)
+  const [isClaiming, setIsClaiming] = useState(false)
+  const [error, setError] = useState(null)
+  const [source, setSource] = useState(initial.source)
 
-  const snapshot = getClaimViewerSnapshot(selectedId)
-  const selectedStructure = snapshot.selectedStructure
-  const localClaim = localClaims.find((claim) => claim.structure_id === selectedStructure.structure_id)
-  const claim = localClaim ?? snapshot.claim
+  useEffect(() => {
+    let cancelled = false
+
+    async function hydrate() {
+      setIsLoading(true)
+      setError(null)
+
+      const result = await loadClaimViewerSnapshot({
+        selectedStructureId: selectedId,
+        fallbackSnapshot: getClaimViewerSnapshot(selectedId),
+      })
+
+      if (cancelled) return
+
+      setSnapshot(result.snapshot)
+      setSource(result.source)
+      if (result.error) {
+        setError(result.error)
+      }
+      setIsLoading(false)
+    }
+
+    hydrate()
+
+    return () => {
+      cancelled = true
+    }
+  }, [selectedId])
+
+  const selectedStructure =
+    snapshot.structures.find((structure) => structure.structure_id === selectedId) ??
+    snapshot.selectedStructure ??
+    snapshot.structures[0]
+  const claim = snapshot.claim?.structure_id === selectedStructure.structure_id ? snapshot.claim : null
   const isClaimed = claim?.claim_status === 'active'
-  const charityTrace = selectedStructure.trace_cost * (snapshot.currentUser.charity_allocation_percentage / 100)
+  const charityTrace =
+    selectedStructure.trace_cost * (snapshot.currentUser.charity_allocation_percentage / 100)
+  const connectionLabel =
+    source === 'remote' ? 'Supabase live state' : 'Local mock fallback'
 
-  function handleClaim() {
-    if (isClaimed) return
-    setLocalClaims((claims) => [
-      createMockClaim(selectedStructure, snapshot.currentUser),
-      ...claims,
-    ])
+  async function handleClaim() {
+    if (isClaimed || isClaiming) return
+
+    setIsClaiming(true)
+    setError(null)
+
+    try {
+      const result = await submitStructureClaim({
+        structure: selectedStructure,
+        currentUser: snapshot.currentUser,
+      })
+
+      const nextClaim = result.claim
+
+      if (result.source === 'remote' && nextClaim) {
+        setSnapshot((current) => {
+          const updatedStructures = current.structures.map((structure) => {
+            if (structure.structure_id !== nextClaim.structure_id) {
+              return structure
+            }
+
+            return {
+              ...structure,
+              claim_id: nextClaim.id,
+              owner_user_id: nextClaim.user_id,
+              owner_display_name: nextClaim.owner_display_name,
+              claim_status: nextClaim.claim_status,
+              claim_cost_trace: nextClaim.claim_cost_trace,
+              claimed_at: nextClaim.claimed_at,
+              released_at: nextClaim.released_at,
+            }
+          })
+
+          const updatedSelectedStructure =
+            current.selectedStructure.structure_id === nextClaim.structure_id
+              ? {
+                  ...current.selectedStructure,
+                  claim_id: nextClaim.id,
+                  owner_user_id: nextClaim.user_id,
+                  owner_display_name: nextClaim.owner_display_name,
+                  claim_status: nextClaim.claim_status,
+                  claim_cost_trace: nextClaim.claim_cost_trace,
+                  claimed_at: nextClaim.claimed_at,
+                  released_at: nextClaim.released_at,
+                }
+              : current.selectedStructure
+
+          return {
+            ...current,
+            structures: updatedStructures,
+            selectedStructure: updatedSelectedStructure,
+            claim: nextClaim,
+          }
+        })
+        setSource('remote')
+      } else {
+        setSnapshot((current) => {
+          const updatedStructures = current.structures.map((structure) => {
+            if (structure.structure_id !== nextClaim.structure_id) {
+              return structure
+            }
+
+            return {
+              ...structure,
+              claim_status: nextClaim.claim_status,
+              owner_display_name: nextClaim.owner_display_name,
+              claim_cost_trace: nextClaim.claim_cost_trace,
+              claimed_at: nextClaim.claimed_at,
+              released_at: nextClaim.released_at,
+            }
+          })
+
+          return {
+            ...current,
+            structures: updatedStructures,
+            selectedStructure:
+              current.selectedStructure.structure_id === nextClaim.structure_id
+                ? {
+                    ...current.selectedStructure,
+                    claim_status: nextClaim.claim_status,
+                    owner_display_name: nextClaim.owner_display_name,
+                    claim_cost_trace: nextClaim.claim_cost_trace,
+                    claimed_at: nextClaim.claimed_at,
+                    released_at: nextClaim.released_at,
+                  }
+                : current.selectedStructure,
+            claim: nextClaim,
+          }
+        })
+      }
+    } catch (claimError) {
+      setError(claimError instanceof Error ? claimError.message : 'Claim submission failed')
+    } finally {
+      setIsClaiming(false)
+    }
   }
 
   return (
@@ -39,7 +166,8 @@ export default function ClaimViewer() {
         <h1>Claim Viewer</h1>
         <p>
           Select a structure, read its claim state, then scan nearby posts tied to the
-          structure, tile, or coordinate. This is a mock surface aligned to the Trace schema.
+          structure, tile, or coordinate. This is now hydrated from Supabase when the
+          environment is configured and falls back to local mock data otherwise.
         </p>
       </header>
 
@@ -54,7 +182,11 @@ export default function ClaimViewer() {
           claim={claim}
           currentUser={snapshot.currentUser}
           charityTrace={charityTrace}
+          connectionLabel={connectionLabel}
+          error={error}
           isClaimed={isClaimed}
+          isClaiming={isClaiming}
+          isLoading={isLoading}
           onClaim={handleClaim}
           structure={selectedStructure}
         />
@@ -93,15 +225,34 @@ function SelectedStructurePanel({
   claim,
   currentUser,
   charityTrace,
+  connectionLabel,
+  error,
   isClaimed,
+  isClaiming,
+  isLoading,
   onClaim,
 }) {
+  const claimHistoryLabel = claim?.claimed_at
+    ? `Claimed ${formatDate(claim.claimed_at)}`
+    : 'Ready for claim intent'
+
   return (
     <section className="claim-panel" aria-labelledby="selected-structure-title">
       <div className="panel-heading">
         <span>Selected structure</span>
         <ClaimBadge claimed={isClaimed} status={claim?.claim_status} />
       </div>
+
+      <div className="claim-status-row">
+        <span>{connectionLabel}</span>
+        <span>{isLoading ? 'Loading live state...' : claimHistoryLabel}</span>
+      </div>
+
+      {error ? (
+        <div className="claim-error-banner" role="alert">
+          {error}
+        </div>
+      ) : null}
 
       <h2 id="selected-structure-title">{structure.label}</h2>
 
@@ -120,16 +271,25 @@ function SelectedStructurePanel({
       <div className="claim-action-row">
         <div>
           <span>Readable before payment activation</span>
-          <strong>{isClaimed ? `Claimed ${formatDate(claim.claimed_at)}` : 'Ready for claim intent'}</strong>
+          <strong>
+            {isClaimed ? `Claimed ${formatDate(claim.claimed_at)}` : 'Ready for claim intent'}
+          </strong>
         </div>
-        <button className="claim-button" type="button" disabled={isClaimed} onClick={onClaim}>
-          {isClaimed ? 'Claimed' : 'Claim structure'}
+        <button className="claim-button" type="button" disabled={isClaimed || isClaiming} onClick={onClaim}>
+          {isClaimed ? 'Claimed' : isClaiming ? 'Claiming...' : 'Claim structure'}
         </button>
       </div>
 
       <div className="provenance-box">
         <span>Provenance</span>
-        <code>{JSON.stringify(claim?.structure_provenance ?? { source: 'mock_structure', tile_id: structure.tile_id })}</code>
+        <code>
+          {JSON.stringify(
+            claim?.structure_provenance ?? {
+              source: 'mock_structure',
+              tile_id: structure.tile_id,
+            },
+          )}
+        </code>
       </div>
     </section>
   )
