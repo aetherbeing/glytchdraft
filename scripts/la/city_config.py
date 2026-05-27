@@ -62,7 +62,10 @@ class CityConfig:
     boundary_sources: tuple[str, ...] = ("la_geohub", "census_tiger", "osm")
     # Optional address source. If None, the address ingest stage is skipped.
     # See scripts/common/ingest_addresses.py for the expected schema.
-    address_source:   dict | None = field(default=None)
+    address_source: dict | None = field(default=None)
+    address_join_radius_m: float = 100.0
+    preserve_raw_laz: bool = True
+    pipeline_version: str = "1.0"
 
     @property
     def output_root(self) -> Path:
@@ -96,6 +99,22 @@ class CityConfig:
     @property
     def address_points(self) -> Path:
         return self.metadata_dir / "address_points.geojson"
+
+    @property
+    def structures_enriched(self) -> Path:
+        return self.metadata_dir / "structures_enriched.geojson"
+
+    @property
+    def audit_dir(self) -> Path:
+        return self.output_root / "audit"
+
+    @property
+    def city_audit_json(self) -> Path:
+        return self.audit_dir / "city_audit.json"
+
+    @property
+    def city_audit_md(self) -> Path:
+        return self.audit_dir / "city_audit.md"
 
     def protected_path_check(self) -> list[str]:
         """Returns a list of conflicts if output_root overlaps protected paths."""

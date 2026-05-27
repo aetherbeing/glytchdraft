@@ -55,7 +55,7 @@ PRESERVE_RAW_LAZ: bool = True
 LAZ_DIR = (
     Path(r"E:\miami\data_raw\laz")
     if sys.platform == "win32"
-    else Path("/mnt/e/miami/data_raw/laz")
+    else Path("/mnt/t7/miami/data_raw/laz")
 )
 
 # Catalog of all known FL_MiamiDade_D23 tiles (built by build_miami_catalog.py)
