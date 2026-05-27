@@ -81,3 +81,4 @@ atlas_output/
 data_processed/
 exports/
 viewer/public/models/MIAMI_BIKINI
+viewer/public/models/tile_manifest.json
