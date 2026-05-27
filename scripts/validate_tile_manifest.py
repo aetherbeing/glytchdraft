@@ -62,13 +62,18 @@ def manifest_zero_building(tile: dict) -> bool:
             continue
         value = tile.get(key)
         if value in (None, ''):
-            values.append(0)
             continue
         try:
             values.append(float(value))
         except (TypeError, ValueError):
             continue
     return bool(values) and max(values) <= 0
+
+
+def numeric_array(value: object, length: int) -> bool:
+    if not isinstance(value, list) or len(value) != length:
+        return False
+    return all(isinstance(item, (int, float)) and not isinstance(item, bool) for item in value)
 
 
 def validate_manifest(manifest: dict, *, tile_root: Path | None = None, public_root: Path | None = None) -> tuple[list[str], list[str]]:
@@ -95,6 +100,17 @@ def validate_manifest(manifest: dict, *, tile_root: Path | None = None, public_r
             for key in ('xmin', 'ymin', 'xmax', 'ymax'):
                 if key not in bbox:
                     errors.append(f'{tile_id}: bbox_4326 missing {key}')
+                elif not isinstance(bbox[key], (int, float)) or isinstance(bbox[key], bool):
+                    errors.append(f'{tile_id}: bbox_4326 {key} must be numeric')
+
+        cull_bounds = tile.get('cull_bounds')
+        if not isinstance(cull_bounds, dict):
+            warnings.append(f'{tile_id}: missing cull_bounds')
+        else:
+            if not numeric_array(cull_bounds.get('min'), 3):
+                warnings.append(f'{tile_id}: cull_bounds.min must be a numeric array of length 3')
+            if not numeric_array(cull_bounds.get('max'), 3):
+                warnings.append(f'{tile_id}: cull_bounds.max must be a numeric array of length 3')
 
         has_glb = tile.get('has_glb')
         if not isinstance(has_glb, bool):

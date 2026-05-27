@@ -135,17 +135,26 @@ def read_glb_json(path: Path) -> dict:
 
 
 def normalize_bbox(raw: object) -> dict | None:
-    if not isinstance(raw, dict):
-        return None
-
     try:
+        if isinstance(raw, (list, tuple)):
+            xmin, ymin, xmax, ymax = raw[:4]
+            return {
+                "xmin": float(xmin),
+                "ymin": float(ymin),
+                "xmax": float(xmax),
+                "ymax": float(ymax),
+            }
+
+        if not isinstance(raw, dict):
+            return None
+
         return {
             "xmin": float(raw.get("xmin", raw.get("min_lon", raw.get("west")))),
             "ymin": float(raw.get("ymin", raw.get("min_lat", raw.get("south")))),
             "xmax": float(raw.get("xmax", raw.get("max_lon", raw.get("east")))),
             "ymax": float(raw.get("ymax", raw.get("max_lat", raw.get("north")))),
         }
-    except (TypeError, ValueError):
+    except (IndexError, TypeError, ValueError):
         return None
 
 
@@ -201,12 +210,13 @@ def csv_row_count(path: Path) -> int:
         return 0
 
 
-def mass_metadata_count(tile_root: Path, tile_id: str) -> int:
+def mass_metadata_count(tile_root: Path, tile_id: str) -> int | None:
     tile_dir = tile_root / tile_id
-    count = sum(csv_row_count(path) for path in (tile_dir / "masses").glob("*_masses_metadata.csv"))
-    if count:
-        return count
-    return sum(csv_row_count(path) for path in (tile_dir / "blender_ready" / "masses").glob("*_masses_metadata.csv"))
+    paths = list((tile_dir / "masses").glob("*_masses_metadata.csv"))
+    paths.extend((tile_dir / "blender_ready" / "masses").glob("*_masses_metadata.csv"))
+    if not paths:
+        return None
+    return sum(csv_row_count(path) for path in paths)
 
 
 def source_building_count(tile: dict) -> int | None:
@@ -362,23 +372,26 @@ def build_streaming_manifest(
             (bounds["min"][2] + bounds["max"][2]) / 2,
         ]
 
-        tiles.append(
-            {
-                "tile_id": tile_id,
-                "url": f"/models/tiles/{tile_id}.glb",
-                "glb_path": source_relative_glb_path(tile_root, tile_id),
-                "has_glb": has_glb,
-                "bbox_4326": bbox_4326,
-                "building_count": building_count,
-                "structure_count": structure_count,
-                "mass_metadata_count": mass_count,
-                "manifest_building_count": manifest_count,
-                "bbox_source": "tile_manifest" if per_tile_bbox else tile.get("bbox_source", "city_tile_manifest"),
-                "bounds": bounds,
-                "cull_bounds": cull_bounds,
-                "center": center,
-            }
-        )
+        tile_record = {
+            "tile_id": tile_id,
+            "url": f"/models/tiles/{tile_id}.glb",
+            "glb_path": source_relative_glb_path(tile_root, tile_id),
+            "has_glb": has_glb,
+            "bbox_4326": bbox_4326,
+            "bbox_source": "tile_manifest" if per_tile_bbox else tile.get("bbox_source", "city_tile_manifest"),
+            "bounds": bounds,
+            "cull_bounds": cull_bounds,
+            "center": center,
+        }
+        if building_count is not None:
+            tile_record["building_count"] = building_count
+        if structure_count is not None:
+            tile_record["structure_count"] = structure_count
+        if mass_count is not None:
+            tile_record["mass_metadata_count"] = mass_count
+        if manifest_count is not None:
+            tile_record["manifest_building_count"] = manifest_count
+        tiles.append(tile_record)
 
     print(f"  tiles: {len(tiles)} total, {sum(1 for tile in tiles if tile['has_glb'])} with GLB", file=sys.stderr)
     if missing_glb:

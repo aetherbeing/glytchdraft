@@ -155,6 +155,67 @@ def test_generate_viewer_manifest_marks_missing_glb_false(tmp_path: Path):
     manifest = json.loads(output.read_text(encoding='utf-8'))
     assert manifest['tiles'][0]['has_glb'] is False
     assert manifest['tiles'][0]['bbox_4326'] == {'xmin': -1.0, 'ymin': -1.0, 'xmax': 1.0, 'ymax': 1.0}
+    assert manifest['tiles'][0]['cull_bounds']['source'] == 'bbox_4326'
+    assert 'building_count' not in manifest['tiles'][0]
+    assert 'mass_metadata_count' not in manifest['tiles'][0]
+
+
+def test_generate_viewer_manifest_preserves_array_bbox(tmp_path: Path):
+    source_dir = tmp_path / 'source'
+    write_json(
+        source_dir / 'tile_manifest.json',
+        {
+            'tiles': [
+                {
+                    'tile_id': 'tile_array',
+                    'bbox_4326': [-80.3, 25.7, -80.2, 25.8],
+                }
+            ]
+        },
+    )
+    write_json(source_dir / 'blender_ready' / 'miami_city_glb_offset.json', {'shift_x': 0, 'shift_y': 0, 'shift_z': 0})
+    (source_dir / 'tiles').mkdir(parents=True, exist_ok=True)
+    output = tmp_path / 'tile_manifest.json'
+
+    code = generate_manifest.main(['--source-dir', str(source_dir), '--output', str(output)])
+
+    assert code == 0
+    tile = json.loads(output.read_text(encoding='utf-8'))['tiles'][0]
+    assert tile['bbox_4326'] == {
+        'xmin': -80.3,
+        'ymin': 25.7,
+        'xmax': -80.2,
+        'ymax': 25.8,
+    }
+    assert tile['cull_bounds']['source'] == 'bbox_4326'
+
+
+def test_generate_viewer_manifest_keeps_unknown_mass_counts_empty(tmp_path: Path):
+    source_dir = tmp_path / 'source'
+    write_json(
+        source_dir / 'tile_manifest.json',
+        {
+            'tiles': [
+                {
+                    'tile_id': 'tile_glb_only',
+                    'bbox_4326': {'xmin': -1, 'ymin': -1, 'xmax': 1, 'ymax': 1},
+                }
+            ]
+        },
+    )
+    write_json(source_dir / 'blender_ready' / 'miami_city_glb_offset.json', {'shift_x': 0, 'shift_y': 0, 'shift_z': 0})
+    tile_dir = source_dir / 'tiles' / 'tile_glb_only' / 'blender_ready'
+    tile_dir.mkdir(parents=True, exist_ok=True)
+    (tile_dir / 'tile_glb_only.glb').write_bytes(b'glb')
+    output = tmp_path / 'tile_manifest.json'
+
+    code = generate_manifest.main(['--source-dir', str(source_dir), '--output', str(output)])
+
+    assert code == 0
+    tile = json.loads(output.read_text(encoding='utf-8'))['tiles'][0]
+    assert tile['has_glb'] is True
+    assert 'building_count' not in tile
+    assert 'mass_metadata_count' not in tile
 
 
 def test_validate_tile_manifest_rejects_null_has_glb(tmp_path: Path):
@@ -164,6 +225,7 @@ def test_validate_tile_manifest_rejects_null_has_glb(tmp_path: Path):
                 'tile_id': 'tile_001',
                 'bbox_4326': {'xmin': -1, 'ymin': -1, 'xmax': 1, 'ymax': 1},
                 'has_glb': None,
+                'cull_bounds': {'min': [0, 0, 0], 'max': [1, 1, 1]},
             }
         ]
     }
@@ -182,6 +244,7 @@ def test_validate_tile_manifest_catches_missing_glb_path(tmp_path: Path):
                 'bbox_4326': {'xmin': -1, 'ymin': -1, 'xmax': 1, 'ymax': 1},
                 'has_glb': True,
                 'url': '/models/tiles/tile_001.glb',
+                'cull_bounds': {'min': [0, 0, 0], 'max': [1, 1, 1]},
             }
         ]
     }
@@ -210,6 +273,7 @@ def test_validate_tile_manifest_warns_on_stale_zero_building_false_positive(tmp_
                 'bbox_4326': {'xmin': -1, 'ymin': -1, 'xmax': 1, 'ymax': 1},
                 'has_glb': True,
                 'building_count': 0,
+                'cull_bounds': {'min': [0, 0, 0], 'max': [1, 1, 1]},
             }
         ]
     }
@@ -218,3 +282,39 @@ def test_validate_tile_manifest_warns_on_stale_zero_building_false_positive(tmp_
 
     assert errors == []
     assert 'tile_001: suspicious_manifest_false_positive' in warnings
+
+
+def test_validate_tile_manifest_warns_on_missing_cull_bounds():
+    manifest = {
+        'tiles': [
+            {
+                'tile_id': 'tile_001',
+                'bbox_4326': {'xmin': -1, 'ymin': -1, 'xmax': 1, 'ymax': 1},
+                'has_glb': True,
+            }
+        ]
+    }
+
+    errors, warnings = validate_manifest.validate_manifest(manifest)
+
+    assert errors == []
+    assert 'tile_001: missing cull_bounds' in warnings
+
+
+def test_validate_tile_manifest_warns_on_invalid_cull_bounds_arrays():
+    manifest = {
+        'tiles': [
+            {
+                'tile_id': 'tile_001',
+                'bbox_4326': {'xmin': -1, 'ymin': -1, 'xmax': 1, 'ymax': 1},
+                'has_glb': True,
+                'cull_bounds': {'min': [0, 1], 'max': [0, 1, 'bad']},
+            }
+        ]
+    }
+
+    errors, warnings = validate_manifest.validate_manifest(manifest)
+
+    assert errors == []
+    assert 'tile_001: cull_bounds.min must be a numeric array of length 3' in warnings
+    assert 'tile_001: cull_bounds.max must be a numeric array of length 3' in warnings
