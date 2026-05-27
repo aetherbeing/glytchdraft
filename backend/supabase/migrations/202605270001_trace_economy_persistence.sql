@@ -369,6 +369,37 @@ begin
 end;
 $$;
 
+create or replace function public.record_trace_transaction(
+  p_user_id uuid,
+  p_amount_trace numeric,
+  p_transaction_type text,
+  p_source text,
+  p_provenance jsonb,
+  p_payment_rail text default 'fiat',
+  p_payment_provider text default null,
+  p_payment_provider_reference text default null,
+  p_settlement_currency text default 'USD',
+  p_settlement_amount numeric default null
+)
+returns public.trace_transactions
+language sql
+security definer
+set search_path = public
+as $$
+  select public.create_trace_transaction(
+    p_user_id,
+    p_amount_trace,
+    p_transaction_type,
+    p_source,
+    p_provenance,
+    p_payment_rail,
+    p_payment_provider,
+    p_payment_provider_reference,
+    p_settlement_currency,
+    p_settlement_amount
+  );
+$$;
+
 create or replace function public.create_structure_claim(
   p_user_id uuid,
   p_structure_id text,
@@ -590,6 +621,19 @@ revoke execute on function public.create_trace_transaction(
   numeric
 ) from public, anon, authenticated;
 
+revoke execute on function public.record_trace_transaction(
+  uuid,
+  numeric,
+  text,
+  text,
+  jsonb,
+  text,
+  text,
+  text,
+  text,
+  numeric
+) from public, anon, authenticated;
+
 revoke execute on function public.create_structure_claim(
   uuid,
   text,
@@ -615,6 +659,19 @@ revoke execute on function public.create_geosocial_post(
 ) from public, anon, authenticated;
 
 grant execute on function public.create_trace_transaction(
+  uuid,
+  numeric,
+  text,
+  text,
+  jsonb,
+  text,
+  text,
+  text,
+  text,
+  numeric
+) to service_role;
+
+grant execute on function public.record_trace_transaction(
   uuid,
   numeric,
   text,

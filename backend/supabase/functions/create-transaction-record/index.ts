@@ -46,7 +46,7 @@ Deno.serve(async (req) => {
     }
 
     const supabase = createServiceClient();
-    const { data, error } = await supabase.rpc("create_trace_transaction", {
+    const { data, error } = await supabase.rpc("record_trace_transaction", {
       p_user_id: user.id,
       p_amount_trace: amountTrace,
       p_transaction_type: transactionType,
