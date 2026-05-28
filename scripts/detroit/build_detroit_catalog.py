@@ -149,6 +149,19 @@ def query_tnm(bbox: dict, max_results: int = 500) -> list[dict] | None:
 
     text = raw.decode("utf-8", errors="replace")
 
+    # Any HTTP error (4xx/5xx) is treated as failure regardless of body content.
+    # A parseable JSON body on a 504 does not mean "zero tiles" — it means the
+    # backend is unavailable and returned a fallback/empty response.
+    if status >= 400:
+        _pr(
+            f"  [red]TNM HTTP {status} — server error body (first 500 chars):[/red]\n{text[:500]}"
+            if HAS_RICH else
+            f"  TNM HTTP {status} — server error body (first 500 chars):\n{text[:500]}"
+        )
+        _pr(f"  Query URL: {url}")
+        _pr("  TNM API returned HTTP error — try again later.")
+        return None
+
     try:
         data = json.loads(raw)
     except json.JSONDecodeError:
@@ -178,28 +191,44 @@ def query_tnm(bbox: dict, max_results: int = 500) -> list[dict] | None:
     return items
 
 
-def build_remote_manifest(cfg: dict) -> dict | None:
+def build_remote_manifest(cfg: dict, max_results: int = 500) -> dict | None:
     """
     Query TNM API and return a remote URL manifest (no download).
     Returns None if the TNM query failed (caller should exit nonzero).
     """
     bbox = cfg["bbox_4326"]
-    items = query_tnm(bbox)
+    items = query_tnm(bbox, max_results=max_results)
     if items is None:
         return None
     laz_dir = Path(cfg["laz_dir"])
 
     tiles = []
     for item in items:
-        urls = item.get("downloadURLs", {})
+        # TNM API field: "urls": {"LAZ": "https://..."} (not "downloadURLs")
+        url_dict: dict = item.get("urls") or {}
         download_url = (
-            urls.get("LAZ") or urls.get("LAS")
-            or next(iter(urls.values()), None)
+            url_dict.get("LAZ")
+            or url_dict.get("LAS")
+            or item.get("downloadLazURL")
+            or item.get("downloadURL")
+            or next((v for v in url_dict.values() if v), None)
         )
         if not download_url:
             continue
         filename = urllib.parse.unquote(download_url.rsplit("/", 1)[-1])
         local_path = laz_dir / filename
+
+        # TNM API field: "boundingBox": {"minX": ..., "maxX": ..., "minY": ..., "maxY": ...}
+        raw_bb = item.get("boundingBox") or {}
+        bbox_4326 = (
+            {
+                "xmin": raw_bb["minX"], "ymin": raw_bb["minY"],
+                "xmax": raw_bb["maxX"], "ymax": raw_bb["maxY"],
+            }
+            if raw_bb and all(k in raw_bb for k in ("minX", "minY", "maxX", "maxY"))
+            else None
+        )
+
         tile: dict = {
             "tile_id": Path(filename).stem,
             "filename": filename,
@@ -210,16 +239,19 @@ def build_remote_manifest(cfg: dict) -> dict | None:
             "title": item.get("title", ""),
             "publication_date": item.get("publicationDate", ""),
             "file_size_bytes": item.get("sizeInBytes"),
+            "bbox_4326": bbox_4326,
         }
         tiles.append(tile)
 
     tiles.sort(key=lambda t: t["tile_id"])
+    tnm_total = len(items)  # may be capped at max_results; real total may be higher
     manifest = {
         "schema_version": "1.0",
         "city_slug": cfg.get("city_slug", "detroit"),
         "generated_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         "tnm_bbox_4326": bbox,
         "tnm_query_url": _build_tnm_url(bbox),
+        "tnm_items_returned": tnm_total,
         "tile_count": len(tiles),
         "on_disk_count": sum(1 for t in tiles if t["on_disk"]),
         "tiles": tiles,
@@ -383,23 +415,28 @@ def print_local_report(catalog: dict) -> None:
 
 
 def print_remote_report(manifest: dict) -> None:
+    returned = manifest.get("tnm_items_returned", manifest["tile_count"])
+    capped = returned >= 500 and manifest["tile_count"] == returned
     if HAS_RICH and console:
         console.print(Panel("[bold cyan]GlitchOS — Detroit Remote LAZ Manifest (TNM)[/bold cyan]", box=box.ROUNDED))
         t = Table(box=box.SIMPLE, show_header=False)
         t.add_column("Key", style="dim cyan", min_width=26)
         t.add_column("Value", style="white")
-        t.add_row("TNM tiles found",  str(manifest["tile_count"]))
-        t.add_row("Already on disk",  str(manifest["on_disk_count"]))
-        t.add_row("Still to download", str(manifest["tile_count"] - manifest["on_disk_count"]))
-        t.add_row("TNM query URL", manifest["tnm_query_url"])
+        t.add_row("TNM items returned", str(returned)
+                  + (" [yellow](may be capped — use --max to increase)[/yellow]" if capped else ""))
+        t.add_row("Tiles with download URL", str(manifest["tile_count"]))
+        t.add_row("Already on disk",         str(manifest["on_disk_count"]))
+        t.add_row("Still to download",       str(manifest["tile_count"] - manifest["on_disk_count"]))
+        t.add_row("TNM query URL",           manifest["tnm_query_url"])
         console.print(t)
     else:
-        print(f"  TNM tiles found  : {manifest['tile_count']}")
-        print(f"  Already on disk  : {manifest['on_disk_count']}")
-        print(f"  Still to download: {manifest['tile_count'] - manifest['on_disk_count']}")
+        print(f"  TNM items returned : {returned}" + (" (may be capped — use --max to increase)" if capped else ""))
+        print(f"  Tiles w/ URL       : {manifest['tile_count']}")
+        print(f"  Already on disk    : {manifest['on_disk_count']}")
+        print(f"  Still to download  : {manifest['tile_count'] - manifest['on_disk_count']}")
         if manifest["tiles"]:
-            print(f"  First tile       : {manifest['tiles'][0]['filename']}")
-            print(f"  Sample URL       : {manifest['tiles'][0]['download_url']}")
+            print(f"  First tile         : {manifest['tiles'][0]['filename']}")
+            print(f"  Sample URL         : {manifest['tiles'][0]['download_url']}")
 
 
 # ── CLI ────────────────────────────────────────────────────────────────────────
@@ -423,6 +460,8 @@ def main() -> int:
     parser.add_argument("--config", type=Path, default=DEFAULT_CONFIG)
     parser.add_argument("--remote", action="store_true",
                         help="Query TNM API and build remote URL manifest (no download)")
+    parser.add_argument("--max", type=int, default=500, metavar="N",
+                        help="Max TNM items to request (default: 500; Detroit has ~1500+)")
     parser.add_argument("--spatial-filter", action="store_true",
                         help="Filter on-disk files by city bbox_4326 (requires pyproj)")
     parser.add_argument("--output", type=Path, default=None,
@@ -437,7 +476,7 @@ def main() -> int:
     cfg = json.loads(args.config.read_text(encoding="utf-8"))
 
     if args.remote:
-        manifest = build_remote_manifest(cfg)
+        manifest = build_remote_manifest(cfg, max_results=args.max)
         if manifest is None:
             _pr(
                 "[red]ERROR:[/red] TNM query failed — see messages above. No files written."

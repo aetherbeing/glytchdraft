@@ -58,8 +58,8 @@ class TestQueryTnmErrorHandling(unittest.TestCase):
             result = bdc.query_tnm(SAMPLE_BBOX)
         self.assertIsNone(result)
 
-    def test_http_504_gateway_timeout(self):
-        """HTTP 504 must return None, not raise."""
+    def test_http_504_html_body(self):
+        """HTTP 504 with HTML body must return None, not raise."""
         exc = urllib.error.HTTPError(
             url="https://tnmaccess.nationalmap.gov/api/v1/products",
             code=504,
@@ -72,6 +72,26 @@ class TestQueryTnmErrorHandling(unittest.TestCase):
         with patch("urllib.request.urlopen", side_effect=exc):
             result = bdc.query_tnm(SAMPLE_BBOX)
         self.assertIsNone(result)
+
+    def test_http_504_json_body(self):
+        """HTTP 504 with a parseable JSON body must still return None (not empty list).
+
+        TNM has been observed returning HTTP 504 Content-Type: application/json
+        with a body like {} that parses successfully.  A parseable body does not
+        mean success — the HTTP status is authoritative.
+        """
+        exc = urllib.error.HTTPError(
+            url="https://tnmaccess.nationalmap.gov/api/v1/products",
+            code=504,
+            msg="Gateway Timeout",
+            hdrs=MagicMock(),
+            fp=BytesIO(b"{}"),
+        )
+        exc.headers = MagicMock()
+        exc.headers.get = lambda k, d="": "application/json" if k == "Content-Type" else d
+        with patch("urllib.request.urlopen", side_effect=exc):
+            result = bdc.query_tnm(SAMPLE_BBOX)
+        self.assertIsNone(result, "HTTP 504 with JSON body must return None, not []")
 
     def test_network_error(self):
         """URLError (connection refused, DNS failure) must return None."""
