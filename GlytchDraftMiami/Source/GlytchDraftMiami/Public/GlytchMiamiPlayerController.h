@@ -5,6 +5,7 @@
 #include "GlytchMiamiPlayerController.generated.h"
 
 class AGlytchTileManager;
+class AGlytchBuildingActor;
 
 UCLASS()
 class GLYTCHDRAFTMIAMI_API AGlytchMiamiPlayerController : public APlayerController
@@ -15,12 +16,14 @@ public:
 	AGlytchMiamiPlayerController();
 
 	virtual void BeginPlay() override;
+	virtual void PlayerTick(float DeltaTime) override;
 	virtual void SetupInputComponent() override;
 
 private:
 	bool bMassesVisible = true;
 	bool bMarkersVisible = true;
 	bool bOverlaysVisible = true;
+	bool bClaimsVisible = true;
 
 	UPROPERTY()
 	TWeakObjectPtr<AGlytchTileManager> CachedTileManager;
@@ -29,5 +32,7 @@ private:
 	void ToggleMasses();
 	void ToggleMarkers();
 	void ToggleOverlays();
+	void ToggleClaims();
+	AGlytchBuildingActor* GetBuildingUnderCursor();
 	AGlytchTileManager* GetTileManager();
 };

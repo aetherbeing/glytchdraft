@@ -59,6 +59,11 @@ def main(argv: list[str] | None = None) -> int:
     parser = add_phase_args(argparse.ArgumentParser(description=TITLE))
     parser.add_argument("--batch-size", type=int, default=50)
     parser.add_argument("--delay", type=float, default=1.0)
+    parser.add_argument(
+        "--require-ai-enrichment",
+        action="store_true",
+        help="Fail (exit nonzero) when ANTHROPIC_API_KEY is not set instead of skipping",
+    )
     args = parser.parse_args(argv)
     city = load_city(args.city)
     print_header(PHASE_ID, TITLE, city, resolve_mode(args))
@@ -74,8 +79,17 @@ def main(argv: list[str] | None = None) -> int:
         print(json.dumps(recs[:2], indent=2))
         return 0
     if not os.environ.get("ANTHROPIC_API_KEY"):
-        print("  ERROR: ANTHROPIC_API_KEY is required for --execute")
-        return output_summary(city, PHASE_ID, "failed", {"error": "missing ANTHROPIC_API_KEY"}, [])
+        if args.require_ai_enrichment:
+            print("  ERROR: ANTHROPIC_API_KEY is required (--require-ai-enrichment is set)")
+            return output_summary(city, PHASE_ID, "failed", {"error": "missing ANTHROPIC_API_KEY"}, [])
+        print("Phase 09 AI enrichment skipped: ANTHROPIC_API_KEY is not set.")
+        print("Geometry/export outputs remain valid.")
+        print("Pass --require-ai-enrichment to fail when AI enrichment is unavailable.")
+        output_summary(city, PHASE_ID, "skipped_optional", {
+            "reason": "ANTHROPIC_API_KEY not set",
+            "outputs_valid": True,
+        }, [])
+        return 0
     existing = {}
     if args.resume and out_path.exists():
         for item in json.loads(out_path.read_text(encoding="utf-8")):

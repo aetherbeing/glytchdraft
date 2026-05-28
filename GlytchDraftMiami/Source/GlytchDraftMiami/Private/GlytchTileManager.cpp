@@ -5,6 +5,7 @@
 #include "Engine/StaticMesh.h"
 #include "GlytchBuildingActor.h"
 #include "GlytchBuildingMetadataComponent.h"
+#include "GlytchClaimMarkerActor.h"
 #include "GlytchCompanionMarkerActor.h"
 #include "GlytchOrderOverlayComponent.h"
 #include "GlytchTileDataAsset.h"
@@ -71,6 +72,7 @@ AGlytchTileManager::AGlytchTileManager()
 
 	BuildingActorClass = AGlytchBuildingActor::StaticClass();
 	CompanionMarkerClass = AGlytchCompanionMarkerActor::StaticClass();
+	ClaimMarkerClass = AGlytchClaimMarkerActor::StaticClass();
 
 	GroundProxyComponent = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("GroundProxy"));
 	SetRootComponent(GroundProxyComponent);
@@ -117,9 +119,10 @@ void AGlytchTileManager::RebuildTile()
 	SpawnBuildings();
 	SpawnCompanionMarkers();
 	SpawnOrderOverlays();
+	SpawnClaimMarkers();
 
-	UE_LOG(LogTemp, Display, TEXT("GlytchTileManager spawned %d buildings, %d markers, %d order overlays."),
-		SpawnedBuildings.Num(), SpawnedMarkers.Num(), SpawnedOverlayActors.Num());
+	UE_LOG(LogTemp, Display, TEXT("GlytchTileManager spawned %d buildings, %d markers, %d order overlays, %d claim markers."),
+		SpawnedBuildings.Num(), SpawnedMarkers.Num(), SpawnedOverlayActors.Num(), SpawnedClaimMarkers.Num());
 }
 
 void AGlytchTileManager::SetMassesVisible(bool bVisible)
@@ -151,6 +154,17 @@ void AGlytchTileManager::SetOrderOverlaysVisible(bool bVisible)
 		if (Overlay)
 		{
 			Overlay->SetActorHiddenInGame(!bVisible);
+		}
+	}
+}
+
+void AGlytchTileManager::SetClaimMarkersVisible(bool bVisible)
+{
+	for (AGlytchClaimMarkerActor* Marker : SpawnedClaimMarkers)
+	{
+		if (Marker)
+		{
+			Marker->SetActorHiddenInGame(!bVisible);
 		}
 	}
 }
@@ -214,6 +228,15 @@ void AGlytchTileManager::ClearRuntimeActors()
 		}
 	}
 	SpawnedOverlayActors.Reset();
+
+	for (AGlytchClaimMarkerActor* Marker : SpawnedClaimMarkers)
+	{
+		if (Marker)
+		{
+			Marker->Destroy();
+		}
+	}
+	SpawnedClaimMarkers.Reset();
 }
 
 void AGlytchTileManager::LoadBuildingMetadata()
@@ -353,6 +376,42 @@ void AGlytchTileManager::SpawnOrderOverlays()
 		OverlayActor->SetActorLabel(OverlayDef.Id.ToString());
 #endif
 		SpawnedOverlayActors.Add(OverlayActor);
+	}
+}
+
+void AGlytchTileManager::SpawnClaimMarkers()
+{
+	if (!TileData || !ClaimMarkerClass || !bSpawnClaimMarkers || MaxClaimMarkers == 0)
+	{
+		return;
+	}
+
+	int32 SpawnedCount = 0;
+	for (const TPair<FName, FGlytchBuildingMetadataRow>& Entry : MetadataByUniqueId)
+	{
+		if (SpawnedCount >= MaxClaimMarkers)
+		{
+			break;
+		}
+
+		const FGlytchBuildingMetadataRow& Metadata = Entry.Value;
+		FVector LocalMeters = Metadata.CentroidLocalMeters;
+		const float MarkerHeightMeters = FMath::Max(Metadata.HeightP90, Metadata.EstimatedHeight) + 4.0f;
+		LocalMeters.Z = FMath::Max(LocalMeters.Z, Metadata.GroundZ) + MarkerHeightMeters;
+
+		AGlytchClaimMarkerActor* Marker = GetWorld()->SpawnActor<AGlytchClaimMarkerActor>(
+			ClaimMarkerClass,
+			TileData->LocalMetersToUnreal(LocalMeters),
+			FRotator::ZeroRotator);
+		if (Marker)
+		{
+			Marker->InitializeClaimMarker(Entry.Key, Metadata.ClaimStatus);
+#if WITH_EDITOR
+			Marker->SetActorLabel(FString::Printf(TEXT("CLAIM_%s_%s"), *Entry.Key.ToString(), *Marker->ClaimStatus));
+#endif
+			SpawnedClaimMarkers.Add(Marker);
+			++SpawnedCount;
+		}
 	}
 }
 

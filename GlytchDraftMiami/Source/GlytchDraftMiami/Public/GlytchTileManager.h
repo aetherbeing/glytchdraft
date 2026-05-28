@@ -6,6 +6,7 @@
 #include "GlytchTileManager.generated.h"
 
 class AGlytchBuildingActor;
+class AGlytchClaimMarkerActor;
 class AGlytchCompanionMarkerActor;
 class UGlytchOrderOverlayComponent;
 class UGlytchTileDataAsset;
@@ -32,10 +33,19 @@ public:
 	TSubclassOf<AGlytchCompanionMarkerActor> CompanionMarkerClass;
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Glytch|Tile")
+	TSubclassOf<AGlytchClaimMarkerActor> ClaimMarkerClass;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Glytch|Tile")
 	bool bSpawnOnBeginPlay = true;
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Glytch|Preview")
 	bool bLoadPreviewMetadata = true;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Glytch|Claims")
+	bool bSpawnClaimMarkers = true;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Glytch|Claims", meta = (ClampMin = "0"))
+	int32 MaxClaimMarkers = 100;
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Glytch|Runtime")
 	TArray<TObjectPtr<AGlytchBuildingActor>> SpawnedBuildings;
@@ -51,6 +61,9 @@ public:
 
 	UFUNCTION(BlueprintCallable, Category = "Glytch|Layers")
 	void SetOrderOverlaysVisible(bool bVisible);
+
+	UFUNCTION(BlueprintCallable, Category = "Glytch|Layers")
+	void SetClaimMarkersVisible(bool bVisible);
 
 	UFUNCTION(BlueprintCallable, Category = "Glytch|Layers")
 	void SetGroundProxyVisible(bool bVisible);
@@ -72,6 +85,9 @@ private:
 	TArray<TObjectPtr<AActor>> SpawnedOverlayActors;
 
 	UPROPERTY()
+	TArray<TObjectPtr<AGlytchClaimMarkerActor>> SpawnedClaimMarkers;
+
+	UPROPERTY()
 	TObjectPtr<UStaticMeshComponent> GroundProxyComponent;
 
 	UPROPERTY()
@@ -84,6 +100,7 @@ private:
 	void SpawnBuildings();
 	void SpawnCompanionMarkers();
 	void SpawnOrderOverlays();
+	void SpawnClaimMarkers();
 	void CreateProxyPlanes();
 	FName ResolveUniqueIdForMesh(UStaticMesh* Mesh) const;
 	FString ResolveProjectRelativePath(const FString& Path) const;

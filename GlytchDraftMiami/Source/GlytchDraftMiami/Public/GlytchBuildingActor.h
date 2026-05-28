@@ -31,4 +31,13 @@ public:
 
 	UFUNCTION(BlueprintCallable, Category = "Glytch|Building")
 	void SetSelected(bool bSelected);
+
+	UFUNCTION(BlueprintCallable, Category = "Glytch|Building")
+	void SetHovered(bool bHovered);
+
+private:
+	bool bIsSelected = false;
+	bool bIsHovered = false;
+
+	void UpdateHighlight();
 };

@@ -1,0 +1,65 @@
+{
+  "schema_version": "1.0",
+  "city_slug": "detroit",
+  "display_name": "Detroit",
+  "region": "Michigan, USA",
+  "laz_dir": "/mnt/t7/detroit/data_raw/laz",
+  "tiles_root": "/mnt/t7/detroit/data_processed/detroit/tiles",
+  "output_root": "/mnt/t7/detroit/data_processed/detroit",
+  "tile_manifest": "/mnt/t7/detroit/data_processed/detroit/tile_manifest.json",
+  "city_manifest": "/mnt/t7/detroit/data_processed/detroit/metadata/detroit_manifest.json",
+  "output_epsg": 32617,
+  "bbox_4326": {
+    "xmin": -83.35,
+    "ymin": 42.25,
+    "xmax": -82.90,
+    "ymax": 42.45
+  },
+  "boundary_geojson": "/mnt/t7/detroit/data_raw/geojson/detroit_city_boundary.geojson",
+  "boundary_source": {
+    "provider": "City of Detroit Open Data / Census TIGER",
+    "dataset": "Detroit City Boundary",
+    "note": "Download from https://data.detroitmi.gov or TIGER/Line Shapefiles (place-level)"
+  },
+  "laz_source": {
+    "provider": "USGS 3DEP TNM",
+    "dataset": "Lidar Point Cloud (LPC)",
+    "formats": "LAS,LAZ",
+    "query_url": "https://tnmaccess.nationalmap.gov/api/v1/products?datasets=Lidar%20Point%20Cloud%20(LPC)&bbox=-83.35,42.25,-82.90,42.45&prodFormats=LAS,LAZ&max=500",
+    "expected_crs": "NAD83(2011) / UTM Zone 17N (EPSG:6344)",
+    "note": "Wayne County / Detroit covered by MI statewide 3DEP QL1/QL2 collections"
+  },
+  "address_source": {
+    "path": "/mnt/t7/detroit/data_raw/addresses/detroit_addresses.geojson",
+    "source_name": "City of Detroit Address Points",
+    "provider": "data.detroitmi.gov",
+    "note": "https://data.detroitmi.gov/datasets/detroit-address-points",
+    "input_crs": "EPSG:4326",
+    "field_map": {
+      "house_number": "HouseNumber",
+      "street": "StreetName",
+      "city": "City",
+      "postcode": "ZipCode"
+    }
+  },
+  "county_footprints_path": "/mnt/t7/detroit/data_raw/geojson/detroit_building_footprints.geojson",
+  "footprint_source": {
+    "path": "/mnt/t7/detroit/data_raw/geojson/detroit_building_footprints.geojson",
+    "source_name": "Microsoft ML Building Footprints / City of Detroit",
+    "note": "https://github.com/microsoft/USBuildingFootprints or https://data.detroitmi.gov/datasets/detroit-building-outlines"
+  },
+  "dbscan_eps": 3.0,
+  "dbscan_min_samples": 10,
+  "hag_min_m": 2.5,
+  "hag_max_m": 300.0,
+  "building_source_class": 1,
+  "ground_class": 2,
+  "vegetation_enabled": true,
+  "vegetation_classes": [3, 4, 5],
+  "address_join_radius_m": 100.0,
+  "keep_raw_laz": true,
+  "status_dir": "/mnt/t7/detroit/data_processed/detroit/status",
+  "logs_dir": "/mnt/t7/detroit/data_processed/detroit/logs",
+  "audit_dir": "/mnt/t7/detroit/data_processed/detroit/audit",
+  "pipeline_version": "1.0"
+}

@@ -17,10 +17,16 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Glytch|Selection")
 	void SetSelectedBuilding(AGlytchBuildingActor* Building);
 
+	UFUNCTION(BlueprintCallable, Category = "Glytch|Selection")
+	void SetHoveredBuilding(AGlytchBuildingActor* Building);
+
 	UFUNCTION(BlueprintPure, Category = "Glytch|Selection")
 	AGlytchBuildingActor* GetSelectedBuilding() const { return SelectedBuilding.Get(); }
 
 private:
 	UPROPERTY()
 	TWeakObjectPtr<AGlytchBuildingActor> SelectedBuilding;
+
+	UPROPERTY()
+	TWeakObjectPtr<AGlytchBuildingActor> HoveredBuilding;
 };

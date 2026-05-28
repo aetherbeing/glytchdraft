@@ -27,6 +27,19 @@ void AGlytchBuildingActor::InitializeBuilding(UStaticMesh* Mesh, const FGlytchBu
 
 void AGlytchBuildingActor::SetSelected(bool bSelected)
 {
-	MeshComponent->SetRenderCustomDepth(bSelected);
-	MeshComponent->SetCustomDepthStencilValue(bSelected ? 1 : 0);
+	bIsSelected = bSelected;
+	UpdateHighlight();
+}
+
+void AGlytchBuildingActor::SetHovered(bool bHovered)
+{
+	bIsHovered = bHovered;
+	UpdateHighlight();
+}
+
+void AGlytchBuildingActor::UpdateHighlight()
+{
+	const bool bHighlighted = bIsSelected || bIsHovered;
+	MeshComponent->SetRenderCustomDepth(bHighlighted);
+	MeshComponent->SetCustomDepthStencilValue(bIsSelected ? 1 : 2);
 }
