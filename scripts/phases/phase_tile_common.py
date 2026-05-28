@@ -23,7 +23,9 @@ from typing import Any, Iterable
 import numpy as np
 
 from phase_common import (
+    CATALOG_ENV_VAR,
     CityRuntime,
+    _laz_files_from_catalog,
     append_log,
     load_json,
     phase_completed,
@@ -62,7 +64,12 @@ def crs_tag(city: CityRuntime) -> dict[str, Any]:
 
 def load_tiles(city: CityRuntime, limit: int | None = None) -> list[TileRecord]:
     if not city.tile_manifest.exists():
-        files = sorted(city.laz_dir.glob("*.laz")) if city.laz_dir.exists() else []
+        env_cat = os.environ.get(CATALOG_ENV_VAR)
+        if env_cat:
+            cat_files = _laz_files_from_catalog(Path(env_cat))
+            files = cat_files if cat_files is not None else (sorted(city.laz_dir.glob("*.laz")) if city.laz_dir.exists() else [])
+        else:
+            files = sorted(city.laz_dir.glob("*.laz")) if city.laz_dir.exists() else []
         if limit is not None:
             files = files[:limit]
         return [

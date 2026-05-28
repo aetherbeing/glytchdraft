@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import argparse
+import json
+import os
 import subprocess
 import sys
 import time
@@ -17,7 +19,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 PHASE_DIR = REPO_ROOT / "scripts" / "phases"
 sys.path.insert(0, str(PHASE_DIR))
 
-from phase_common import PHASE_NAMES, load_city, read_phase_status
+from phase_common import CATALOG_ENV_VAR, PHASE_NAMES, load_city, read_phase_status
 
 try:
     from rich.console import Console
@@ -67,7 +69,7 @@ def _selected(args) -> list[str]:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Run non-interactive GlitchOS phase scripts")
-    parser.add_argument("--city", required=True)
+    parser.add_argument("--city", "--config", dest="city", required=True, metavar="CITY_OR_CONFIG")
     parser.add_argument("--phase", type=_norm_phase)
     parser.add_argument("--from-phase", type=_norm_phase)
     parser.add_argument("--to-phase", type=_norm_phase)
@@ -77,6 +79,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--force", action="store_true")
     parser.add_argument("--resume", action="store_true")
     parser.add_argument("--audit-only", action="store_true")
+    parser.add_argument("--catalog", type=Path, default=None, metavar="PATH",
+                        help="Path to a filtered LAZ catalog JSON (output of new_orleans_build_catalog.py)")
     parser.add_argument("--limit", type=int)
     args = parser.parse_args(argv)
 
@@ -84,6 +88,24 @@ def main(argv: list[str] | None = None) -> int:
         args.phase = "10"
     if not args.execute:
         print("DRY RUN: no files will be created or modified. Pass --execute to write outputs.")
+
+    if args.catalog:
+        if not args.catalog.exists():
+            print(f"ERROR: catalog not found: {args.catalog}", file=sys.stderr)
+            return 1
+        try:
+            catalog_data = json.loads(args.catalog.read_text(encoding="utf-8"))
+            catalog_files = catalog_data.get("files", [])
+        except Exception as exc:
+            print(f"ERROR: cannot read catalog: {exc}", file=sys.stderr)
+            return 1
+        print(f"  catalog: {args.catalog}")
+        print(f"  catalog file count: {len(catalog_files)}")
+        os.environ[CATALOG_ENV_VAR] = str(args.catalog)
+        no_phase_selected = not (args.phase or args.from_phase or args.to_phase or args.all or args.audit_only)
+        if not args.execute and no_phase_selected:
+            print("  catalog validation complete. Add --phase or --all with --execute to run pipeline.")
+            return 0
 
     phases = _selected(args)
     missing = [p for p in phases if p not in IMPLEMENTED_PHASES]

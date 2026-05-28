@@ -27,6 +27,7 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 CITY_CONFIG_DIR = REPO_ROOT / "configs" / "cities"
 PHASE_STATUS_DIRNAME = "status"
 LOG_DIRNAME = "logs"
+CATALOG_ENV_VAR = "GLITCHOS_LAZ_CATALOG"
 
 PHASE_NAMES = {
     "00": "validate_config",
@@ -143,7 +144,11 @@ def _import_module(module_path: Path, module_name: str, import_dir: Path):
 
 
 def load_city(city: str) -> CityRuntime:
-    config_path = CITY_CONFIG_DIR / f"{city.lower()}.json"
+    candidate = Path(city)
+    if candidate.suffix == ".json":
+        config_path = candidate if candidate.is_absolute() else REPO_ROOT / candidate
+    else:
+        config_path = CITY_CONFIG_DIR / f"{city.lower()}.json"
     if config_path.exists():
         data = json.loads(config_path.read_text(encoding="utf-8"))
         output_root = resolve_cross_platform_path(Path(data.get("output_root") or Path(data["tiles_root"]).parent))
@@ -169,7 +174,7 @@ def load_city(city: str) -> CityRuntime:
             requested_city=city,
             city_key=data.get("city_slug", city),
             city_id=data.get("city_slug", city),
-            display_name=data.get("display_name", city),
+            display_name=data.get("display_name") or data.get("city_slug", city),
             output_root=output_root,
             tiles_root=resolve_cross_platform_path(Path(data["tiles_root"])),
             metadata_dir=metadata_dir,
@@ -447,7 +452,23 @@ def file_sha256(path: Path, chunk_size: int = 1024 * 1024) -> str:
     return h.hexdigest()
 
 
+def _laz_files_from_catalog(catalog_path: Path) -> list[Path] | None:
+    try:
+        data = json.loads(catalog_path.read_text(encoding="utf-8"))
+        raw = data.get("files")
+        if not isinstance(raw, list):
+            return None
+        return sorted((p for p in (Path(f) for f in raw) if p.exists()), key=lambda p: p.name)
+    except Exception:
+        return None
+
+
 def laz_files(city: CityRuntime) -> list[Path]:
+    env_cat = os.environ.get(CATALOG_ENV_VAR)
+    if env_cat:
+        result = _laz_files_from_catalog(Path(env_cat))
+        if result is not None:
+            return result
     if not city.laz_dir.exists():
         return []
     return sorted(city.laz_dir.glob("*.laz"))
