@@ -397,6 +397,9 @@ def run_for_city(cfg, dst_epsg: int) -> tuple[bool, int]:
     if not src_path:
         print(f"{TAG} address_source.path not set; skipping")
         return True, 0
+    if not Path(src_path).exists():
+        print(f"{TAG} Address source missing; skipping address enrichment.")
+        return True, 0
 
     source_name = addr_src.get("source_name", Path(src_path).name)
     input_crs   = addr_src.get("input_crs", "EPSG:4326")

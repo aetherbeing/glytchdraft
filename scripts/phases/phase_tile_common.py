@@ -104,7 +104,8 @@ def load_tiles(city: CityRuntime, limit: int | None = None) -> list[TileRecord]:
 
 
 def validate_or_fail(city: CityRuntime, phase_id: str, args) -> bool:
-    errors, warnings = validate_city_config(city)
+    # Geometry phases must remain runnable without address data.
+    errors, warnings = validate_city_config(city, require_addresses=getattr(args, "require_addresses", False))
     for warning in warnings:
         print(f"  WARN: {warning}")
     if errors:

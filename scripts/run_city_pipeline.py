@@ -82,6 +82,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--catalog", type=Path, default=None, metavar="PATH",
                         help="Path to a filtered LAZ catalog JSON (output of new_orleans_build_catalog.py)")
     parser.add_argument("--limit", type=int)
+    parser.add_argument("--require-addresses", action="store_true",
+                        help="Fail phases when address_source is missing or unreadable")
     args = parser.parse_args(argv)
 
     if args.audit_only:
@@ -127,6 +129,8 @@ def main(argv: list[str] | None = None) -> int:
             cmd.append("--resume")
         if args.limit is not None:
             cmd.extend(["--limit", str(args.limit)])
+        if args.require_addresses:
+            cmd.append("--require-addresses")
 
         print("\n" + "=" * 80)
         print(" ".join(cmd))
@@ -147,6 +151,8 @@ def _phase_command(args, phase: str) -> list[str]:
         cmd.append("--resume")
     if args.limit is not None:
         cmd.extend(["--limit", str(args.limit)])
+    if args.require_addresses:
+        cmd.append("--require-addresses")
     return cmd
 
 

@@ -11,6 +11,7 @@ from phase_common import (
     print_header,
     refuse_or_skip,
     resolve_mode,
+    address_source_status,
     validate_city_config,
     write_phase_status,
 )
@@ -30,7 +31,9 @@ def main(argv: list[str] | None = None) -> int:
     if refuse_or_skip(args, city, PHASE_ID):
         return 0
 
-    errors, warnings = validate_city_config(city)
+    # Geometry phases should not be blocked by a missing address source.
+    # Address ingestion remains optional and can be skipped downstream.
+    errors, warnings = validate_city_config(city, require_addresses=args.require_addresses)
     for warning in warnings:
         print(f"  WARN: {warning}")
     for error in errors:
@@ -41,6 +44,7 @@ def main(argv: list[str] | None = None) -> int:
         "warnings": warnings,
         "preserve_raw_laz": city.preserve_raw_laz,
         "address_source": city.address_source,
+        **address_source_status(city),
         "address_join_radius_m": city.address_join_radius_m,
         "out_epsg": city.out_epsg,
     }
@@ -57,4 +61,3 @@ def main(argv: list[str] | None = None) -> int:
 
 if __name__ == "__main__":
     sys.exit(main())
-

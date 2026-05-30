@@ -4,6 +4,13 @@ Shared non-interactive helpers for GlitchOS city pipeline phase scripts.
 
 All phase scripts default to dry-run behavior. They only create or modify files
 when --execute is supplied.
+
+Contract:
+  Geometry is authoritative.
+  Enrichment is optional.
+
+Geometry phases must not fail because address data is missing. Address-specific
+workflows may enforce address requirements inside their own workflow boundary.
 """
 
 from __future__ import annotations
@@ -72,6 +79,7 @@ class CityRuntime:
     catalog_path: Path | None
     address_source: dict[str, Any] | None
     address_join_radius_m: float
+    require_addresses: bool
     preserve_raw_laz: bool
     pipeline_version: str
     out_epsg: int | None
@@ -163,12 +171,14 @@ def load_city(city: str) -> CityRuntime:
             GROUND_CLASS=data.get("ground_class", 2),
             VEGETATION_ENABLED=bool(data.get("vegetation_enabled", True)),
             VEGETATION_CLASSES=tuple(data.get("vegetation_classes", [3, 4, 5])),
+            require_addresses=bool(data.get("require_addresses", False)),
             OUTLIER_MEAN_K=data.get("outlier_mean_k", 12),
             OUTLIER_MULTIPLIER=data.get("outlier_multiplier", 2.2),
             RING_BUFFER_M=data.get("ring_buffer_m", 5.0),
             MIN_POINTS_GOOD=data.get("min_points_good", 8),
             DEFAULT_FALLBACK_HEIGHT=data.get("default_fallback_height", 6.0),
             COUNTY_FP_PATH=resolve_cross_platform_path(Path(data["county_footprints_path"])) if data.get("county_footprints_path") else None,
+            BOUNDARY_GEOJSON=resolve_cross_platform_path(Path(data["boundary_geojson"])) if data.get("boundary_geojson") else None,
         )
         return CityRuntime(
             requested_city=city,
@@ -187,10 +197,11 @@ def load_city(city: str) -> CityRuntime:
             catalog_path=resolve_cross_platform_path(Path(data["catalog_path"])) if data.get("catalog_path") else None,
             address_source=data.get("address_source"),
             address_join_radius_m=float(data.get("address_join_radius_m", 100.0)),
+            require_addresses=bool(data.get("require_addresses", False)),
             preserve_raw_laz=bool(data.get("keep_raw_laz", True)),
             pipeline_version=str(data.get("pipeline_version", "1.0")),
-            out_epsg=int(data["output_epsg"]),
-            bbox_4326=dict(data["bbox_4326"]),
+            out_epsg=int(data["output_epsg"]) if data.get("output_epsg") not in (None, "") else None,
+            bbox_4326=dict(data.get("bbox_4326") or {}),
             raw_config=raw,
         )
 
@@ -219,6 +230,7 @@ def load_city(city: str) -> CityRuntime:
             catalog_path=Path(mod.CATALOG_PATH),
             address_source=mod.ADDRESS_SOURCE,
             address_join_radius_m=float(mod.ADDRESS_JOIN_RADIUS_M),
+            require_addresses=bool(getattr(mod, "REQUIRE_ADDRESSES", False)),
             preserve_raw_laz=bool(mod.PRESERVE_RAW_LAZ),
             pipeline_version=str(mod.PIPELINE_VERSION),
             out_epsg=int(mod.OUT_EPSG),
@@ -258,6 +270,7 @@ def load_city(city: str) -> CityRuntime:
         ),
         address_source=cfg.address_source,
         address_join_radius_m=float(getattr(cfg, "address_join_radius_m", 100.0)),
+        require_addresses=bool(getattr(cfg, "require_addresses", False)),
         preserve_raw_laz=bool(getattr(cfg, "preserve_raw_laz", True)),
         pipeline_version=str(getattr(cfg, "pipeline_version", "1.0")),
         out_epsg=int(getattr(tile_mod, "DST_EPSG", getattr(tile_mod, "SRC_EPSG", 0))) or None,
@@ -266,9 +279,30 @@ def load_city(city: str) -> CityRuntime:
     )
 
 
-def validate_city_config(city: CityRuntime) -> tuple[list[str], list[str]]:
+def address_source_status(city: CityRuntime) -> dict[str, Any]:
+    source = city.address_source
+    raw_source_path = str((source or {}).get("path", "")).strip()
+    source_path = Path(raw_source_path) if raw_source_path else None
+    missing = bool(source_path and not path_exists_cross_platform(source_path))
+    status: dict[str, Any] = {
+        "address_source_missing": missing,
+        "address_source_path": str(source_path) if source_path else None,
+    }
+    if missing:
+        status["warning"] = "Address source missing; address enrichment will be skipped."
+    return status
+
+
+def validate_city_config(city: CityRuntime, require_addresses: bool = False) -> tuple[list[str], list[str]]:
+    """
+    Validate geometry/runtime prerequisites.
+
+    Missing address data is treated as optional unless a caller explicitly
+    requests strict address validation for an address-specific workflow.
+    """
     errors: list[str] = []
     warnings: list[str] = []
+    strict_addresses = require_addresses or city.require_addresses
 
     if not city.preserve_raw_laz:
         errors.append("preserve_raw_laz/PRESERVE_RAW_LAZ must be True")
@@ -287,19 +321,37 @@ def validate_city_config(city: CityRuntime) -> tuple[list[str], list[str]]:
     if not city.audit_dir:
         errors.append("missing audit_dir")
     if not city.out_epsg:
-        warnings.append("output EPSG is not declared")
+        errors.append("output EPSG is not declared")
+    required_bbox_keys = {"xmin", "ymin", "xmax", "ymax"}
+    missing_bbox_keys = sorted(required_bbox_keys - set(city.bbox_4326))
+    if missing_bbox_keys:
+        errors.append(f"bbox_4326 is missing required key(s): {', '.join(missing_bbox_keys)}")
+    if city.catalog_path and not path_exists_cross_platform(city.catalog_path):
+        errors.append(f"catalog file does not exist: {city.catalog_path}")
 
     source = city.address_source
     if not source:
-        errors.append("address_source/ADDRESS_SOURCE is missing; addresses are mission critical")
+        msg = "address_source/ADDRESS_SOURCE is missing; address enrichment will be skipped"
+        if strict_addresses:
+            errors.append(msg)
+        else:
+            warnings.append(msg)
     else:
         raw_source_path = str(source.get("path", "")).strip()
         if not raw_source_path:
-            errors.append("address source has no path")
+            msg = "address source has no path; address enrichment will be skipped"
+            if strict_addresses:
+                errors.append(msg)
+            else:
+                warnings.append(msg)
         else:
             source_path = Path(raw_source_path)
             if not path_exists_cross_platform(source_path):
-                errors.append(f"address source file does not exist: {source_path}")
+                msg = f"address source file does not exist: {source_path}; address enrichment will be skipped"
+                if strict_addresses:
+                    errors.append(msg)
+                else:
+                    warnings.append(msg)
         if not source.get("field_map"):
             warnings.append("address source has no field_map")
         if not source.get("input_crs"):
@@ -321,6 +373,11 @@ def add_phase_args(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
     parser.add_argument("--force", action="store_true", help="Run even if phase status says complete")
     parser.add_argument("--resume", action="store_true", help="Skip already completed phase outputs")
     parser.add_argument("--limit", type=int, default=None, help="Limit records/tiles for testing")
+    parser.add_argument(
+        "--require-addresses",
+        action="store_true",
+        help="Fail when address_source is missing or unreadable",
+    )
     return parser
 
 
