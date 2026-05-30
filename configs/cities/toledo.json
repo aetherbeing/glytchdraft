@@ -1,0 +1,28 @@
+{
+  "schema_version": "1.0",
+  "city_slug": "toledo",
+  "display_name": "Toledo",
+  "region": "Ohio, USA",
+  "laz_dir": "/mnt/t7/toledo/data_raw/laz",
+  "tiles_root": "/mnt/t7/toledo/data_processed/toledo/tiles",
+  "output_root": "/mnt/t7/toledo/data_processed/toledo",
+  "tile_manifest": "/mnt/t7/toledo/data_processed/toledo/tile_manifest.json",
+  "city_manifest": "/mnt/t7/toledo/data_processed/toledo/metadata/toledo_manifest.json",
+  "output_epsg": 32617,
+  "bbox_4326": {
+    "xmin": -83.745,
+    "ymin": 41.570,
+    "xmax": -83.448,
+    "ymax": 41.748
+  },
+  "laz_source": {
+    "provider": "USGS 3DEP TNM",
+    "dataset": "Lidar Point Cloud (LPC)",
+    "formats": "LAS,LAZ",
+    "note": "Toledo / Lucas County covered by OH statewide 3DEP collections"
+  },
+  "keep_raw_laz": true,
+  "status_dir": "/mnt/t7/toledo/data_processed/toledo/status",
+  "logs_dir": "/mnt/t7/toledo/data_processed/toledo/logs",
+  "pipeline_version": "1.0"
+}

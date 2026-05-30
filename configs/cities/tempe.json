@@ -1,0 +1,28 @@
+{
+  "schema_version": "1.0",
+  "city_slug": "tempe",
+  "display_name": "Tempe",
+  "region": "Arizona, USA",
+  "laz_dir": "/mnt/t7/tempe/data_raw/laz",
+  "tiles_root": "/mnt/t7/tempe/data_processed/tempe/tiles",
+  "output_root": "/mnt/t7/tempe/data_processed/tempe",
+  "tile_manifest": "/mnt/t7/tempe/data_processed/tempe/tile_manifest.json",
+  "city_manifest": "/mnt/t7/tempe/data_processed/tempe/metadata/tempe_manifest.json",
+  "output_epsg": 32612,
+  "bbox_4326": {
+    "xmin": -111.973,
+    "ymin": 33.362,
+    "xmax": -111.865,
+    "ymax": 33.470
+  },
+  "laz_source": {
+    "provider": "USGS 3DEP TNM",
+    "dataset": "Lidar Point Cloud (LPC)",
+    "formats": "LAS,LAZ",
+    "note": "Tempe / Maricopa County covered by AZ statewide 3DEP collections"
+  },
+  "keep_raw_laz": true,
+  "status_dir": "/mnt/t7/tempe/data_processed/tempe/status",
+  "logs_dir": "/mnt/t7/tempe/data_processed/tempe/logs",
+  "pipeline_version": "1.0"
+}

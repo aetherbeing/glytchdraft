@@ -47,6 +47,8 @@ DOWNLOAD_TIMEOUT = 300
 CHUNK_SIZE = 1 << 20  # 1 MB
 
 _MARKUP_RE = re.compile(r"\[/?[^\]]+\]")
+_WORD_RE = re.compile(r"[A-Za-z0-9]+")
+_COMMON_TOKEN_RE = re.compile(r"^(usgs|lpc|laz|las|lidar|point|cloud|city|county|parish|borough|countywide|project|survey|staged|elevation|data|the|and|of)$", re.I)
 
 try:
     from rich.console import Console
@@ -64,36 +66,198 @@ def _pr(msg: str) -> None:
         print(_MARKUP_RE.sub("", msg))
 
 
+def _cfg_text(cfg: dict, *keys: str, default: str = "") -> str:
+    for key in keys:
+        value = cfg.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+        if isinstance(value, dict):
+            for inner_key in ("path", "title", "name", "sample_project"):
+                inner_value = value.get(inner_key)
+                if isinstance(inner_value, str) and inner_value.strip():
+                    return inner_value.strip()
+    return default
+
+
+def _cfg_path(cfg: dict, *keys: str) -> Path | None:
+    text = _cfg_text(cfg, *keys)
+    return Path(text) if text else None
+
+
+def _normalize_tokens(*texts: str) -> set[str]:
+    tokens: set[str] = set()
+    for text in texts:
+        if not text:
+            continue
+        for token in _WORD_RE.findall(text.lower()):
+            if token.isdigit():
+                continue
+            if _COMMON_TOKEN_RE.fullmatch(token):
+                continue
+            tokens.add(token)
+            if len(token) > 3 and token.isalnum():
+                tokens.add(token.replace("-", ""))
+    return tokens
+
+
+def _city_terms(cfg: dict) -> set[str]:
+    region = _cfg_text(cfg, "region")
+    sample_project = _cfg_text(cfg, "laz_source", "sample_project")
+    display_name = _cfg_text(cfg, "display_name", default=cfg.get("city_slug", ""))
+    city_slug = cfg.get("city_slug", "")
+    return _normalize_tokens(city_slug, display_name, region, sample_project)
+
+
+def _human_gb(num_bytes: int | float | None) -> str:
+    if not num_bytes:
+        return "0.00 GB"
+    return f"{float(num_bytes) / 1_073_741_824:.2f} GB"
+
+
+def _best_detailed_prefix(detailed_prefixes: dict[str, int]) -> str:
+    if not detailed_prefixes:
+        return "unknown"
+    return max(
+        detailed_prefixes,
+        key=lambda pfx: (
+            detailed_prefixes[pfx],
+            _extract_year_from_prefix(pfx) or 0,
+            len(pfx),
+        ),
+    )
+
+
+def slugify_city_name(value: str) -> str:
+    """Normalize a city name or slug to the config filename convention."""
+    slug = re.sub(r"[^a-z0-9]+", "_", value.strip().lower())
+    return re.sub(r"_+", "_", slug).strip("_")
+
+
+def _available_city_configs() -> list[Path]:
+    return sorted(CONFIGS_DIR.glob("*.json"))
+
+
+def _load_json_file(path: Path) -> dict:
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def _find_city_config(city_or_path: str) -> Path | None:
+    p = Path(city_or_path)
+    if p.exists():
+        return p
+
+    slug = slugify_city_name(city_or_path)
+    direct = CONFIGS_DIR / f"{slug}.json"
+    if direct.exists():
+        return direct
+
+    for cfg_path in _available_city_configs():
+        try:
+            cfg = _load_json_file(cfg_path)
+        except (json.JSONDecodeError, OSError):
+            continue
+        names = {
+            slugify_city_name(cfg_path.stem),
+            slugify_city_name(cfg.get("city_slug", "")),
+            slugify_city_name(cfg.get("display_name", "")),
+        }
+        aliases = cfg.get("aliases", [])
+        if isinstance(aliases, list):
+            names.update(slugify_city_name(str(alias)) for alias in aliases)
+        if slug in names:
+            return cfg_path
+    return None
+
+
+def validate_city_config(cfg: dict) -> list[str]:
+    """Return config issues that block repeatable city onboarding."""
+    warnings: list[str] = []
+    required = ("city_slug", "display_name", "bbox_4326", "laz_dir", "output_root")
+    for key in required:
+        if not cfg.get(key):
+            warnings.append(f"Missing required city config key: {key}")
+
+    bbox = cfg.get("bbox_4326")
+    if isinstance(bbox, dict):
+        missing = [k for k in ("xmin", "ymin", "xmax", "ymax") if k not in bbox]
+        if missing:
+            warnings.append(f"bbox_4326 is missing keys: {', '.join(missing)}")
+        else:
+            try:
+                xmin, ymin, xmax, ymax = (float(bbox[k]) for k in ("xmin", "ymin", "xmax", "ymax"))
+                if not (-180 <= xmin < xmax <= 180 and -90 <= ymin < ymax <= 90):
+                    warnings.append("bbox_4326 values are outside valid lon/lat ranges or are inverted.")
+            except (TypeError, ValueError):
+                warnings.append("bbox_4326 values must be numeric.")
+    elif bbox is not None:
+        warnings.append("bbox_4326 must be an object with xmin/ymin/xmax/ymax.")
+
+    if not cfg.get("output_epsg"):
+        warnings.append("No output_epsg configured. Downstream projection must be chosen manually.")
+
+    return warnings
+
+
 # ── Config ────────────────────────────────────────────────────────────────────
 
 
 def load_city_config(city_or_path: str) -> dict:
     """Load city config from slug name (e.g. 'detroit') or explicit file path."""
-    p = Path(city_or_path)
-    if not p.exists():
-        p = CONFIGS_DIR / f"{city_or_path}.json"
-    if not p.exists():
+    p = _find_city_config(city_or_path)
+    if p is None or not p.exists():
+        available = ", ".join(f.stem for f in _available_city_configs())
         sys.exit(
-            f"Config not found: {p}\n"
+            f"Config not found for city: {city_or_path}\n"
             f"Expected: {CONFIGS_DIR}/<city>.json\n"
-            f"Available: {', '.join(f.stem for f in sorted(CONFIGS_DIR.glob('*.json')))}"
+            f"Available: {available}\n"
+            "Create a city config with bbox_4326, laz_dir, output_root, and output_epsg first."
         )
     cfg = json.loads(p.read_text(encoding="utf-8"))
     if "city_slug" not in cfg:
         cfg["city_slug"] = p.stem
+    if not str(cfg.get("display_name", "")).strip():
+        cfg["display_name"] = cfg["city_slug"].replace("_", " ").title()
     return cfg
+
+
+def normalize_city_config(cfg: dict) -> dict:
+    """Fill derived paths so downstream code can treat every city the same way."""
+    normalized = dict(cfg)
+    city_slug = str(normalized.get("city_slug", "")).strip() or slugify_city_name(
+        str(normalized.get("display_name", "city"))
+    )
+    normalized["city_slug"] = city_slug
+    if not str(normalized.get("display_name", "")).strip():
+        normalized["display_name"] = city_slug.replace("_", " ").title()
+
+    output_root = normalized.get("output_root")
+    if output_root:
+        output_root_path = Path(output_root)
+        normalized.setdefault("laz_dir", str(output_root_path / "laz"))
+        normalized.setdefault("tiles_root", str(output_root_path / "tiles"))
+        normalized.setdefault("logs_dir", str(output_root_path / "logs"))
+        normalized.setdefault("status_dir", str(output_root_path / "status"))
+        normalized.setdefault("audit_dir", str(output_root_path / "audit"))
+        normalized.setdefault("catalog_root", str(output_root_path / "catalogs"))
+    return normalized
 
 
 def scaffold_dirs(cfg: dict) -> None:
     """Create expected output directories if they do not already exist."""
     output_root = Path(cfg["output_root"])
     laz_dir = Path(cfg["laz_dir"])
+    tiles_root = Path(cfg.get("tiles_root", str(output_root / "tiles")))
+    logs_dir = Path(cfg.get("logs_dir", str(output_root / "logs")))
+    status_dir = Path(cfg.get("status_dir", str(output_root / "status")))
+    audit_dir = Path(cfg.get("audit_dir", str(output_root / "audit")))
 
     dirs = [
         laz_dir,
+        tiles_root,
         output_root / "catalogs",
-        output_root / "logs",
-        output_root / "status",
+        logs_dir,
+        status_dir,
+        audit_dir,
     ]
     for d in dirs:
         if not d.exists():
@@ -348,8 +512,11 @@ def group_by_campaign(tiles: list[dict]) -> dict[str, dict]:
                 "total_bytes": 0,
                 "publication_dates": set(),
                 "sample_filenames": [],
+                "titles": [],
+                "project_names": [],
                 "on_disk_count": 0,
                 "has_laz": False,
+                "bbox_count": 0,
             }
 
         g = groups[grp]
@@ -367,15 +534,29 @@ def group_by_campaign(tiles: list[dict]) -> dict[str, dict]:
         if len(g["sample_filenames"]) < 3:
             g["sample_filenames"].append(tile["filename"])
 
+        title = tile.get("title")
+        if title and len(g["titles"]) < 3:
+            g["titles"].append(title)
+
+        project = tile.get("project")
+        if project and len(g["project_names"]) < 3:
+            g["project_names"].append(project)
+
         if tile.get("on_disk"):
             g["on_disk_count"] += 1
 
         if tile.get("filename", "").lower().endswith(".laz"):
             g["has_laz"] = True
 
+        if tile.get("bbox_4326"):
+            g["bbox_count"] += 1
+
     for g in groups.values():
         g["publication_dates"] = sorted(g["publication_dates"])
         g["total_gb"] = round(g["total_bytes"] / 1_073_741_824, 2)
+        g["bbox_coverage_pct"] = round((g["bbox_count"] / g["tile_count"]) * 100, 1) if g["tile_count"] else 0.0
+        g["project_text"] = " ".join(g["project_names"])
+        g["title_text"] = " ".join(g["titles"])
 
     return groups
 
@@ -388,44 +569,114 @@ def _extract_year_from_prefix(text: str) -> int | None:
     return int(m.group()) if m else None
 
 
-def _score_campaign(group: dict, city_slug: str, display_name: str) -> float:
+def _years_from_dates(dates: list[str]) -> list[int]:
+    years: list[int] = []
+    for date in dates:
+        m = re.match(r"^(19|20)\d{2}", str(date))
+        if m:
+            years.append(int(m.group()))
+    return years
+
+
+def _score_campaign_details(group: dict, cfg: dict) -> tuple[float, list[str]]:
     """Score a campaign for recommendation. Higher = better."""
     score = 0.0
+    reasons: list[str] = []
+    city_slug = cfg.get("city_slug", "")
+    display_name = cfg.get("display_name", city_slug)
     name_lower = group["campaign_group"].lower()
     all_prefixes = " ".join(group["detailed_prefixes"].keys()).lower()
+    title_text = str(group.get("title_text", "")).lower()
+    project_text = str(group.get("project_text", "")).lower()
+    haystack = f"{name_lower} {all_prefixes} {title_text} {project_text} {' '.join(group.get('sample_filenames', [])).lower()}"
 
     # Newer surveys preferred
     year = _extract_year_from_prefix(all_prefixes)
+    date_years = _years_from_dates(group.get("publication_dates", []))
+    if date_years:
+        candidates = ([year] if year else []) + date_years
+        year = max(candidates)
     if year:
-        score += (year - 2000) * 2.5
+        delta = (year - 2000) * 2.5
+        score += delta
+        reasons.append(f"newer survey signal ({year}, +{delta:.1f})")
 
     # City/county name match is a strong signal
-    for term in [city_slug.lower(), display_name.lower().replace(" ", "")]:
-        if term and len(term) >= 4 and term in name_lower:
+    configured_keywords = cfg.get("campaign_keywords", [])
+    if not isinstance(configured_keywords, list):
+        configured_keywords = []
+    terms = [
+        city_slug.lower(),
+        display_name.lower().replace(" ", ""),
+        *[str(term).lower().replace(" ", "") for term in configured_keywords],
+    ]
+    city_terms = _normalize_tokens(city_slug, display_name, cfg.get("region", ""), cfg.get("laz_source", {}).get("sample_project", ""))
+    overlap = sorted(term for term in city_terms if term in haystack)
+    if overlap:
+        bonus = min(12 + len(overlap) * 4, 40)
+        score += bonus
+        reasons.append(f"city metadata overlap ({', '.join(overlap[:3])}, +{bonus})")
+    for term in terms:
+        if term and len(term) >= 4 and term in haystack:
             score += 30
+            reasons.append(f"city/campaign keyword match ({term}, +30)")
             break
 
+    sample_project = str(cfg.get("laz_source", {}).get("sample_project", "")).lower()
+    if sample_project and sample_project in haystack:
+        score += 50
+        reasons.append(f"sample project match ({sample_project}, +50)")
+
     # ARRA = older legacy program
-    if "arra" in name_lower:
+    avoid_keywords = cfg.get("avoid_campaign_keywords", ["arra", "legacy"])
+    if not isinstance(avoid_keywords, list):
+        avoid_keywords = ["arra", "legacy"]
+    matched_avoid = [str(term).lower() for term in avoid_keywords if str(term).lower() in haystack]
+    if matched_avoid:
         score -= 25
+        reasons.append(f"legacy/avoid keyword ({matched_avoid[0]}, -25)")
 
     # Sanity-check tile count
     count = group["tile_count"]
     if 30 <= count <= 3000:
         score += 10
+        reasons.append("plausible tile count (+10)")
     elif count < 5:
         score -= 20
+        reasons.append("very low tile count (-20)")
 
     # LAZ format preferred over LAS
     if group["has_laz"]:
         score += 5
+        reasons.append("LAZ available (+5)")
+
+    if group.get("on_disk_count", 0):
+        on_disk_bonus = min(group["on_disk_count"], 25)
+        score += on_disk_bonus
+        reasons.append(f"existing local coverage (+{on_disk_bonus})")
+
+    bbox_pct = group.get("bbox_coverage_pct", 0)
+    if bbox_pct >= 95:
+        score += 8
+        reasons.append("complete tile bbox metadata (+8)")
+    elif bbox_pct == 0 and count:
+        score -= 15
+        reasons.append("missing tile bbox metadata (-15)")
 
     # Bogus 1899 publication date = likely bad metadata
     for d in group["publication_dates"]:
         if d.startswith("1899"):
             score -= 40
+            reasons.append("bogus 1899 publication date (-40)")
             break
 
+    return score, reasons
+
+
+def _score_campaign(group: dict, city_slug: str, display_name: str) -> float:
+    """Backwards-compatible score helper used by older tests."""
+    cfg = {"city_slug": city_slug, "display_name": display_name}
+    score, _ = _score_campaign_details(group, cfg)
     return score
 
 
@@ -439,19 +690,16 @@ def recommend_campaign(groups: dict[str, dict], cfg: dict) -> tuple[str, str, st
     city_slug = cfg.get("city_slug", "")
     display_name = cfg.get("display_name", city_slug)
 
-    scored = [
-        (grp, _score_campaign(info, city_slug, display_name), info)
-        for grp, info in groups.items()
-    ]
+    scored = []
+    for grp, info in groups.items():
+        score, reasons = _score_campaign_details(info, cfg)
+        scored.append((grp, score, info, reasons))
     scored.sort(key=lambda x: -x[1])
 
-    best_grp, best_score, best_info = scored[0]
+    best_grp, best_score, best_info, best_reasons = scored[0]
 
     # Most-common detailed prefix within the winning group
-    best_prefix = max(
-        best_info["detailed_prefixes"],
-        key=lambda k: best_info["detailed_prefixes"][k],
-    )
+    best_prefix = _best_detailed_prefix(best_info["detailed_prefixes"])
 
     year = _extract_year_from_prefix(best_prefix)
     year_str = f", acquisition year ~{year}" if year else ""
@@ -461,7 +709,8 @@ def recommend_campaign(groups: dict[str, dict], cfg: dict) -> tuple[str, str, st
         f"Highest-scoring campaign: {best_grp} ({best_prefix}), "
         f"{best_info['tile_count']} tiles, "
         f"{best_info['total_gb']:.2f} GB"
-        f"{year_str}{legacy_note}."
+        f"{year_str}{legacy_note}. Score {best_score:.1f}; "
+        f"{'; '.join(best_reasons[:4]) or 'no strong positive signals'}."
     )
     return best_grp, best_prefix, reason
 
@@ -471,24 +720,30 @@ def recommend_campaign(groups: dict[str, dict], cfg: dict) -> tuple[str, str, st
 
 def audit_support_data(cfg: dict) -> list[str]:
     """
-    Check whether the non-LAZ support data needed for clean building massing
-    is present in the config and on disk.
+    Audit non-LAZ support data AND any existing processed phase outputs.
 
-    Returns a list of warning strings (empty = all good).
+    Distinguishes three states:
+      1. Source footprint file configured and present on disk
+      2. Processed tile outputs exist but contain only fallback geometry
+         (convex_hull / rotated_bbox from DBSCAN clusters)
+      3. Processed tile outputs contain authoritative county footprint geometry
 
-    Motivation: LAZ can be staged and the pipeline can run successfully while
-    producing coastal/cluster hull artifacts instead of footprint-respecting
-    building massing — as seen in the NOLA Blender import failure.  This audit
-    surfaces missing support data BEFORE the user commits to a full download.
+    "Support data OK" requires BOTH:
+      - source footprint path configured and on disk
+      - no processed outputs that indicate fallback mode was used
+
+    NOLA failure mode: source footprints exist, tile.bbox_4326 = null in the
+    tile manifest causes Phase 06 to ignore county features and fall back to
+    cluster hulls. Outputs are technically valid but geometrically wrong.
+
+    Returns a list of warning strings (empty = all clear).
     """
     warnings: list[str] = []
+    warnings.extend(validate_city_config(cfg))
 
-    # Building footprints
-    fp_path_str = (
-        cfg.get("county_footprints_path")
-        or cfg.get("footprint_source", {}).get("path")
-        or cfg.get("building_footprints_path")
-    )
+    # ── Building footprint source ─────────────────────────────────────────────
+    fp_path_str = _cfg_text(cfg, "county_footprints_path", "building_footprints_path", "footprint_source")
+    fp_source_ok = False
     if not fp_path_str:
         warnings.append(
             "No building footprint source configured in city config. "
@@ -498,12 +753,57 @@ def audit_support_data(cfg: dict) -> list[str]:
     elif not Path(fp_path_str).exists():
         warnings.append(
             f"Building footprint file not found on disk: {fp_path_str}. "
-            "Download footprints before running the pipeline, or Phase 06 "
-            "will fall back to cluster hulls."
+            "Phase 06 will fall back to cluster hulls. "
+            "Download footprints before running the pipeline."
         )
+    else:
+        fp_source_ok = True
 
-    # City boundary
-    boundary_path_str = cfg.get("boundary_geojson")
+    # ── Processed phase output audit ─────────────────────────────────────────
+    # Scan existing tile footprint outputs to detect whether footprint-assisted
+    # or fallback (cluster hull) geometry was actually used.
+    tiles_root = Path(cfg.get("tiles_root", cfg["output_root"] + "/tiles"))
+    output_audit = _audit_footprint_outputs(tiles_root)
+
+    if output_audit["total_output_files"] > 0:
+        n_hull = output_audit["convex_hull_count"]
+        n_county = output_audit["county_count"]
+        n_unknown = output_audit["unknown_count"]
+
+        if n_hull > 0 and n_county == 0:
+            warnings.append(
+                f"Only fallback footprint outputs found ({n_hull} features, "
+                f"footprint_method=convex_hull across {output_audit['tile_count']} tile(s)). "
+                "Authoritative building footprint source was NOT used during Phase 06. "
+                "Blender massing will contain cluster hull artifacts."
+            )
+            warnings.append(
+                "Convex/rotated bbox footprints detected; these are DBSCAN cluster outlines, "
+                "not building footprints. Geometry will appear as slab/coastal hulls in Blender."
+            )
+            if fp_source_ok:
+                warnings.append(
+                    "Footprint source file EXISTS on disk but was not applied. "
+                    "Likely cause: tile.bbox_4326 = null in tile_manifest.json, "
+                    "which causes Phase 06 to skip county footprint mode. "
+                    "Fix tile manifest bbox before re-running Phase 06."
+                )
+        elif n_county > 0 and n_hull == 0:
+            pass  # all good — county footprints used
+        elif n_county > 0 and n_hull > 0:
+            warnings.append(
+                f"Mixed footprint methods: {n_county} county features, {n_hull} convex_hull features. "
+                "Some tiles used authoritative footprints; others fell back to cluster hulls."
+            )
+
+        if not fp_source_ok and n_hull > 0:
+            warnings.append(
+                "Footprint support is not OK: no source footprint path configured "
+                "AND processed outputs confirm fallback hull geometry was used."
+            )
+
+    # ── City boundary ─────────────────────────────────────────────────────────
+    boundary_path_str = _cfg_text(cfg, "boundary_geojson", "boundary_cache")
     if not boundary_path_str:
         warnings.append(
             "No city boundary geojson configured. "
@@ -515,8 +815,8 @@ def audit_support_data(cfg: dict) -> list[str]:
             "Without a boundary mask, pipeline bbox may capture water or coastal artifacts."
         )
 
-    # Address source
-    addr_path_str = cfg.get("address_source", {}).get("path") or cfg.get("addresses_path")
+    # ── Address source ────────────────────────────────────────────────────────
+    addr_path_str = _cfg_text(cfg, "addresses_path", "address_source")
     if not addr_path_str:
         warnings.append(
             "No address source configured. Building address labels will not be available."
@@ -530,19 +830,214 @@ def audit_support_data(cfg: dict) -> list[str]:
     return warnings
 
 
+def _audit_footprint_outputs(tiles_root: Path) -> dict:
+    """
+    Scan tile footprint output geojsons and count features by footprint_method.
+
+    Returns:
+        total_output_files: int
+        tile_count: int
+        convex_hull_count: int   — cluster hull fallback features
+        county_count: int        — authoritative county footprint features
+        unknown_count: int       — features with missing/unrecognised method
+        fallback_tile_ids: list  — tile IDs where any convex_hull feature found
+        county_tile_ids: list    — tile IDs where county features found
+    """
+    result = {
+        "total_output_files": 0,
+        "tile_count": 0,
+        "convex_hull_count": 0,
+        "county_count": 0,
+        "unknown_count": 0,
+        "fallback_tile_ids": [],
+        "county_tile_ids": [],
+    }
+
+    if not tiles_root.exists():
+        return result
+
+    for tile_dir in sorted(tiles_root.iterdir()):
+        fp_dir = tile_dir / "footprints"
+        if not fp_dir.is_dir():
+            continue
+
+        fp_files = list(fp_dir.glob("*_footprints_convex_*.geojson"))
+        if not fp_files:
+            continue
+
+        result["tile_count"] += 1
+        result["total_output_files"] += len(list(fp_dir.glob("*.geojson")))
+        tile_id = tile_dir.name
+        tile_hull = 0
+        tile_county = 0
+
+        for fp_file in fp_files:
+            try:
+                data = json.loads(fp_file.read_text(encoding="utf-8"))
+                for feat in data.get("features", []):
+                    method = feat.get("properties", {}).get("footprint_method", "unknown")
+                    if method == "convex_hull":
+                        result["convex_hull_count"] += 1
+                        tile_hull += 1
+                    elif method == "county":
+                        result["county_count"] += 1
+                        tile_county += 1
+                    else:
+                        result["unknown_count"] += 1
+            except (json.JSONDecodeError, OSError):
+                pass
+
+        if tile_hull > 0 and tile_id not in result["fallback_tile_ids"]:
+            result["fallback_tile_ids"].append(tile_id)
+        if tile_county > 0 and tile_id not in result["county_tile_ids"]:
+            result["county_tile_ids"].append(tile_id)
+
+    return result
+
+
 def print_support_data_audit(cfg: dict) -> None:
-    """Print support data audit warnings."""
+    """Print support data audit including phase output analysis."""
     warnings = audit_support_data(cfg)
+
+    # Also print the raw output audit counts for visibility
+    tiles_root = Path(cfg.get("tiles_root", cfg["output_root"] + "/tiles"))
+    output_audit = _audit_footprint_outputs(tiles_root)
+
+    if output_audit["total_output_files"] > 0:
+        _pr("\n  ── Phase 06 output audit ──────────────────────────────────")
+        _pr(f"  Tiles with footprint outputs : {output_audit['tile_count']}")
+        _pr(f"  County footprint features    : {output_audit['county_count']}")
+        _pr(f"  Convex hull (fallback) feats : {output_audit['convex_hull_count']}")
+        if output_audit["unknown_count"]:
+            _pr(f"  Unknown method features      : {output_audit['unknown_count']}")
+        if output_audit["fallback_tile_ids"]:
+            for tid in output_audit["fallback_tile_ids"]:
+                _pr(f"  [red]  Fallback tile:[/red] {tid}")
+        if output_audit["county_tile_ids"]:
+            for tid in output_audit["county_tile_ids"]:
+                _pr(f"  [green]  County tile:[/green] {tid}")
+
     if not warnings:
-        _pr("  [green]Support data OK[/green] (footprints, boundary, addresses found)")
+        _pr("  [green]Support data OK[/green] — footprints, boundary, addresses present; outputs use county geometry")
         return
+
     _pr("\n  [bold yellow]Support data warnings:[/bold yellow]")
     for w in warnings:
-        _pr(f"  [yellow]  ⚠  {w}[/yellow]")
+        _pr(f"  [yellow]  !  {w}[/yellow]")
     _pr(
         "\n  [dim]LiDAR can be staged now, but pipeline outputs may be degraded or "
-        "produce hull artifacts if support data is missing when ingestion runs.[/dim]"
+        "produce hull artifacts if support data issues are not resolved before ingestion.[/dim]"
     )
+
+
+def _print_onboarding_roadmap(
+    cfg: dict,
+    manifest: dict | None = None,
+    support_warnings: list[str] | None = None,
+    recommendation: tuple[str, str, str] | None = None,
+) -> None:
+    """Print the remaining manual steps needed to fully automate onboarding."""
+    support_warnings = support_warnings if support_warnings is not None else audit_support_data(cfg)
+    roadmap: list[tuple[str, str, str]] = []
+
+    city_slug = cfg.get("city_slug", "city")
+    display_name = cfg.get("display_name", city_slug)
+    tiles_root = Path(cfg.get("tiles_root", str(Path(cfg["output_root"]) / "tiles")))
+    catalog_dir = Path(cfg.get("catalog_root", str(Path(cfg["output_root"]) / "catalogs")))
+    catalog_path = catalog_dir / f"{city_slug}_catalog.json"
+    local_catalog = build_local_catalog(cfg)
+    bbox = cfg.get("bbox_4326") or {}
+    manifest_path = Path(cfg.get("tile_manifest", str(Path(cfg["output_root"]) / "tile_manifest.json")))
+    tile_manifest = _load_manifest(manifest_path)
+
+    roadmap.append((
+        "complete" if recommendation else "manual",
+        "Discover campaigns",
+        "Remote manifest already exists" if manifest else "Run --query-tnm to discover campaigns",
+    ))
+
+    if recommendation:
+        best_grp, best_prefix, reason = recommendation
+        roadmap.append((
+            "complete",
+            "Recommend best campaign",
+            f"{best_prefix} ({best_grp}) - {reason}",
+        ))
+    else:
+        roadmap.append((
+            "manual",
+            "Recommend best campaign",
+            "No recommendation yet; query TNM first",
+        ))
+
+    pending_tiles = 0
+    if manifest:
+        pending_tiles = sum(1 for tile in manifest.get("tiles", []) if not Path(tile["local_path"]).exists())
+    roadmap.append((
+        "complete" if manifest and pending_tiles == 0 else "manual",
+        "Download tiles",
+        f"{pending_tiles} tile(s) still missing locally" if manifest else "Need a remote manifest first",
+    ))
+
+    if support_warnings:
+        roadmap.append((
+            "manual",
+            "Audit support data",
+            f"{len(support_warnings)} issue(s) remain in footprints, boundary, or addresses",
+        ))
+    else:
+        roadmap.append((
+            "complete",
+            "Audit support data",
+            "Footprints, boundary, and addresses are present",
+        ))
+
+    if tile_manifest and isinstance(tile_manifest.get("tiles"), list):
+        null_bbox = [t for t in tile_manifest["tiles"] if not t.get("bbox_4326")]
+        roadmap.append((
+            "manual" if null_bbox else "complete",
+            "Verify readiness",
+            "Regenerate Phase 02 so every tile has bbox_4326" if null_bbox else "Tile manifest contains tile bboxes",
+        ))
+    else:
+        roadmap.append((
+            "manual",
+            "Verify readiness",
+            "Tile manifest is missing; run Phase 02 first",
+        ))
+
+    roadmap.append((
+        "complete" if local_catalog["count"] > 0 else "manual",
+        "Build catalog",
+        f"{local_catalog['count']} local LAZ/LAS file(s) found" if local_catalog["count"] > 0 else "Download at least one tile first",
+    ))
+
+    ready_for_pipeline = local_catalog["count"] > 0 and not support_warnings
+    roadmap.append((
+        "complete" if ready_for_pipeline else "manual",
+        "Hand off to pipeline",
+        f"Run scripts/run_city_pipeline.py with {catalog_path}" if ready_for_pipeline else "Resolve blockers before pipeline execution",
+    ))
+
+    _pr(f"\n[bold]Onboarding roadmap — {display_name}[/bold]")
+    for idx, (state, title, detail) in enumerate(roadmap, 1):
+        label = {
+            "complete": "[green]done[/green]",
+            "manual": "[yellow]manual[/yellow]",
+            "blocked": "[red]blocked[/red]",
+        }.get(state, "[dim]pending[/dim]")
+        _pr(f"  {idx}. {title:<24} {label}  {detail}")
+
+    if support_warnings:
+        _pr("\n  Remaining manual checks:")
+        for warning in support_warnings[:6]:
+            _pr(f"    - {warning}")
+        if len(support_warnings) > 6:
+            _pr(f"    - ... and {len(support_warnings) - 6} more")
+
+    if recommendation:
+        _pr("\n  Suggested next command:")
+        _pr(f"    python scripts/bootstrap_city_lidar.py {city_slug} --campaign {recommendation[1]} --download-dry-run")
 
 
 # ── Filtered manifest ─────────────────────────────────────────────────────────
@@ -622,13 +1117,20 @@ def dry_run_download(manifest: dict) -> None:
         if len(pending) > 10:
             _pr(f"  ... and {len(pending) - 10} more")
 
+    return {
+        "tile_count": len(tiles),
+        "on_disk_count": on_disk_count,
+        "pending_count": len(pending),
+        "pending_bytes": pending_bytes,
+    }
+
 
 def download_tiles(
     manifest: dict,
     laz_dir: Path,
     limit: int | None = None,
     download_all: bool = False,
-) -> None:
+) -> dict:
     """
     Download tiles from manifest.
 
@@ -641,7 +1143,7 @@ def download_tiles(
         _pr("[red]ERROR: No download mode specified.[/red]")
         _pr("  Use --download-limit 1   for a single test tile.")
         _pr("  Use --download-all       only when you are ready for the full dataset.")
-        return
+        return {"downloaded": 0, "failed": 0, "pending": 0, "bytes": 0}
 
     tiles = manifest.get("tiles", [])
     pending = [t for t in tiles if not Path(t["local_path"]).exists()]
@@ -654,7 +1156,7 @@ def download_tiles(
 
     if not pending:
         _pr("  All tiles already on disk.")
-        return
+        return {"downloaded": 0, "failed": 0, "pending": 0, "bytes": 0}
 
     laz_dir.mkdir(parents=True, exist_ok=True)
     ok = 0
@@ -676,6 +1178,12 @@ def download_tiles(
             fail += 1
 
     _pr(f"\n  Downloaded: {ok}  Failed: {fail}")
+    return {
+        "downloaded": ok,
+        "failed": fail,
+        "pending": len(pending),
+        "bytes": total_bytes,
+    }
 
 
 # ── PDAL verification ─────────────────────────────────────────────────────────
@@ -741,7 +1249,107 @@ def build_local_catalog(cfg: dict) -> dict:
         "laz_dir": str(laz_dir),
         "files": [str(f) for f in files],
         "count": len(files),
+        "pipeline_handoff": {
+            "config": f"configs/cities/{cfg['city_slug']}.json",
+            "catalog": f"{cfg['city_slug']}_catalog.json",
+            "suggested_command": (
+                "python scripts/run_city_pipeline.py "
+                f"--config configs/cities/{cfg['city_slug']}.json "
+                f"--catalog {cfg['city_slug']}_catalog.json "
+                "--to-phase 08 --execute"
+            ),
+        },
     }
+
+
+def build_readiness_report(cfg: dict, manifest: dict | None = None) -> dict:
+    """
+    Build a structured onboarding readiness report.
+
+    This is read-only and intentionally separates "can download LiDAR" from
+    "safe to hand off to the geometry pipeline".
+    """
+    support_warnings = audit_support_data(cfg)
+    local_catalog = build_local_catalog(cfg)
+
+    report: dict = {
+        "schema_version": "1.0",
+        "city_slug": cfg.get("city_slug"),
+        "display_name": cfg.get("display_name"),
+        "generated_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        "support_warnings": support_warnings,
+        "local_laz_count": local_catalog["count"],
+        "ready": False,
+        "ready_for_download_test": False,
+        "ready_for_pipeline_handoff": False,
+        "recommended_campaign": None,
+        "manual_steps_remaining": [],
+        "pipeline_handoff": local_catalog["pipeline_handoff"],
+    }
+
+    if support_warnings:
+        report["manual_steps_remaining"].append("Resolve support-data warnings before production ingestion.")
+
+    if manifest:
+        groups = group_by_campaign(manifest.get("tiles", []))
+        rec = recommend_campaign(groups, cfg)
+        best_grp, best_prefix, reason = rec
+        report["remote_manifest"] = {
+            "tile_count": manifest.get("tile_count", len(manifest.get("tiles", []))),
+            "on_disk_count": sum(1 for t in manifest.get("tiles", []) if Path(t.get("local_path", "")).exists()),
+            "campaign_count": len(groups),
+        }
+        report["recommended_campaign"] = {
+            "campaign_group": best_grp,
+            "detailed_prefix": best_prefix,
+            "reason": reason,
+        }
+        report["ready_for_download_test"] = bool(manifest.get("tiles"))
+        if not manifest.get("tiles"):
+            report["manual_steps_remaining"].append("No remote tiles found; inspect bbox or TNM availability.")
+    else:
+        report["manual_steps_remaining"].append("Build or provide a remote manifest with --query-tnm.")
+
+    report["ready_for_pipeline_handoff"] = local_catalog["count"] > 0 and not support_warnings
+    report["ready"] = report["ready_for_pipeline_handoff"]
+    if local_catalog["count"] == 0:
+        report["manual_steps_remaining"].append("Download at least one verified LAZ/LAS tile before pipeline handoff.")
+
+    return report
+
+
+def print_readiness_report(report: dict) -> None:
+    """Print a compact readiness report."""
+    _pr("\n  --- City onboarding readiness ---")
+    _pr(f"  City                     : {report.get('display_name') or report.get('city_slug')}")
+    _pr(f"  Local LAZ/LAS files      : {report['local_laz_count']}")
+    if report.get("remote_manifest"):
+        rm = report["remote_manifest"]
+        _pr(f"  Remote manifest tiles    : {rm['tile_count']}")
+        _pr(f"  Campaigns discovered     : {rm['campaign_count']}")
+    if report.get("recommended_campaign"):
+        rec = report["recommended_campaign"]
+        _pr(f"  Recommended campaign     : {rec['detailed_prefix']}")
+    _pr(f"  Download test ready      : {'YES' if report['ready_for_download_test'] else 'NO'}")
+    _pr(f"  Pipeline handoff ready   : {'YES' if report['ready_for_pipeline_handoff'] else 'NO'}")
+    if report["manual_steps_remaining"]:
+        _pr("\n  Manual steps remaining:")
+        for step in report["manual_steps_remaining"]:
+            _pr(f"    - {step}")
+
+
+def print_failure_report(stage: str, message: str, cfg: dict, details: list[str] | None = None) -> None:
+    """Print a repeatable failure block with concrete next actions."""
+    _pr(f"\n[bold red]Bootstrap failed at {stage}[/bold red]")
+    _pr(f"  City       : {cfg.get('display_name', cfg.get('city_slug', 'unknown'))}")
+    _pr(f"  Reason     : {message}")
+    if details:
+        _pr("  Details:")
+        for detail in details:
+            _pr(f"    - {detail}")
+    _pr("  Recovery:")
+    _pr("    - Re-run with --dry-run or --download-dry-run before any download.")
+    _pr("    - Check bbox_4326, output paths, support data paths, and TNM service availability.")
 
 
 # ── I/O helpers ───────────────────────────────────────────────────────────────
@@ -797,6 +1405,231 @@ def print_campaign_summary(groups: dict[str, dict], recommendation: tuple[str, s
 
     _pr(f"\n  [bold green]Recommended campaign:[/bold green] {best_prefix}")
     _pr(f"  Reason: {reason}")
+
+
+def _print_onboarding_roadmap(
+    cfg: dict,
+    manifest: dict | None = None,
+    support_warnings: list[str] | None = None,
+    recommendation: tuple[str, str, str] | None = None,
+) -> None:
+    """Print the remaining manual steps and automation roadmap."""
+    support_warnings = support_warnings if support_warnings is not None else audit_support_data(cfg)
+    if recommendation is None and manifest:
+        recommendation = recommend_campaign(group_by_campaign(manifest.get("tiles", [])), cfg)
+
+    city_slug = cfg.get("city_slug", "city")
+    display_name = cfg.get("display_name", city_slug)
+    output_root = Path(cfg["output_root"])
+    catalog_dir = Path(cfg.get("catalog_root", str(output_root / "catalogs")))
+    catalog_path = catalog_dir / f"{city_slug}_catalog.json"
+    local_catalog = build_local_catalog(cfg)
+    manifest_path = Path(cfg.get("tile_manifest", str(output_root / "tile_manifest.json")))
+    tile_manifest = _load_manifest(manifest_path)
+
+    _pr(f"\n[bold]Onboarding roadmap — {display_name}[/bold]")
+    steps: list[tuple[str, str, str]] = []
+
+    steps.append((
+        "complete" if recommendation else "manual",
+        "Discover campaigns",
+        "Remote manifest already exists" if manifest else "Run --query-tnm to discover campaigns",
+    ))
+
+    if recommendation:
+        steps.append((
+            "complete",
+            "Recommend best campaign",
+            f"{recommendation[1]} ({recommendation[0]})",
+        ))
+    else:
+        steps.append((
+            "manual",
+            "Recommend best campaign",
+            "No recommendation yet; run --query-tnm first",
+        ))
+
+    pending_tiles = 0
+    if manifest:
+        pending_tiles = sum(1 for tile in manifest.get("tiles", []) if not Path(tile["local_path"]).exists())
+    steps.append((
+        "complete" if manifest and pending_tiles == 0 else "manual",
+        "Download tiles",
+        f"{pending_tiles} tile(s) still missing locally" if manifest else "Need a remote manifest first",
+    ))
+
+    if support_warnings:
+        steps.append((
+            "manual",
+            "Audit support data",
+            f"{len(support_warnings)} issue(s) remain in footprints, boundary, or addresses",
+        ))
+    else:
+        steps.append((
+            "complete",
+            "Audit support data",
+            "Footprints, boundary, and addresses are present",
+        ))
+
+    if tile_manifest and isinstance(tile_manifest.get("tiles"), list):
+        null_bbox = [t for t in tile_manifest["tiles"] if not t.get("bbox_4326")]
+        steps.append((
+            "manual" if null_bbox else "complete",
+            "Verify readiness",
+            "Regenerate Phase 02 so every tile has bbox_4326" if null_bbox else "Tile manifest contains tile bboxes",
+        ))
+    else:
+        steps.append((
+            "manual",
+            "Verify readiness",
+            "Tile manifest is missing; run Phase 02 first",
+        ))
+
+    steps.append((
+        "complete" if local_catalog["count"] > 0 else "manual",
+        "Build catalog",
+        f"{local_catalog['count']} local LAZ/LAS file(s) found" if local_catalog["count"] > 0 else "Download at least one tile first",
+    ))
+
+    ready_for_pipeline = local_catalog["count"] > 0 and not support_warnings
+    steps.append((
+        "complete" if ready_for_pipeline else "manual",
+        "Hand off to pipeline",
+        f"Run scripts/run_city_pipeline.py with {catalog_path}" if ready_for_pipeline else "Resolve blockers before pipeline execution",
+    ))
+
+    for idx, (state, title, detail) in enumerate(steps, 1):
+        label = {
+            "complete": "[green]done[/green]",
+            "manual": "[yellow]manual[/yellow]",
+            "blocked": "[red]blocked[/red]",
+        }.get(state, "[dim]pending[/dim]")
+        _pr(f"  {idx}. {title:<24} {label}  {detail}")
+
+    _pr("\n[bold]Automation roadmap[/bold]")
+    _pr("  1. Generate city configs from a single source of truth for bbox, CRS, and support-data paths.")
+    _pr("  2. Persist TNM discovery state so campaign searches can resume without requerying from scratch.")
+    _pr("  3. Rank campaigns with metadata overlap, year signals, bbox coverage, and existing local coverage.")
+    _pr("  4. Auto-discover footprint, boundary, and address datasets from city/county portals where available.")
+    _pr("  5. Validate tile manifests and LAZ headers before downloading anything beyond a test tile.")
+    _pr("  6. Emit a structured handoff artifact that run_city_pipeline.py can consume directly.")
+
+
+# ── Phase output diagnosis ───────────────────────────────────────────────────
+
+
+def _diagnose_phase_outputs(cfg: dict) -> None:
+    """
+    Read-only deep audit of Phase 06 footprint outputs.
+
+    Reports:
+      - footprint source path from config and whether it exists on disk
+      - per-tile footprint mode (county vs convex_hull fallback)
+      - count of convex fallback, rotated bbox, and county footprint files
+      - sample of affected tile IDs
+      - tile manifest bbox_4326 status (null = triggers Phase 06 fallback)
+    """
+    city_slug = cfg["city_slug"]
+    output_root = Path(cfg["output_root"])
+    tiles_root = Path(cfg.get("tiles_root", str(output_root / "tiles")))
+    tile_manifest_path = Path(cfg.get("tile_manifest", str(output_root / "tile_manifest.json")))
+
+    fp_path_str = _cfg_text(cfg, "county_footprints_path", "building_footprints_path", "footprint_source")
+    boundary_path_str = _cfg_text(cfg, "boundary_geojson", "boundary_cache")
+
+    _pr(f"\n  ── {city_slug} Phase 06 Footprint Diagnosis " + "─" * 30)
+
+    # Source files
+    _pr(f"\n  Footprint source path  : {fp_path_str or '(not configured)'}")
+    if fp_path_str:
+        exists = Path(fp_path_str).exists()
+        _pr(f"  Footprint source exists: {'[green]YES[/green]' if exists else '[red]NO[/red]'}")
+        if exists:
+            try:
+                size_mb = Path(fp_path_str).stat().st_size / 1_048_576
+                _pr(f"  Footprint file size    : {size_mb:.1f} MB")
+            except OSError:
+                pass
+
+    _pr(f"\n  Boundary source path   : {boundary_path_str or '(not configured)'}")
+    if boundary_path_str:
+        _pr(f"  Boundary exists        : {'[green]YES[/green]' if Path(boundary_path_str).exists() else '[red]NO[/red]'}")
+
+    # Tile manifest bbox status
+    _pr(f"\n  Tile manifest          : {tile_manifest_path}")
+    if tile_manifest_path.exists():
+        try:
+            tm = json.loads(tile_manifest_path.read_text(encoding="utf-8"))
+            tiles = tm.get("tiles", [])
+            null_bbox = [t["tile_id"] for t in tiles if not t.get("bbox_4326")]
+            has_bbox = [t["tile_id"] for t in tiles if t.get("bbox_4326")]
+            _pr(f"  Total tiles            : {len(tiles)}")
+            _pr(f"  Tiles with bbox_4326   : {len(has_bbox)}")
+            if null_bbox:
+                _pr(f"  [red]Tiles with null bbox   : {len(null_bbox)}[/red]  "
+                    f"← Phase 06 cannot use county footprints without bbox")
+                for tid in null_bbox[:5]:
+                    _pr(f"    {tid}")
+                if len(null_bbox) > 5:
+                    _pr(f"    … and {len(null_bbox) - 5} more")
+        except (json.JSONDecodeError, OSError) as exc:
+            _pr(f"  [red]Could not read tile manifest: {exc}[/red]")
+    else:
+        _pr("  [yellow]Tile manifest not found[/yellow] (Phase 02 not run yet)")
+
+    # Per-tile phase output scan
+    _pr(f"\n  Tiles root             : {tiles_root}")
+    output_audit = _audit_footprint_outputs(tiles_root)
+
+    if output_audit["total_output_files"] == 0:
+        _pr("  [dim]No Phase 06 outputs found (pipeline not run yet)[/dim]")
+        return
+
+    _pr(f"  Tiles with outputs     : {output_audit['tile_count']}")
+    _pr(f"  County fp features     : [green]{output_audit['county_count']}[/green]"
+        if output_audit["county_count"] else f"  County fp features     : [red]{output_audit['county_count']}[/red]")
+    _pr(f"  Convex hull features   : [red]{output_audit['convex_hull_count']}[/red]"
+        if output_audit["convex_hull_count"] else f"  Convex hull features   : [green]{output_audit['convex_hull_count']}[/green]")
+    if output_audit["unknown_count"]:
+        _pr(f"  Unknown method features: {output_audit['unknown_count']}")
+
+    if output_audit["fallback_tile_ids"]:
+        _pr(f"\n  [red]Tiles using cluster hull fallback ({len(output_audit['fallback_tile_ids'])}):[/red]")
+        for tid in output_audit["fallback_tile_ids"]:
+            _pr(f"    {tid}")
+            convex_path = tiles_root / tid / "footprints" / f"{tid}_footprints_convex_*.geojson"
+            matches = list((tiles_root / tid / "footprints").glob(f"{tid}_footprints_convex_*.geojson"))
+            if matches:
+                _pr(f"      {matches[0]}")
+
+    if output_audit["county_tile_ids"]:
+        _pr(f"\n  [green]Tiles using county footprints ({len(output_audit['county_tile_ids'])}):[/green]")
+        for tid in output_audit["county_tile_ids"]:
+            _pr(f"    {tid}")
+
+    # Verdict
+    _pr("\n  ── Verdict " + "─" * 58)
+    if output_audit["convex_hull_count"] > 0 and output_audit["county_count"] == 0:
+        _pr(
+            "  [bold red]ALL outputs are cluster hull fallback geometry.[/bold red]\n"
+            "  Blender massing will show convex/slab cluster outlines, not building shapes.\n"
+            "  Do NOT re-run ingestion without fixing the root cause first."
+        )
+        if fp_path_str and Path(fp_path_str).exists():
+            _pr(
+                "\n  Root cause: footprint source exists on disk but tile.bbox_4326 = null\n"
+                "  in the tile manifest. Phase 06 requires a tile bbox to clip county\n"
+                "  footprints to the tile's spatial extent. Without it, the county\n"
+                "  footprint path cannot run and the phase falls back to cluster hulls.\n"
+                "\n  Next fixes to check:\n"
+                "    • regenerate the tile manifest after Phase 02\n"
+                "    • confirm bbox_4326 is populated for every tile\n"
+                "    • ensure boundary_geojson is configured when you want city clipping"
+            )
+    elif output_audit["county_count"] > 0 and output_audit["convex_hull_count"] == 0:
+        _pr("  [green]All outputs use authoritative county footprint geometry. OK.[/green]")
+    else:
+        _pr("  [yellow]Mixed geometry: some tiles used county footprints, others used hull fallback.[/yellow]")
 
 
 # ── CLI ───────────────────────────────────────────────────────────────────────
@@ -875,6 +1708,17 @@ Examples:
     parser.add_argument("--manifest", type=Path, default=None,
                         help="Explicit remote manifest path (overrides default location)")
 
+    # Diagnostics
+    parser.add_argument("--diagnose", action="store_true",
+                        help="Run deep phase output audit: report footprint mode per tile, "
+                             "count fallback vs county outputs (read-only)")
+    parser.add_argument("--roadmap", action="store_true",
+                        help="Print remaining manual steps and automation roadmap, then exit")
+    parser.add_argument("--readiness-report", action="store_true",
+                        help="Print a structured city onboarding readiness report")
+    parser.add_argument("--write-readiness-report", action="store_true",
+                        help="Write readiness report JSON to output_root/status")
+
     args = parser.parse_args()
 
     # ── Load config
@@ -890,15 +1734,23 @@ Examples:
         parser.print_help()
         return 1
 
+    cfg = normalize_city_config(cfg)
+
     city_slug = cfg["city_slug"]
     output_root = Path(cfg["output_root"])
     laz_dir = Path(cfg["laz_dir"])
-    catalog_dir = output_root / "catalogs"
+    catalog_dir = Path(cfg.get("catalog_root", str(output_root / "catalogs")))
 
     _pr(f"\n[bold cyan]GlitchOS City LiDAR Bootstrapper — {cfg.get('display_name', city_slug)}[/bold cyan]")
     _pr(f"  City slug   : {city_slug}")
     _pr(f"  LAZ dir     : {laz_dir}")
     _pr(f"  Output root : {output_root}")
+
+    config_warnings = validate_city_config(cfg)
+    if config_warnings:
+        _pr("\n[bold yellow]City config warnings:[/bold yellow]")
+        for w in config_warnings:
+            _pr(f"  [yellow]! {w}[/yellow]")
 
     # ── Scaffold
     _pr("\n[bold]Scaffolding directories…[/bold]")
@@ -907,6 +1759,7 @@ Examples:
     # ── Support data audit (runs always — warns early about missing footprints/boundary)
     _pr("\n[bold]Checking support data…[/bold]")
     print_support_data_audit(cfg)
+    support_warnings = audit_support_data(cfg)
 
     remote_manifest_path = args.manifest or (catalog_dir / f"{city_slug}_remote_manifest.json")
 
@@ -917,7 +1770,7 @@ Examples:
         _pr(f"\n[bold]Querying USGS TNM (max={args.max})…[/bold]")
         manifest = build_remote_manifest(cfg, max_results=args.max)
         if manifest is None:
-            _pr("[red]ERROR: TNM query failed — see messages above. No files written.[/red]")
+            print_failure_report("TNM discovery", "TNM query failed; no files written.", cfg)
             return 1
 
         groups = group_by_campaign(manifest["tiles"])
@@ -934,11 +1787,13 @@ Examples:
         # If no further action requested, print next-step guidance
         if not any([args.campaign, args.filter_pattern, args.download_dry_run,
                     args.download_limit, args.download_all,
-                    args.verify_first, args.build_local_catalog]):
+                    args.verify_first, args.build_local_catalog, args.roadmap,
+                    args.diagnose, args.readiness_report, args.write_readiness_report]):
             _, best_prefix, _ = rec
             _pr(f"\n  Next step — filter to recommended campaign:")
             _pr(f"    python scripts/bootstrap_city_lidar.py {city_slug} \\")
             _pr(f"        --campaign {best_prefix} --download-dry-run")
+            _print_onboarding_roadmap(cfg, manifest=manifest, support_warnings=support_warnings, recommendation=rec)
             return 0
 
     else:
@@ -948,8 +1803,12 @@ Examples:
     # ── Campaign / pattern filter
     if args.campaign or args.filter_pattern:
         if active_manifest is None:
-            _pr(f"  [red]No remote manifest found at {remote_manifest_path}[/red]")
-            _pr("  Run --query-tnm first to build the remote manifest.")
+            print_failure_report(
+                "campaign filtering",
+                f"No remote manifest found at {remote_manifest_path}",
+                cfg,
+                ["Run --query-tnm first to build the remote manifest."],
+            )
             return 1
 
         filtered = filter_manifest(active_manifest, campaign=args.campaign, pattern=args.filter_pattern)
@@ -967,7 +1826,7 @@ Examples:
     # ── Download dry-run
     if args.download_dry_run:
         if active_manifest is None:
-            _pr("[red]No manifest available. Run --query-tnm first.[/red]")
+            print_failure_report("download dry-run", "No manifest available.", cfg, ["Run --query-tnm first."])
             return 1
         _pr("\n[bold]Download dry-run:[/bold]")
         dry_run_download(active_manifest)
@@ -975,14 +1834,19 @@ Examples:
     # ── Actual download
     if args.download_limit or args.download_all:
         if active_manifest is None:
-            _pr("[red]No manifest available. Run --query-tnm first.[/red]")
+            print_failure_report("download", "No manifest available.", cfg, ["Run --query-tnm first."])
             return 1
         _pr("\n[bold]Downloading tiles…[/bold]")
-        download_tiles(
+        download_report = download_tiles(
             active_manifest, laz_dir,
             limit=args.download_limit,
             download_all=args.download_all,
         )
+        if download_report.get("failed", 0):
+            _pr(
+                f"  [yellow]Download finished with {download_report['failed']} failure(s).[/yellow] "
+                "Re-run after checking network, disk space, or file permissions."
+            )
 
     # ── PDAL verify
     if args.verify_first:
@@ -1015,6 +1879,30 @@ Examples:
                 _pr("  [yellow]No files on disk — download tiles first.[/yellow]")
         else:
             _pr("  [dim]Dry run — catalog not written.[/dim]")
+
+    # ── Diagnose phase outputs
+    if args.diagnose:
+        _pr("\n[bold]Phase output diagnosis (read-only)…[/bold]")
+        _diagnose_phase_outputs(cfg)
+
+    if args.roadmap:
+        _print_onboarding_roadmap(cfg, manifest=active_manifest, support_warnings=support_warnings)
+
+    if args.readiness_report or args.write_readiness_report:
+        if active_manifest is None:
+            active_manifest = _load_manifest(remote_manifest_path)
+        report = build_readiness_report(cfg, active_manifest)
+        if args.readiness_report:
+            print_readiness_report(report)
+        if args.write_readiness_report:
+            if args.dry_run:
+                _pr("  [dim]Dry run — readiness report not written.[/dim]")
+            else:
+                status_dir = Path(cfg.get("status_dir", str(output_root / "status")))
+                status_dir.mkdir(parents=True, exist_ok=True)
+                report_path = status_dir / f"{city_slug}_readiness_report.json"
+                report_path.write_text(json.dumps(report, indent=2), encoding="utf-8")
+                _pr(f"  [green]Readiness report written:[/green] {report_path}")
 
     return 0
 

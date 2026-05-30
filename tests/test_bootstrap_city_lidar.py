@@ -165,6 +165,28 @@ class TestBuildTnmUrl(unittest.TestCase):
         self.assertIn("max=250", url)
 
 
+class TestCityConfigHelpers(unittest.TestCase):
+
+    def test_slugify_city_name(self):
+        self.assertEqual(bcl.slugify_city_name("New Orleans"), "new_orleans")
+        self.assertEqual(bcl.slugify_city_name("  St. Louis, MO  "), "st_louis_mo")
+
+    def test_normalize_city_config_derives_paths(self):
+        cfg = bcl.normalize_city_config({
+            "display_name": "Test City",
+            "output_root": "/tmp/test_city_out",
+            "bbox_4326": SAMPLE_BBOX,
+        })
+        self.assertEqual(cfg["city_slug"], "test_city")
+        self.assertTrue(cfg["laz_dir"].endswith("laz"))
+        self.assertTrue(cfg["catalog_root"].endswith("catalogs"))
+
+    def test_validate_city_config_reports_missing_epsg(self):
+        cfg = dict(DETROIT_CFG)
+        warnings = bcl.validate_city_config(cfg)
+        self.assertTrue(any("output_epsg" in w for w in warnings))
+
+
 # ── Campaign grouping ─────────────────────────────────────────────────────────
 
 
@@ -320,6 +342,40 @@ class TestRecommendCampaign(unittest.TestCase):
         # WAYNECO (2009, no bogus date) should beat WayneCounty with 1899 date
         self.assertNotEqual(grp, "MI_WayneCounty",
                             "WayneCounty with 1899 date should not be recommended")
+
+    def test_campaign_keywords_improve_generic_city_match(self):
+        groups = {
+            "CountySurvey": {
+                "campaign_group": "CountySurvey",
+                "detailed_prefixes": {"CountySurvey_2020": 10},
+                "tile_count": 10,
+                "total_bytes": 1_000_000,
+                "total_gb": 0.01,
+                "publication_dates": ["2020-01-01"],
+                "sample_filenames": ["USGS_LPC_Great_CountySurvey_2020_001.laz"],
+                "on_disk_count": 0,
+                "has_laz": True,
+                "bbox_count": 10,
+                "bbox_coverage_pct": 100.0,
+            },
+            "OtherSurvey": {
+                "campaign_group": "OtherSurvey",
+                "detailed_prefixes": {"OtherSurvey_2021": 10},
+                "tile_count": 10,
+                "total_bytes": 1_000_000,
+                "total_gb": 0.01,
+                "publication_dates": ["2021-01-01"],
+                "sample_filenames": ["USGS_LPC_OtherSurvey_2021_001.laz"],
+                "on_disk_count": 0,
+                "has_laz": True,
+                "bbox_count": 10,
+                "bbox_coverage_pct": 100.0,
+            },
+        }
+        cfg = dict(DETROIT_CFG)
+        cfg["campaign_keywords"] = ["CountySurvey"]
+        grp, _, _ = bcl.recommend_campaign(groups, cfg)
+        self.assertEqual(grp, "CountySurvey")
 
 
 # ── Filtered manifest ─────────────────────────────────────────────────────────
@@ -537,6 +593,27 @@ class TestBuildRemoteManifest(unittest.TestCase):
         self.assertIn("tiles", result)
 
 
+class TestReadinessReport(unittest.TestCase):
+
+    def test_readiness_report_requires_manifest_and_local_files(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            cfg = dict(DETROIT_CFG)
+            cfg["output_root"] = tmp
+            cfg["laz_dir"] = str(Path(tmp) / "laz")
+            cfg["county_footprints_path"] = str(Path(tmp) / "footprints.geojson")
+            cfg["boundary_geojson"] = str(Path(tmp) / "boundary.geojson")
+            cfg["address_source"] = {"path": str(Path(tmp) / "addresses.geojson")}
+            for key in ("county_footprints_path", "boundary_geojson"):
+                Path(cfg[key]).write_text("{}", encoding="utf-8")
+            Path(cfg["address_source"]["path"]).write_text("{}", encoding="utf-8")
+
+            report = bcl.build_readiness_report(cfg, manifest=None)
+
+        self.assertFalse(report["ready"])
+        self.assertIn("Build or provide a remote manifest", " ".join(report["manual_steps_remaining"]))
+        self.assertIn("pipeline_handoff", report)
+
+
 # ── Support data audit ───────────────────────────────────────────────────────
 
 
@@ -557,18 +634,19 @@ class TestAuditSupportData(unittest.TestCase):
         self.assertTrue(boundary_warnings,
                         "Expected boundary warning when no boundary configured")
 
-    def test_footprint_on_disk_no_warning(self):
-        """When footprint file exists on disk, no footprint warning."""
+    def test_footprint_on_disk_no_source_warning(self):
+        """When footprint source file exists on disk, no 'source missing' warning."""
         with tempfile.NamedTemporaryFile(suffix=".geojson", delete=False) as tf:
             fp_path = tf.name
         try:
             cfg = dict(DETROIT_CFG)
             cfg["county_footprints_path"] = fp_path
-            cfg["boundary_geojson"] = fp_path  # suppress boundary warning
+            cfg["boundary_geojson"] = fp_path
             warnings = bcl.audit_support_data(cfg)
-            footprint_warnings = [w for w in warnings if "footprint" in w.lower() or "hull" in w.lower()]
-            self.assertFalse(footprint_warnings,
-                             f"Unexpected footprint warning with file present: {footprint_warnings}")
+            # No warning about missing source footprint file
+            source_missing = [w for w in warnings if "not found on disk" in w and "footprint" in w.lower()]
+            self.assertFalse(source_missing,
+                             f"Unexpected source-missing warning: {source_missing}")
         finally:
             Path(fp_path).unlink(missing_ok=True)
 
@@ -581,20 +659,81 @@ class TestAuditSupportData(unittest.TestCase):
         self.assertTrue(footprint_warnings,
                         "Expected warning when footprint path configured but missing on disk")
 
-    def test_all_support_data_present_returns_empty(self):
-        """When all support files exist, audit returns no warnings."""
+    def test_convex_hull_outputs_warn_fallback(self):
+        """When Phase 06 outputs exist with convex_hull method, audit must warn about fallback."""
+        with tempfile.TemporaryDirectory() as tmp:
+            # Create a fake tile footprint output with convex_hull method
+            tile_id = "USGS_LPC_ARRA_LA_TEST_2011_000001"
+            fp_dir = Path(tmp) / tile_id / "footprints"
+            fp_dir.mkdir(parents=True)
+            geojson = {
+                "type": "FeatureCollection",
+                "features": [
+                    {"type": "Feature",
+                     "properties": {"footprint_method": "convex_hull", "cluster_id": 0},
+                     "geometry": {"type": "Polygon", "coordinates": [[[0,0],[1,0],[1,1],[0,0]]]}}
+                ]
+            }
+            (fp_dir / f"{tile_id}_footprints_convex_32615.geojson").write_text(
+                json.dumps(geojson), encoding="utf-8"
+            )
+
+            cfg = dict(DETROIT_CFG)
+            cfg["tiles_root"] = tmp
+            warnings = bcl.audit_support_data(cfg)
+
+        fallback_warnings = [w for w in warnings if "fallback" in w.lower() or "convex" in w.lower() or "hull" in w.lower()]
+        self.assertTrue(fallback_warnings,
+                        f"Expected fallback warning when outputs have convex_hull method; got: {warnings}")
+
+    def test_county_outputs_no_fallback_warning(self):
+        """When Phase 06 outputs use county method, no fallback warning."""
+        with tempfile.TemporaryDirectory() as tmp:
+            tile_id = "USGS_LPC_TEST_COUNTY_2020_000001"
+            fp_dir = Path(tmp) / tile_id / "footprints"
+            fp_dir.mkdir(parents=True)
+            geojson = {
+                "type": "FeatureCollection",
+                "features": [
+                    {"type": "Feature",
+                     "properties": {"footprint_method": "county", "cluster_id": 0},
+                     "geometry": {"type": "Polygon", "coordinates": [[[0,0],[1,0],[1,1],[0,0]]]}}
+                ]
+            }
+            (fp_dir / f"{tile_id}_footprints_convex_32617.geojson").write_text(
+                json.dumps(geojson), encoding="utf-8"
+            )
+
+            cfg = dict(DETROIT_CFG)
+            cfg["tiles_root"] = tmp
+            warnings = bcl.audit_support_data(cfg)
+
+        # "Bbox fallback" in the boundary warning is unrelated to footprint hull fallback
+        hull_fallback_warnings = [
+            w for w in warnings
+            if "convex_hull" in w.lower() or ("fallback" in w.lower() and "footprint" in w.lower())
+        ]
+        self.assertFalse(hull_fallback_warnings,
+                         f"Unexpected hull-fallback warning when county outputs present: {hull_fallback_warnings}")
+
+    def test_all_support_data_present_no_outputs_no_warnings(self):
+        """When all support files exist and no tile outputs, audit returns no warnings
+        other than potentially address."""
         with tempfile.NamedTemporaryFile(suffix=".geojson", delete=False) as tf:
             shared_path = tf.name
-        try:
-            cfg = dict(DETROIT_CFG)
-            cfg["county_footprints_path"] = shared_path
-            cfg["boundary_geojson"] = shared_path
-            cfg["address_source"] = {"path": shared_path}
-            warnings = bcl.audit_support_data(cfg)
-            self.assertEqual(warnings, [],
-                             f"Expected no warnings when all files present, got: {warnings}")
-        finally:
-            Path(shared_path).unlink(missing_ok=True)
+        with tempfile.TemporaryDirectory() as empty_tiles:
+            try:
+                cfg = dict(DETROIT_CFG)
+                cfg["county_footprints_path"] = shared_path
+                cfg["boundary_geojson"] = shared_path
+                cfg["address_source"] = {"path": shared_path}
+                cfg["tiles_root"] = empty_tiles
+                cfg["output_epsg"] = 32617
+                warnings = bcl.audit_support_data(cfg)
+                self.assertEqual(warnings, [],
+                                 f"Expected no warnings when all files present, got: {warnings}")
+            finally:
+                Path(shared_path).unlink(missing_ok=True)
 
 
 if __name__ == "__main__":

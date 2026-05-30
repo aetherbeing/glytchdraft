@@ -1,0 +1,28 @@
+{
+  "schema_version": "1.0",
+  "city_slug": "boston",
+  "display_name": "Boston",
+  "region": "Massachusetts, USA",
+  "laz_dir": "/mnt/t7/boston/data_raw/laz",
+  "tiles_root": "/mnt/t7/boston/data_processed/boston/tiles",
+  "output_root": "/mnt/t7/boston/data_processed/boston",
+  "tile_manifest": "/mnt/t7/boston/data_processed/boston/tile_manifest.json",
+  "city_manifest": "/mnt/t7/boston/data_processed/boston/metadata/boston_manifest.json",
+  "output_epsg": 32619,
+  "bbox_4326": {
+    "xmin": -71.191,
+    "ymin": 42.227,
+    "xmax": -70.985,
+    "ymax": 42.414
+  },
+  "laz_source": {
+    "provider": "USGS 3DEP TNM",
+    "dataset": "Lidar Point Cloud (LPC)",
+    "formats": "LAS,LAZ",
+    "note": "Boston / Suffolk County covered by MA statewide 3DEP collections"
+  },
+  "keep_raw_laz": true,
+  "status_dir": "/mnt/t7/boston/data_processed/boston/status",
+  "logs_dir": "/mnt/t7/boston/data_processed/boston/logs",
+  "pipeline_version": "1.0"
+}

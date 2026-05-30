@@ -1,0 +1,28 @@
+{
+  "schema_version": "1.0",
+  "city_slug": "portland",
+  "display_name": "Portland",
+  "region": "Oregon, USA",
+  "laz_dir": "/mnt/t7/portland/data_raw/laz",
+  "tiles_root": "/mnt/t7/portland/data_processed/portland/tiles",
+  "output_root": "/mnt/t7/portland/data_processed/portland",
+  "tile_manifest": "/mnt/t7/portland/data_processed/portland/tile_manifest.json",
+  "city_manifest": "/mnt/t7/portland/data_processed/portland/metadata/portland_manifest.json",
+  "output_epsg": 32610,
+  "bbox_4326": {
+    "xmin": -122.836,
+    "ymin": 45.432,
+    "xmax": -122.472,
+    "ymax": 45.654
+  },
+  "laz_source": {
+    "provider": "USGS 3DEP TNM",
+    "dataset": "Lidar Point Cloud (LPC)",
+    "formats": "LAS,LAZ",
+    "note": "Portland / Multnomah County covered by OR statewide 3DEP collections"
+  },
+  "keep_raw_laz": true,
+  "status_dir": "/mnt/t7/portland/data_processed/portland/status",
+  "logs_dir": "/mnt/t7/portland/data_processed/portland/logs",
+  "pipeline_version": "1.0"
+}
