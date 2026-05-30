@@ -28,7 +28,16 @@
     }
   },
   "county_footprints_path": "/mnt/e/miami/data_raw/geojson/miami_footprints_4326.geojson",
-  "footprint_source": null,
+  "footprint_source": {
+    "path": "/mnt/e/miami/data_raw/geojson/miami_footprints_4326.geojson",
+    "type": "open_county",
+    "provider": "Miami-Dade County GIS",
+    "source_name": "Miami Building Footprints",
+    "license": "unconfirmed",
+    "production_allowed": false,
+    "needs_review": true,
+    "note": "Likely Miami-Dade County open data. Confirm license before setting production_allowed=true. SOURCE field values: P=photogrammetry, L=LiDAR, null=unknown."
+  },
   "dbscan_eps": 3.0,
   "dbscan_min_samples": 10,
   "hag_min_m": 2.5,

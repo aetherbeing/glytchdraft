@@ -51,11 +51,14 @@
   "county_footprints_path": "/mnt/e/new_orleans/data_raw/geojson/building_footprints.geojson",
   "footprint_source": {
     "path": "/mnt/e/new_orleans/data_raw/geojson/building_footprints.geojson",
+    "type": "open_city",
     "source_name": "data.nola.gov Building Footprint",
     "provider": "data.nola.gov",
     "dataset_id": "prh5-qsuf",
     "url": "https://data.nola.gov/resource/prh5-qsuf.geojson",
     "api_view": "https://data.nola.gov/api/views/prh5-qsuf",
+    "license": "nola_open_data_public_domain",
+    "production_allowed": true,
     "input_crs": "EPSG:4326",
     "field_map": {
       "object_id": "objectid",

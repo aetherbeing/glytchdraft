@@ -45,8 +45,12 @@
   "county_footprints_path": "/mnt/t7/detroit/data_raw/geojson/detroit_building_footprints.geojson",
   "footprint_source": {
     "path": "/mnt/t7/detroit/data_raw/geojson/detroit_building_footprints.geojson",
+    "type": "microsoft_ml",
     "source_name": "Microsoft ML Building Footprints / City of Detroit",
-    "note": "https://github.com/microsoft/USBuildingFootprints or https://data.detroitmi.gov/datasets/detroit-building-outlines"
+    "provider": "Microsoft / data.detroitmi.gov",
+    "license": "microsoft_open_use_non_commercial",
+    "production_allowed": false,
+    "note": "Microsoft ML footprints are BLOCKED from production exports. Replace with open city footprints from data.detroitmi.gov (detroit-building-outlines) before enabling production. Ref: https://github.com/microsoft/USBuildingFootprints"
   },
   "dbscan_eps": 3.0,
   "dbscan_min_samples": 10,

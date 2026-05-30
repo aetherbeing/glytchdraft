@@ -61,6 +61,129 @@ CITY_ALIASES = {
 }
 
 
+# ── Footprint provenance taxonomy ─────────────────────────────────────────────
+
+FOOTPRINT_PROVENANCE_LABELS: frozenset[str] = frozenset({
+    "open_county_footprint",
+    "open_city_footprint",
+    "open_state_footprint",
+    "osm_footprint",
+    "lidar_alpha_shape_fallback",
+    "lidar_convex_hull_fallback",
+    "lidar_rotated_bbox_fallback",
+    "unknown_unsafe_source",
+})
+
+# Source types blocked from any production export path.
+BLOCKED_PRODUCTION_FOOTPRINT_TYPES: frozenset[str] = frozenset({"microsoft_ml", "unknown"})
+
+_PROVENANCE_BY_SOURCE_TYPE: dict[str, str] = {
+    "open_county": "open_county_footprint",
+    "open_city": "open_city_footprint",
+    "open_state": "open_state_footprint",
+    "osm": "osm_footprint",
+    "microsoft_ml": "unknown_unsafe_source",
+    "unknown": "unknown_unsafe_source",
+}
+
+
+def footprint_provenance_from_source_type(source_type: str | None) -> str:
+    """Return the canonical provenance label for a footprint source type string."""
+    if not source_type:
+        return "unknown_unsafe_source"
+    return _PROVENANCE_BY_SOURCE_TYPE.get(str(source_type).lower(), "unknown_unsafe_source")
+
+
+def validate_footprint_production(city: "CityRuntime") -> tuple[list[str], list[str]]:
+    """
+    Check production-readiness requirements for the footprint source.
+
+    Separate from validate_city_config so existing geometry-phase callers are unaffected.
+    Returns (errors, warnings); errors block production_ready status.
+    """
+    errors: list[str] = []
+    warnings: list[str] = []
+    fp_config = getattr(city.raw_config, "FOOTPRINT_SOURCE", None)
+    if not fp_config:
+        errors.append("footprint_source is not configured; production export is blocked")
+        return errors, warnings
+    fp_type = fp_config.get("type") if isinstance(fp_config, dict) else None
+    fp_license = fp_config.get("license") if isinstance(fp_config, dict) else None
+    fp_production_allowed = fp_config.get("production_allowed") if isinstance(fp_config, dict) else None
+    if fp_type in BLOCKED_PRODUCTION_FOOTPRINT_TYPES:
+        errors.append(
+            f"footprint_source.type={fp_type!r} is blocked from production exports"
+        )
+    elif not fp_type:
+        errors.append(
+            "footprint_source.type is missing; source is unknown and blocked from production"
+        )
+    if not fp_license or fp_license == "unconfirmed":
+        errors.append(
+            f"footprint_source.license={fp_license!r}; license must be confirmed for production"
+        )
+    if fp_production_allowed is not True:
+        errors.append(
+            f"footprint_source.production_allowed={fp_production_allowed!r}; must be true for production"
+        )
+    return errors, warnings
+
+
+CITY_STATUS_VALUES: tuple[str, ...] = (
+    "not_started",
+    "raw_data_ready",
+    "processed_partial",
+    "processed_complete",
+    "viewer_ready",
+    "production_ready",
+    "blocked_license",
+    "blocked_missing_outputs",
+    "blocked_unsafe_source",
+)
+
+
+def city_certification_status(
+    *,
+    raw_laz_count: int,
+    tile_manifest_ok: bool,
+    tile_dirs: int,
+    processed_tile_dirs: int,
+    has_glb: bool,
+    has_manifest: bool,
+    production_errors: list[str],
+    footprint_provenance: dict[str, int],
+    missing_output_tiles: int,
+) -> str:
+    """Assign a city certification status from audit results."""
+    if raw_laz_count == 0 and tile_dirs == 0 and not tile_manifest_ok:
+        return "not_started"
+    if raw_laz_count > 0 and not tile_manifest_ok and tile_dirs == 0:
+        return "raw_data_ready"
+    unsafe_count = footprint_provenance.get("unknown_unsafe_source", 0)
+    is_blocked_source = any(
+        "microsoft_ml" in e or "blocked from production" in e
+        for e in production_errors
+    )
+    has_license_issue = any("license" in e for e in production_errors)
+    if is_blocked_source or unsafe_count > 0:
+        return "blocked_unsafe_source"
+    if has_license_issue:
+        return "blocked_license"
+    if missing_output_tiles > 0:
+        return "blocked_missing_outputs"
+    if tile_dirs == 0:
+        return "raw_data_ready"
+    if processed_tile_dirs < tile_dirs:
+        return "processed_partial"
+    if not has_glb:
+        return "processed_complete"
+    if not production_errors and has_manifest:
+        return "production_ready"
+    if has_glb and has_manifest:
+        return "viewer_ready"
+    return "processed_complete"
+
+
 @dataclass(frozen=True)
 class CityRuntime:
     requested_city: str
@@ -179,6 +302,7 @@ def load_city(city: str) -> CityRuntime:
             DEFAULT_FALLBACK_HEIGHT=data.get("default_fallback_height", 6.0),
             COUNTY_FP_PATH=resolve_cross_platform_path(Path(data["county_footprints_path"])) if data.get("county_footprints_path") else None,
             BOUNDARY_GEOJSON=resolve_cross_platform_path(Path(data["boundary_geojson"])) if data.get("boundary_geojson") else None,
+            FOOTPRINT_SOURCE=data.get("footprint_source") or None,
         )
         return CityRuntime(
             requested_city=city,

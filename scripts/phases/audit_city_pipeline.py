@@ -9,10 +9,13 @@ from pathlib import Path
 from typing import Any
 
 from phase_common import (
+    BLOCKED_PRODUCTION_FOOTPRINT_TYPES,
+    city_certification_status,
     load_city,
     path_exists_cross_platform,
     resolve_cross_platform_path,
     validate_city_config,
+    validate_footprint_production,
 )
 
 
@@ -278,6 +281,99 @@ def structures_address_stats(path: Path) -> dict[str, Any]:
     return stats
 
 
+_METHOD_TO_PROVENANCE: dict[str, str] = {
+    "county": "open_county_footprint",
+    "convex_hull": "lidar_convex_hull_fallback",
+    "rotated_bbox": "lidar_rotated_bbox_fallback",
+}
+
+
+def count_footprint_provenance(tiles_root: Path, out_epsg: int | None) -> dict[str, int]:
+    """
+    Aggregate footprint_provenance labels across all tile convex footprint GeoJSONs.
+
+    Skips rotated_bbox files (same building count, different shape). For features
+    without footprint_provenance, falls back to mapping from footprint_method so
+    that outputs from before the provenance field was added are still counted.
+    """
+    counts: dict[str, int] = {}
+    root = resolve_cross_platform_path(tiles_root)
+    if not root.exists():
+        return counts
+    for tile_dir in sorted(root.iterdir()):
+        if not tile_dir.is_dir():
+            continue
+        fp_dir = tile_dir / "footprints"
+        if not fp_dir.exists():
+            continue
+        for fp_path in sorted(fp_dir.glob("*.geojson")):
+            if "rotated_bbox" in fp_path.name:
+                continue
+            data, error = read_json(fp_path)
+            if error or not isinstance(data, dict):
+                continue
+            for feat in data.get("features") or []:
+                props = feat.get("properties") or {}
+                provenance = props.get("footprint_provenance")
+                if not provenance:
+                    method = props.get("footprint_method")
+                    provenance = _METHOD_TO_PROVENANCE.get(str(method), "unknown_unsafe_source") if method else None
+                if provenance:
+                    counts[provenance] = counts.get(provenance, 0) + 1
+    return counts
+
+
+def validate_manifest_files(
+    city_manifest: dict[str, Any] | None,
+    base_path: Path | None = None,
+) -> tuple[list[str], list[str]]:
+    """
+    Verify that absolute paths declared in the city manifest actually exist and are nonzero.
+
+    Checks city-level asset paths declared under 'assets' or 'output_files'.
+    Only absolute paths are validated; relative paths and non-path strings are skipped.
+    """
+    errors: list[str] = []
+    warnings: list[str] = []
+    if not city_manifest:
+        return errors, warnings
+    candidates: list[str] = []
+    assets = city_manifest.get("assets")
+    if isinstance(assets, dict):
+        candidates.extend(str(v) for v in assets.values() if isinstance(v, str))
+    elif isinstance(assets, list):
+        candidates.extend(str(v) for v in assets if isinstance(v, str))
+    output_files = city_manifest.get("output_files")
+    if isinstance(output_files, list):
+        candidates.extend(str(v) for v in output_files if isinstance(v, str))
+    # Only validate strings that look like absolute filesystem paths.
+    declared = [s for s in candidates if s.startswith("/") or (len(s) > 2 and s[1] == ":")]
+    missing, empty = [], []
+    for path_str in declared:
+        p = resolve_cross_platform_path(Path(path_str))
+        if not p.exists():
+            missing.append(path_str)
+        elif p.is_file() and p.stat().st_size == 0:
+            empty.append(path_str)
+    if missing:
+        errors.append(f"{len(missing)} declared output path(s) do not exist on disk: {missing[:3]}")
+    if empty:
+        warnings.append(f"{len(empty)} declared output(s) are empty (zero bytes): {empty[:3]}")
+    return errors, warnings
+
+
+def legal_risk_level(production_errors: list[str], footprint_provenance: dict[str, int]) -> str:
+    """Return LOW, MEDIUM, or HIGH based on footprint source and license status."""
+    unsafe = footprint_provenance.get("unknown_unsafe_source", 0)
+    ms_blocked = any("microsoft_ml" in e for e in production_errors)
+    license_issue = any("license" in e for e in production_errors)
+    if ms_blocked or unsafe > 0:
+        return "HIGH"
+    if license_issue:
+        return "MEDIUM"
+    return "LOW"
+
+
 def city_manifest_stats(path: Path) -> tuple[dict[str, Any] | None, str | None]:
     resolved = resolve_cross_platform_path(path)
     if not resolved.exists():
@@ -438,6 +534,57 @@ def assess(args: argparse.Namespace) -> tuple[int, list[str], dict[str, Any]]:
         if not addr_stats["has_provenance"]:
             add("WARN", "address provenance fields", "no address_source/source/provenance field found on structures")
 
+    # ── Footprint provenance breakdown ────────────────────────────────────────
+    fp_provenance = count_footprint_provenance(city.tiles_root, city.out_epsg)
+    fallback_count = (
+        fp_provenance.get("lidar_convex_hull_fallback", 0)
+        + fp_provenance.get("lidar_alpha_shape_fallback", 0)
+    )
+    open_fp_count = sum(
+        fp_provenance.get(k, 0)
+        for k in ("open_county_footprint", "open_city_footprint", "open_state_footprint")
+    )
+    osm_fp_count = fp_provenance.get("osm_footprint", 0)
+    unknown_fp_count = fp_provenance.get("unknown_unsafe_source", 0)
+    rotated_bbox_count = fp_provenance.get("lidar_rotated_bbox_fallback", 0)
+
+    # ── Manifest truthfulness ─────────────────────────────────────────────────
+    manifest_file_errors, manifest_file_warnings = validate_manifest_files(city_manifest)
+    for err in manifest_file_errors:
+        add("FAIL", "manifest declared outputs", err)
+    for wrn in manifest_file_warnings:
+        add("WARN", "manifest declared outputs", wrn)
+
+    # ── Production safety gate (separate from PASS/WARN/FAIL system) ─────────
+    prod_errors, prod_warnings = validate_footprint_production(city)
+
+    # ── City blender/viewer readiness ─────────────────────────────────────────
+    city_blender = resolve_cross_platform_path(city.output_root / "blender_ready")
+    has_city_glb = bool(
+        city_blender.exists() and any(city_blender.glob("*.glb"))
+    ) or any(
+        (td / "blender_ready").exists() and any((td / "blender_ready").glob("*.glb"))
+        for td in tile_dirs
+    )
+    blender_ready = has_city_glb
+    viewer_manifest_ok = city_manifest is not None and not city_manifest_error
+
+    # ── Certification status ───────────────────────────────────────────────────
+    cert_status = city_certification_status(
+        raw_laz_count=raw_laz_count,
+        tile_manifest_ok=(tile_manifest_error is None),
+        tile_dirs=len(tile_dirs),
+        processed_tile_dirs=processed,
+        has_glb=has_city_glb,
+        has_manifest=viewer_manifest_ok,
+        production_errors=prod_errors,
+        footprint_provenance=fp_provenance,
+        missing_output_tiles=len(missing_outputs),
+    )
+
+    risk = legal_risk_level(prod_errors, fp_provenance)
+    production_ready = len(prod_errors) == 0
+
     summary = {
         "city": city.requested_city,
         "display_name": city.display_name,
@@ -452,6 +599,21 @@ def assess(args: argparse.Namespace) -> tuple[int, list[str], dict[str, Any]]:
         "missing_output_tiles": len(missing_outputs),
         "suspicious_zero_building_tiles": len(zero_consistency["suspicious"]),
         "expected_zero_building_tiles": len(zero_consistency["expected_zero"]),
+        # provenance breakdown
+        "footprint_provenance": fp_provenance,
+        "lidar_convex_hull_fallback_count": fallback_count,
+        "lidar_rotated_bbox_fallback_count": rotated_bbox_count,
+        "open_footprint_count": open_fp_count,
+        "osm_footprint_count": osm_fp_count,
+        "unknown_source_count": unknown_fp_count,
+        # production gate
+        "production_errors": prod_errors,
+        "production_ready": production_ready,
+        "legal_risk": risk,
+        # certification
+        "certification_status": cert_status,
+        "blender_ready": blender_ready,
+        "viewer_ready": viewer_manifest_ok and has_city_glb,
     }
     return STATUS_ORDER[worst], lines, summary
 
@@ -459,17 +621,44 @@ def assess(args: argparse.Namespace) -> tuple[int, list[str], dict[str, Any]]:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Audit GlitchOS city LAZ pipeline outputs")
     parser.add_argument("--city", required=True, help="City name accepted by phase_common.load_city")
-    parser.add_argument("--json", action="store_true", help="Print machine-readable summary")
+    parser.add_argument("--json", action="store_true", help="Print machine-readable summary to stdout")
+    parser.add_argument("--save-audit", action="store_true", help="Write audit JSON to city audit_dir")
     args = parser.parse_args(argv)
 
     code, lines, summary = assess(args)
+    payload = {"summary": summary, "checks": lines}
+
     if args.json:
-        print(json.dumps({"summary": summary, "checks": lines}, indent=2))
+        print(json.dumps(payload, indent=2))
     else:
         print(f"GlitchOS city pipeline audit: {summary['display_name']}")
         print(f"Overall: {summary['status']}")
         for line in lines:
             print(f"  {line}")
+        print()
+        print(f"  Certification:   {summary['certification_status']}")
+        print(f"  Legal risk:      {summary['legal_risk']}")
+        print(f"  Blender ready:   {summary['blender_ready']}")
+        print(f"  Viewer ready:    {summary['viewer_ready']}")
+        print(f"  Production ready:{summary['production_ready']}")
+        if summary["production_errors"]:
+            print("  Production gate blockers:")
+            for e in summary["production_errors"]:
+                print(f"    - {e}")
+        fp = summary.get("footprint_provenance", {})
+        if fp:
+            print("  Footprint provenance:")
+            for label, count in sorted(fp.items()):
+                print(f"    {label}: {count}")
+
+    if args.save_audit:
+        city = load_city(args.city)
+        audit_path = resolve_cross_platform_path(city.audit_dir) / "city_pipeline_audit.json"
+        audit_path.parent.mkdir(parents=True, exist_ok=True)
+        audit_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+        if not args.json:
+            print(f"\n  Audit saved: {audit_path}")
+
     return 1 if summary["status"] == "FAIL" else 0
 
 

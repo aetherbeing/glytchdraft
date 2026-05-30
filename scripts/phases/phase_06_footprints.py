@@ -13,7 +13,7 @@ from pyproj import Transformer
 from shapely.geometry import MultiPoint, MultiPolygon, Polygon, box, mapping, shape
 from shapely.ops import transform as shp_transform, unary_union
 
-from phase_common import add_phase_args, load_city, print_header, resolve_mode
+from phase_common import add_phase_args, footprint_provenance_from_source_type, load_city, print_header, resolve_mode
 from phase_tile_common import (
     ensure_tile_dirs, existing, load_tiles, output_summary, require_execute,
     read_geojson_features, should_skip_phase, validate_or_fail, write_geojson,
@@ -27,7 +27,7 @@ AREA_MIN_M2_DEFAULT = 9.0
 AREA_MAX_M2_DEFAULT = 200_000.0
 
 # Miami-specific paths kept here (not used for other cities).
-_MIAMI_BOUNDARY_PATH = Path("/mnt/t7/miami/data_raw/geojson/miami_city_boundary.geojson")
+_MIAMI_BOUNDARY_PATH = Path("/mnt/e/miami/data_raw/geojson/miami_city_boundary.geojson")
 _MIAMI_BOUNDARY_URL = "https://opendata.miamigov.com/datasets/city-of-miami-city-limits.geojson"
 
 
@@ -139,11 +139,17 @@ def make_from_clusters(tile, city) -> tuple[list[dict], list[dict]]:
             "point_count": int((labels == cid).sum()),
             "footprint_area_m2": round(poly.area, 2),
             "footprint_method": "convex_hull",
+            "footprint_provenance": "lidar_convex_hull_fallback",
         }
         convex.append({"type": "Feature", "properties": props, "geometry": mapping(poly)})
         bbox.append({
             "type": "Feature",
-            "properties": {**props, "footprint_area_m2": round(obb.area, 2), "footprint_method": "rotated_bbox"},
+            "properties": {
+                **props,
+                "footprint_area_m2": round(obb.area, 2),
+                "footprint_method": "rotated_bbox",
+                "footprint_provenance": "lidar_rotated_bbox_fallback",
+            },
             "geometry": mapping(obb),
         })
     return convex, bbox
@@ -213,6 +219,9 @@ def make_from_county(
     area_min: float = AREA_MIN_M2_DEFAULT,
     area_max: float = AREA_MAX_M2_DEFAULT,
 ) -> tuple[list[dict], list[dict]]:
+    fp_cfg = getattr(getattr(city, "raw_config", None), "FOOTPRINT_SOURCE", None) if city else None
+    fp_type = (fp_cfg or {}).get("type") if isinstance(fp_cfg, dict) else None
+    provenance = footprint_provenance_from_source_type(fp_type or "open_county")
     clip_box = box(
         float(tile_bbox_4326["xmin"]),
         float(tile_bbox_4326["ymin"]),
@@ -269,6 +278,7 @@ def make_from_county(
             "footprint_area_m2": round(area, 2),
             "bbox_area_m2": round(bbox_area, 2),
             "footprint_method": "county",
+            "footprint_provenance": provenance,
             "quality": "ok",
             "county_object_id": props_raw.get("OBJECTID"),
             "unique_id": props_raw.get("UNIQUEID"),
