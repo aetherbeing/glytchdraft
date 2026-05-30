@@ -1,3 +1,18 @@
+# GlitchOS Vision — Phase 2+ Reference Only
+
+> **Scope note:** This document describes Phase 2+ product vision.
+> It does NOT govern what `glytchdraft` builds.
+>
+> Phase 1 (`glytchdraft`) is the agnostic city pipeline:
+> lawful spatial data, open footprints, audit trails, GLB exports.
+> No economy, no claims, no social features.
+>
+> Interior floors, Trace cost, building tiers, and place-indexed media
+> belong to Phase 2+ in `glytchOS`. Do not implement any of the below
+> in the Phase 1 pipeline.
+
+---
+
 # GlitchOS Vision
 
 ## INTERIOR FLOOR STACK
