@@ -3,11 +3,11 @@
   "city_slug": "new_orleans",
   "display_name": "New Orleans",
   "region": "Louisiana, USA",
-  "laz_dir": "/mnt/t7/new_orleans/data_raw/laz",
-  "tiles_root": "/mnt/t7/new_orleans/data_processed/new_orleans/tiles",
-  "output_root": "/mnt/t7/new_orleans/data_processed/new_orleans",
-  "tile_manifest": "/mnt/t7/new_orleans/data_processed/new_orleans/tile_manifest.json",
-  "city_manifest": "/mnt/t7/new_orleans/data_processed/new_orleans/metadata/new_orleans_manifest.json",
+  "laz_dir": "/mnt/e/new_orleans/data_raw/laz",
+  "tiles_root": "/mnt/e/new_orleans/data_processed/new_orleans/tiles",
+  "output_root": "/mnt/e/new_orleans/data_processed/new_orleans",
+  "tile_manifest": "/mnt/e/new_orleans/data_processed/new_orleans/tile_manifest.json",
+  "city_manifest": "/mnt/e/new_orleans/data_processed/new_orleans/metadata/new_orleans_manifest.json",
   "output_epsg": 32615,
   "bbox_4326": {
     "xmin": -90.139958162755,
@@ -15,7 +15,7 @@
     "xmax": -89.625340395042,
     "ymax": 30.198665763409
   },
-  "boundary_geojson": "/mnt/t7/new_orleans/data_raw/geojson/orleans_parish_boundary.geojson",
+  "boundary_geojson": "/mnt/e/new_orleans/data_raw/geojson/orleans_parish_boundary.geojson",
   "boundary_source": {
     "provider": "data.nola.gov",
     "dataset_id": "tu2j-8k42",
@@ -33,7 +33,7 @@
     "sample_title": "USGS Lidar Point Cloud ARRA_LA_COASTAL_Z16_2011 000001"
   },
   "address_source": {
-    "path": "/mnt/t7/new_orleans/data_raw/geojson/site_address_points.geojson",
+    "path": "/mnt/e/new_orleans/data_raw/geojson/site_address_points.geojson",
     "source_name": "data.nola.gov Site Address Point",
     "provider": "data.nola.gov",
     "dataset_id": "hfvu-md72",
@@ -48,9 +48,9 @@
       "postcode": null
     }
   },
-  "county_footprints_path": "/mnt/t7/new_orleans/data_raw/geojson/building_footprints.geojson",
+  "county_footprints_path": "/mnt/e/new_orleans/data_raw/geojson/building_footprints.geojson",
   "footprint_source": {
-    "path": "/mnt/t7/new_orleans/data_raw/geojson/building_footprints.geojson",
+    "path": "/mnt/e/new_orleans/data_raw/geojson/building_footprints.geojson",
     "source_name": "data.nola.gov Building Footprint",
     "provider": "data.nola.gov",
     "dataset_id": "prh5-qsuf",
@@ -74,8 +74,8 @@
   "vegetation_classes": [3, 4, 5],
   "address_join_radius_m": 100.0,
   "keep_raw_laz": true,
-  "status_dir": "/mnt/t7/new_orleans/data_processed/new_orleans/status",
-  "logs_dir": "/mnt/t7/new_orleans/data_processed/new_orleans/logs",
-  "audit_dir": "/mnt/t7/new_orleans/data_processed/new_orleans/audit",
+  "status_dir": "/mnt/e/new_orleans/data_processed/new_orleans/status",
+  "logs_dir": "/mnt/e/new_orleans/data_processed/new_orleans/logs",
+  "audit_dir": "/mnt/e/new_orleans/data_processed/new_orleans/audit",
   "pipeline_version": "1.0"
 }

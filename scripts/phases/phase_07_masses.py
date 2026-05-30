@@ -3,7 +3,9 @@ from __future__ import annotations
 
 import argparse
 import csv
+import json
 import sys
+from pathlib import Path
 
 import numpy as np
 from scipy.spatial import cKDTree
@@ -20,6 +22,48 @@ from phase_tile_common import (
 
 PHASE_ID = "07"
 TITLE = "building masses LOD0/LOD1"
+
+
+def _manifest_path_value(value, tile_dir: Path) -> Path | None:
+    if not value:
+        return None
+    path = Path(str(value))
+    if not path.is_absolute():
+        path = tile_dir / path
+    return path if path.exists() else None
+
+
+def footprint_inputs_from_manifest(tile) -> tuple[Path | None, Path | None]:
+    manifest_path = tile.tile_dir / "manifest" / f"{tile.tile_id}_footprints.json"
+    if not manifest_path.exists():
+        return None, None
+    try:
+        data = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except Exception:
+        return None, None
+    fp = data.get("footprints") if isinstance(data.get("footprints"), dict) else {}
+    canonical = (
+        fp.get("canonical_path")
+        or fp.get("lod0_path")
+        or data.get("canonical_footprint_path")
+        or data.get("footprint_path")
+    )
+    lod1 = fp.get("lod1_path") or data.get("lod1_footprint_path") or canonical
+    fp0 = _manifest_path_value(canonical, tile.tile_dir)
+    fp1 = _manifest_path_value(lod1, tile.tile_dir) or fp0
+    return fp0, fp1
+
+
+def discover_footprint_inputs(tile, epsg: int) -> tuple[Path | None, Path | None]:
+    fp0, fp1 = footprint_inputs_from_manifest(tile)
+    if fp0:
+        return fp0, fp1 or fp0
+    fp0 = choose_existing([tile.tile_dir / "footprints" / f"{tile.tile_id}_footprints_convex_{epsg}.geojson"])
+    fp1 = choose_existing([
+        tile.tile_dir / "footprints" / f"{tile.tile_id}_footprints_rotated_bbox_{epsg}.geojson",
+        fp0,
+    ] if fp0 else [])
+    return fp0, fp1
 
 
 def read_polys(path):
@@ -135,8 +179,7 @@ def main(argv: list[str] | None = None) -> int:
             details["processed"] += 1
             continue
         try:
-            fp0 = choose_existing([tile.tile_dir / "footprints" / f"{tile.tile_id}_footprints_convex_{epsg}.geojson"])
-            fp1 = choose_existing([tile.tile_dir / "footprints" / f"{tile.tile_id}_footprints_rotated_bbox_{epsg}.geojson", fp0] if fp0 else [])
+            fp0, fp1 = discover_footprint_inputs(tile, epsg)
             b_ply = choose_existing([
                 tile.tile_dir / "pointcloud" / f"{tile.tile_id}_building_025m_clean.ply",
                 tile.tile_dir / "pointcloud" / f"{tile.tile_id}_building_025m.ply",
