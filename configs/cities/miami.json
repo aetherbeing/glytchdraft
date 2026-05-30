@@ -3,11 +3,11 @@
   "city_slug": "miami",
   "display_name": "City of Miami",
   "region": "Florida, USA",
-  "laz_dir": "/mnt/t7/miami/data_raw/laz",
-  "tiles_root": "/mnt/t7/miami/data_processed/miami_city/tiles",
-  "output_root": "/mnt/t7/miami/data_processed/miami_city",
-  "tile_manifest": "/mnt/t7/miami/data_processed/miami_city/tile_manifest.json",
-  "city_manifest": "/mnt/t7/miami/data_processed/miami_city/metadata/miami_city_manifest.json",
+  "laz_dir": "/mnt/e/miami/data_raw/laz",
+  "tiles_root": "/mnt/e/miami/data_processed/miami_city/tiles",
+  "output_root": "/mnt/e/miami/data_processed/miami_city",
+  "tile_manifest": "/mnt/e/miami/data_processed/miami_city/tile_manifest.json",
+  "city_manifest": "/mnt/e/miami/data_processed/miami_city/metadata/miami_city_manifest.json",
   "output_epsg": 32617,
   "bbox_4326": {
     "xmin": -80.2659,
@@ -15,9 +15,9 @@
     "xmax": -80.1311,
     "ymax": 25.8589
   },
-  "boundary_geojson": "/mnt/t7/miami/data_processed/miami_city/boundaries/miami_city_boundary_4326.geojson",
+  "boundary_geojson": "/mnt/e/miami/data_processed/miami_city/boundaries/miami_city_boundary_4326.geojson",
   "address_source": {
-    "path": "/mnt/t7/miami/data_raw/addresses/miami_addresses.geojson",
+    "path": "/mnt/e/miami/data_raw/addresses/miami_addresses.geojson",
     "source_name": "Miami-Dade GeoAddress",
     "input_crs": "EPSG:3857",
     "field_map": {
@@ -27,7 +27,7 @@
       "postcode": "ZIP"
     }
   },
-  "county_footprints_path": "/mnt/t7/miami/data_raw/geojson/miami_footprints_4326.geojson",
+  "county_footprints_path": "/mnt/e/miami/data_raw/geojson/miami_footprints_4326.geojson",
   "footprint_source": null,
   "dbscan_eps": 3.0,
   "dbscan_min_samples": 10,
@@ -39,8 +39,8 @@
   "vegetation_classes": [3, 4, 5],
   "address_join_radius_m": 100.0,
   "keep_raw_laz": true,
-  "status_dir": "/mnt/t7/miami/data_processed/miami_city/status",
-  "logs_dir": "/mnt/t7/miami/data_processed/miami_city/logs",
-  "audit_dir": "/mnt/t7/miami/data_processed/miami_city/audit",
+  "status_dir": "/mnt/e/miami/data_processed/miami_city/status",
+  "logs_dir": "/mnt/e/miami/data_processed/miami_city/logs",
+  "audit_dir": "/mnt/e/miami/data_processed/miami_city/audit",
   "pipeline_version": "1.0"
 }
