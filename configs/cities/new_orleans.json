@@ -80,5 +80,6 @@
   "status_dir": "/mnt/e/new_orleans/data_processed/new_orleans/status",
   "logs_dir": "/mnt/e/new_orleans/data_processed/new_orleans/logs",
   "audit_dir": "/mnt/e/new_orleans/data_processed/new_orleans/audit",
-  "pipeline_version": "1.0"
+  "pipeline_version": "1.0",
+  "lidar_fallback_on_empty_tile": true
 }

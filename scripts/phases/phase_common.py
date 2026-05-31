@@ -340,6 +340,7 @@ def load_city(city: str) -> CityRuntime:
             COUNTY_FP_PATH=resolve_cross_platform_path(Path(data["county_footprints_path"])) if data.get("county_footprints_path") else None,
             BOUNDARY_GEOJSON=resolve_cross_platform_path(Path(data["boundary_geojson"])) if data.get("boundary_geojson") else None,
             FOOTPRINT_SOURCE=data.get("footprint_source") or None,
+            LIDAR_FALLBACK_ON_EMPTY_TILE=bool(data.get("lidar_fallback_on_empty_tile", False)),
         )
         return CityRuntime(
             requested_city=city,

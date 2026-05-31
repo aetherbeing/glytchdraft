@@ -293,6 +293,14 @@ def make_from_county(
 
 def main(argv: list[str] | None = None) -> int:
     parser = add_phase_args(argparse.ArgumentParser(description=TITLE))
+    parser.add_argument(
+        "--tiles",
+        nargs="+",
+        metavar="TILE_ID",
+        default=None,
+        help="Limit processing to these specific tile IDs (space-separated). "
+             "Use with --force to reprocess tiles whose output files already exist.",
+    )
     args = parser.parse_args(argv)
     city = load_city(args.city)
     print_header(PHASE_ID, TITLE, city, resolve_mode(args))
@@ -301,6 +309,17 @@ def main(argv: list[str] | None = None) -> int:
     if not validate_or_fail(city, PHASE_ID, args):
         return 1
     tiles = load_tiles(city, args.limit)
+
+    if args.tiles:
+        tile_set = set(args.tiles)
+        tiles = [t for t in tiles if t.tile_id in tile_set]
+        unmatched = tile_set - {t.tile_id for t in tiles}
+        if unmatched:
+            print(f"  WARNING: --tiles filter: {len(unmatched)} ID(s) not found in manifest: {sorted(unmatched)}")
+        if not tiles:
+            print(f"  ERROR: --tiles filter matched no tiles")
+            return 1
+        print(f"  tile filter: {len(tiles)} tile(s) selected")
 
     county_source = getattr(city.raw_config, "COUNTY_FP_PATH", None)
     county_features = None
@@ -356,6 +375,25 @@ def main(argv: list[str] | None = None) -> int:
                     county_features, tile.bbox_4326, city,
                     city_boundary=city_boundary,
                 )
+                # County source loaded successfully but returned 0 footprints for
+                # this tile bbox.  When lidar_fallback_on_empty_tile is enabled,
+                # use cluster convex hulls instead of silently emitting an empty
+                # GeoJSON that would leave structures with MISSING provenance.
+                if not convex:
+                    fallback_enabled = getattr(
+                        city.raw_config, "LIDAR_FALLBACK_ON_EMPTY_TILE", False
+                    )
+                    if fallback_enabled:
+                        print(
+                            f"  {tile.tile_id}: 0 county footprints in tile bbox; "
+                            f"lidar_fallback_on_empty_tile=true → cluster hull fallback"
+                        )
+                        convex, bbox = make_from_clusters(tile, city)
+                    else:
+                        print(
+                            f"  {tile.tile_id}: 0 county footprints "
+                            f"(lidar_fallback_on_empty_tile not set — writing empty)"
+                        )
             else:
                 reasons: list[str] = []
                 if county_features is None:
