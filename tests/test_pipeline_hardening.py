@@ -226,9 +226,32 @@ def test_certification_raw_data_ready():
     assert s == "raw_data_ready"
 
 
+def test_certification_mid_processing_is_partial_not_blocked(tmp_path):
+    """A pipeline that hasn't finished all tiles must be processed_partial, not blocked_missing_outputs."""
+    s = city_certification_status(
+        raw_laz_count=500, tile_manifest_ok=True, manifest_tile_count=500,
+        tile_dirs=300, processed_tile_dirs=280,
+        has_glb=False, has_manifest=False, production_errors=[],
+        footprint_provenance={}, missing_output_tiles=20,
+    )
+    assert s == "processed_partial", f"expected processed_partial, got {s!r}"
+
+
+def test_certification_complete_with_missing_outputs_is_blocked():
+    """All tiles processed but outputs missing → blocked_missing_outputs, not processed_partial."""
+    s = city_certification_status(
+        raw_laz_count=100, tile_manifest_ok=True, manifest_tile_count=100,
+        tile_dirs=100, processed_tile_dirs=100,
+        has_glb=False, has_manifest=True, production_errors=[],
+        footprint_provenance={}, missing_output_tiles=5,
+    )
+    assert s == "blocked_missing_outputs", f"expected blocked_missing_outputs, got {s!r}"
+
+
 def test_certification_blocked_unsafe_source_from_microsoft():
     s = city_certification_status(
-        raw_laz_count=10, tile_manifest_ok=True, tile_dirs=10, processed_tile_dirs=10,
+        raw_laz_count=10, tile_manifest_ok=True, manifest_tile_count=10,
+        tile_dirs=10, processed_tile_dirs=10,
         has_glb=True, has_manifest=True,
         production_errors=["footprint_source.type='microsoft_ml' is blocked from production exports"],
         footprint_provenance={},
@@ -239,7 +262,8 @@ def test_certification_blocked_unsafe_source_from_microsoft():
 
 def test_certification_blocked_unsafe_source_from_unknown_provenance():
     s = city_certification_status(
-        raw_laz_count=10, tile_manifest_ok=True, tile_dirs=5, processed_tile_dirs=5,
+        raw_laz_count=10, tile_manifest_ok=True, manifest_tile_count=5,
+        tile_dirs=5, processed_tile_dirs=5,
         has_glb=True, has_manifest=True, production_errors=[],
         footprint_provenance={"unknown_unsafe_source": 100},
         missing_output_tiles=0,
@@ -249,7 +273,8 @@ def test_certification_blocked_unsafe_source_from_unknown_provenance():
 
 def test_certification_blocked_license():
     s = city_certification_status(
-        raw_laz_count=10, tile_manifest_ok=True, tile_dirs=5, processed_tile_dirs=5,
+        raw_laz_count=10, tile_manifest_ok=True, manifest_tile_count=5,
+        tile_dirs=5, processed_tile_dirs=5,
         has_glb=True, has_manifest=True,
         production_errors=["footprint_source.license='unconfirmed'; license must be confirmed for production"],
         footprint_provenance={},
@@ -260,7 +285,8 @@ def test_certification_blocked_license():
 
 def test_certification_production_ready():
     s = city_certification_status(
-        raw_laz_count=10, tile_manifest_ok=True, tile_dirs=5, processed_tile_dirs=5,
+        raw_laz_count=10, tile_manifest_ok=True, manifest_tile_count=5,
+        tile_dirs=5, processed_tile_dirs=5,
         has_glb=True, has_manifest=True, production_errors=[],
         footprint_provenance={"open_city_footprint": 1000},
         missing_output_tiles=0,
@@ -438,6 +464,7 @@ def test_audit_summary_contains_required_hardening_keys(tmp_path, monkeypatch):
 
     required_keys = {
         "status", "raw_laz_count", "processed_tile_dirs", "tile_dirs",
+        "manifest_tile_count", "tile_classification",
         "footprint_provenance", "lidar_convex_hull_fallback_count",
         "lidar_rotated_bbox_fallback_count", "open_footprint_count",
         "osm_footprint_count", "unknown_source_count",
@@ -546,3 +573,87 @@ def test_null_footprint_source_gives_none_in_raw_config(tmp_path):
     city = _make_city_runtime(tmp_path)  # footprint_source omitted (defaults to None)
     loaded = getattr(city.raw_config, "FOOTPRINT_SOURCE", "NOT_SET")
     assert loaded is None or loaded == "NOT_SET" or not loaded
+
+
+# ── classify_tiles ─────────────────────────────────────────────────────────────
+
+
+def test_classify_tiles_not_started(tmp_path):
+    tiles_root = tmp_path / "tiles"
+    tiles_root.mkdir()
+    tile_rows = [{"tile_id": "t0", "laz_filename": "t0.laz"}]
+    counts = audit.classify_tiles(tile_rows, tiles_root, 32617)
+    assert counts["not_started"] == 1
+    assert counts["complete"] == 0
+
+
+def test_classify_tiles_complete(tmp_path):
+    tiles_root = tmp_path / "tiles"
+    tile_id = "t0"
+    tile_dir = tiles_root / tile_id
+    (tile_dir / "pointcloud").mkdir(parents=True)
+    (tile_dir / "pointcloud" / f"{tile_id}_ground.ply").write_text("ply")
+    write_geojson(tile_dir / "footprints" / f"{tile_id}_footprints_32617.geojson", [feature()])
+    (tile_dir / "masses").mkdir(parents=True, exist_ok=True)
+    (tile_dir / "masses" / f"{tile_id}.obj").write_text("o mesh\n")
+    (tile_dir / "blender_ready").mkdir(parents=True, exist_ok=True)
+    (tile_dir / "blender_ready" / f"{tile_id}.glb").write_bytes(b"glb")
+    write_json(tile_dir / "manifest" / f"{tile_id}_manifest.json", {"tile_id": tile_id})
+    tile_rows = [{"tile_id": tile_id, "laz_filename": f"{tile_id}.laz"}]
+    counts = audit.classify_tiles(tile_rows, tiles_root, 32617)
+    assert counts["complete"] == 1
+    assert counts["not_started"] == 0
+
+
+def test_classify_tiles_partial(tmp_path):
+    tiles_root = tmp_path / "tiles"
+    tile_id = "t0"
+    tile_dir = tiles_root / tile_id
+    (tile_dir / "pointcloud").mkdir(parents=True)
+    (tile_dir / "pointcloud" / f"{tile_id}_ground.ply").write_text("ply")
+    # No GLB, no footprints, no masses — partial
+    tile_rows = [{"tile_id": tile_id, "laz_filename": f"{tile_id}.laz"}]
+    counts = audit.classify_tiles(tile_rows, tiles_root, 32617)
+    assert counts["partial"] == 1
+
+
+def test_classify_tiles_mixed(tmp_path):
+    tiles_root = tmp_path / "tiles"
+    # t0: not started; t1: has pointcloud only (partial); t2: complete
+    for tile_id in ("t0", "t1", "t2"):
+        pass  # directories created selectively below
+
+    tile_id1 = "t1"
+    (tiles_root / tile_id1 / "pointcloud").mkdir(parents=True)
+    (tiles_root / tile_id1 / "pointcloud" / f"{tile_id1}_ground.ply").write_text("ply")
+
+    tile_id2 = "t2"
+    tile_dir2 = tiles_root / tile_id2
+    (tile_dir2 / "pointcloud").mkdir(parents=True)
+    (tile_dir2 / "pointcloud" / f"{tile_id2}_ground.ply").write_text("ply")
+    write_geojson(tile_dir2 / "footprints" / f"{tile_id2}_footprints_32617.geojson", [feature()])
+    (tile_dir2 / "masses").mkdir(parents=True, exist_ok=True)
+    (tile_dir2 / "masses" / f"{tile_id2}.obj").write_text("o mesh\n")
+    (tile_dir2 / "blender_ready").mkdir(parents=True, exist_ok=True)
+    (tile_dir2 / "blender_ready" / f"{tile_id2}.glb").write_bytes(b"glb")
+    write_json(tile_dir2 / "manifest" / f"{tile_id2}_manifest.json", {"tile_id": tile_id2})
+
+    tile_rows = [
+        {"tile_id": "t0", "laz_filename": "t0.laz"},
+        {"tile_id": tile_id1, "laz_filename": f"{tile_id1}.laz"},
+        {"tile_id": tile_id2, "laz_filename": f"{tile_id2}.laz"},
+    ]
+    counts = audit.classify_tiles(tile_rows, tiles_root, 32617)
+    assert counts["not_started"] == 1
+    assert counts["partial"] == 1
+    assert counts["complete"] == 1
+
+
+# ── footprint_source warning in validate_city_config ─────────────────────────
+
+
+def test_validate_config_warns_when_footprint_source_null(tmp_path):
+    """A config with explicit footprint_source: null should warn about unknown provenance."""
+    city = _make_city_runtime(tmp_path, footprint_source=None)
+    _, warnings = validate_city_config(city)
+    assert any("footprint_source" in w for w in warnings)

@@ -374,6 +374,40 @@ def legal_risk_level(production_errors: list[str], footprint_provenance: dict[st
     return "LOW"
 
 
+def classify_tiles(
+    tile_rows: list[dict[str, Any]],
+    tiles_root: Path,
+    out_epsg: int | None,
+) -> dict[str, int]:
+    """
+    Break tile processing state into: complete, partial, empty, not_started.
+
+    complete    — tile dir exists and has all expected outputs
+    partial     — tile dir exists, has some geometry, but is missing outputs
+    empty       — tile dir exists but has no geometry at all
+    not_started — tile is in the manifest but has no tile dir yet
+    """
+    root = resolve_cross_platform_path(tiles_root)
+    counts: dict[str, int] = {"complete": 0, "partial": 0, "empty": 0, "not_started": 0}
+    for row in tile_rows:
+        filename = row.get("laz_filename") or row.get("filename", "")
+        tile_id = row.get("tile_id") or Path(filename).stem if filename else None
+        if not tile_id:
+            continue
+        tile_dir = root / tile_id
+        if not tile_dir.exists():
+            counts["not_started"] += 1
+            continue
+        checks = tile_outputs(tile_dir, tile_id, out_epsg)
+        if not checks.get("processed_geometry"):
+            counts["empty"] += 1
+        elif all(checks.values()):
+            counts["complete"] += 1
+        else:
+            counts["partial"] += 1
+    return counts
+
+
 def city_manifest_stats(path: Path) -> tuple[dict[str, Any] | None, str | None]:
     resolved = resolve_cross_platform_path(path)
     if not resolved.exists():
@@ -428,10 +462,11 @@ def assess(args: argparse.Namespace) -> tuple[int, list[str], dict[str, Any]]:
         add("WARN", "incomplete downloads", f"{len(tmp_files)} .tmp file(s): {', '.join(tmp_files[:5])}")
 
     tile_rows, tile_manifest_error = load_tile_manifest(city.tile_manifest)
+    manifest_tile_count = len(tile_rows)
     if tile_manifest_error:
         add("WARN", "tile manifest", tile_manifest_error)
     else:
-        add("PASS", "tile manifest", f"{len(tile_rows)} tile record(s)")
+        add("PASS", "tile manifest", f"{manifest_tile_count} tile record(s)")
     manifest_laz = manifest_laz_names(tile_rows)
     if manifest_laz and raw_laz_count:
         resolved_laz = resolve_cross_platform_path(city.laz_dir)
@@ -451,13 +486,27 @@ def assess(args: argparse.Namespace) -> tuple[int, list[str], dict[str, Any]]:
         missing = [name for name, ok in checks.items() if not ok]
         if missing:
             missing_outputs[tile_dir.name] = missing
+
+    tile_classification = classify_tiles(tile_rows, city.tiles_root, city.out_epsg)
+    not_started = tile_classification.get("not_started", 0)
+
     if processed:
-        add("PASS", "processed tile geometry", f"{processed}/{len(tile_dirs)} tile dir(s)")
+        detail = f"{processed}/{len(tile_dirs)} tile dir(s)"
+        if not_started:
+            detail += f"; {not_started} tile(s) in manifest not yet started"
+        add("PASS", "processed tile geometry", detail)
     elif tile_dirs:
-        add("WARN", "processed tile geometry", f"0/{len(tile_dirs)} tile dir(s)")
+        add("WARN", "processed tile geometry", f"0/{len(tile_dirs)} tile dir(s) have geometry")
+    elif not_started:
+        add("WARN", "processed tile geometry", f"pipeline not started; {not_started} tile(s) in manifest, 0 dirs")
     else:
         add("FAIL", "processed tile geometry", f"no tile dirs under {city.tiles_root}")
-    if missing_outputs:
+
+    if missing_outputs and not_started:
+        # Tiles still queued — missing outputs in started tiles is expected mid-run.
+        add("PASS", "per-tile outputs", f"pipeline in progress ({not_started} tile(s) not yet started)")
+    elif missing_outputs:
+        # All tiles started; genuinely missing outputs.
         sample = "; ".join(f"{tid}: {','.join(keys)}" for tid, keys in list(missing_outputs.items())[:5])
         add("WARN", "missing per-tile outputs", f"{len(missing_outputs)} tile(s); {sample}")
     else:
@@ -573,6 +622,7 @@ def assess(args: argparse.Namespace) -> tuple[int, list[str], dict[str, Any]]:
     cert_status = city_certification_status(
         raw_laz_count=raw_laz_count,
         tile_manifest_ok=(tile_manifest_error is None),
+        manifest_tile_count=manifest_tile_count,
         tile_dirs=len(tile_dirs),
         processed_tile_dirs=processed,
         has_glb=has_city_glb,
@@ -599,6 +649,8 @@ def assess(args: argparse.Namespace) -> tuple[int, list[str], dict[str, Any]]:
         "missing_output_tiles": len(missing_outputs),
         "suspicious_zero_building_tiles": len(zero_consistency["suspicious"]),
         "expected_zero_building_tiles": len(zero_consistency["expected_zero"]),
+        "manifest_tile_count": manifest_tile_count,
+        "tile_classification": tile_classification,
         # provenance breakdown
         "footprint_provenance": fp_provenance,
         "lidar_convex_hull_fallback_count": fallback_count,
@@ -645,6 +697,13 @@ def main(argv: list[str] | None = None) -> int:
             print("  Production gate blockers:")
             for e in summary["production_errors"]:
                 print(f"    - {e}")
+        tc = summary.get("tile_classification", {})
+        if tc:
+            print("  Tile classification:")
+            for state in ("complete", "partial", "empty", "not_started"):
+                n = tc.get(state, 0)
+                if n:
+                    print(f"    {state}: {n}")
         fp = summary.get("footprint_provenance", {})
         if fp:
             print("  Footprint provenance:")

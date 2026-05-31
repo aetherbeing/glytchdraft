@@ -146,6 +146,7 @@ def city_certification_status(
     *,
     raw_laz_count: int,
     tile_manifest_ok: bool,
+    manifest_tile_count: int = 0,
     tile_dirs: int,
     processed_tile_dirs: int,
     has_glb: bool,
@@ -154,11 +155,26 @@ def city_certification_status(
     footprint_provenance: dict[str, int],
     missing_output_tiles: int,
 ) -> str:
-    """Assign a city certification status from audit results."""
+    """
+    Assign a city certification status from audit results.
+
+    processed_partial is checked before blocked_missing_outputs so that
+    a mid-processing city (pipeline still running) is never mis-classified
+    as blocked. blocked_missing_outputs only fires when all manifest tiles
+    have been processed but expected outputs are absent.
+    """
     if raw_laz_count == 0 and tile_dirs == 0 and not tile_manifest_ok:
         return "not_started"
     if raw_laz_count > 0 and not tile_manifest_ok and tile_dirs == 0:
         return "raw_data_ready"
+
+    # Partial: not all manifest tiles have dirs, or not all dirs have geometry.
+    # Check this before any blocked_* state so a running pipeline is not
+    # misclassified as blocked.
+    canonical_total = manifest_tile_count or tile_dirs
+    if tile_dirs < canonical_total or processed_tile_dirs < tile_dirs:
+        return "processed_partial"
+
     unsafe_count = footprint_provenance.get("unknown_unsafe_source", 0)
     is_blocked_source = any(
         "microsoft_ml" in e or "blocked from production" in e
@@ -173,8 +189,6 @@ def city_certification_status(
         return "blocked_missing_outputs"
     if tile_dirs == 0:
         return "raw_data_ready"
-    if processed_tile_dirs < tile_dirs:
-        return "processed_partial"
     if not has_glb:
         return "processed_complete"
     if not production_errors and has_manifest:
@@ -480,6 +494,29 @@ def validate_city_config(city: CityRuntime, require_addresses: bool = False) -> 
             warnings.append("address source has no field_map")
         if not source.get("input_crs"):
             warnings.append("address source has no input_crs; default assumptions may be wrong")
+
+    # Warn when footprint_source block is entirely absent from config.
+    # validate_footprint_production() handles field-level checks for the
+    # production gate; this is the operational warning for configs that
+    # have not declared footprint provenance at all.
+    fp_config = getattr(city.raw_config, "FOOTPRINT_SOURCE", "NOT_SET")
+    if fp_config == "NOT_SET":
+        pass  # legacy/non-JSON config — not our concern here
+    elif fp_config is None:
+        warnings.append(
+            "footprint_source is not declared in city config; "
+            "all outputs will carry unknown_unsafe_source provenance"
+        )
+    elif isinstance(fp_config, dict):
+        missing_fp_fields = [
+            f for f in ("type", "license", "production_allowed")
+            if fp_config.get(f) is None and f not in fp_config
+        ]
+        if missing_fp_fields:
+            warnings.append(
+                f"footprint_source is missing field(s): {', '.join(missing_fp_fields)}; "
+                "provenance labeling may be incomplete"
+            )
 
     protected = getattr(city.raw_config, "protected_path_check", None)
     if callable(protected):
