@@ -139,6 +139,8 @@ CITY_STATUS_VALUES: tuple[str, ...] = (
     "blocked_license",
     "blocked_missing_outputs",
     "blocked_unsafe_source",
+    "blocked_stale_glb",
+    "blocked_missing_provenance",
 )
 
 
@@ -154,6 +156,10 @@ def city_certification_status(
     production_errors: list[str],
     footprint_provenance: dict[str, int],
     missing_output_tiles: int,
+    missing_output_building_tiles: int | None = None,
+    missing_provenance_structure_count: int = 0,
+    orphaned_glb_count: int = 0,
+    stale_export_manifest_count: int = 0,
 ) -> str:
     """
     Assign a city certification status from audit results.
@@ -162,6 +168,11 @@ def city_certification_status(
     a mid-processing city (pipeline still running) is never mis-classified
     as blocked. blocked_missing_outputs only fires when all manifest tiles
     have been processed but expected outputs are absent.
+
+    missing_output_building_tiles: when provided, only building (non-zero-building)
+    tiles with missing outputs count toward blocked_missing_outputs. Zero-building
+    tiles legitimately have no GLBs/manifests/masses and must not block certification.
+    Falls back to missing_output_tiles when not provided.
     """
     if raw_laz_count == 0 and tile_dirs == 0 and not tile_manifest_ok:
         return "not_started"
@@ -185,12 +196,24 @@ def city_certification_status(
         return "blocked_unsafe_source"
     if has_license_issue:
         return "blocked_license"
-    if missing_output_tiles > 0:
+
+    # Use the building-only count when available so that zero-building tiles
+    # (which legitimately have no GLBs, manifests, or masses) do not block cert.
+    effective_missing = missing_output_building_tiles if missing_output_building_tiles is not None else missing_output_tiles
+    if effective_missing > 0:
         return "blocked_missing_outputs"
     if tile_dirs == 0:
         return "raw_data_ready"
     if not has_glb:
         return "processed_complete"
+    # Stale/orphaned GLBs and untracked geometry block visual certification.
+    # These checks run after the missing-outputs gate so that a pipeline that
+    # never produced GLBs at all is correctly classified as processed_complete
+    # rather than blocked_stale_glb.
+    if orphaned_glb_count > 0 or stale_export_manifest_count > 0:
+        return "blocked_stale_glb"
+    if missing_provenance_structure_count > 0:
+        return "blocked_missing_provenance"
     if not production_errors and has_manifest:
         return "production_ready"
     if has_glb and has_manifest:
