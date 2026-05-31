@@ -26,8 +26,9 @@ Selected because:
 - 500 LAZ tiles on disk, all processed
 - `production_ready: true` — footprint source is confirmed open data (data.nola.gov)
 - `legal_risk: LOW`
-- `open_county_footprint` geometry (not fallback blobs)
+- 135,655 `open_city_footprint` buildings; 2,175 explicit `lidar_convex_hull_fallback` (eastern periphery, no city footprint coverage)
 - No Microsoft footprint concerns
+- `visual_certification_ready: true` — all 178 GLBs verified current, zero missing provenance
 
 Miami (108 tiles, GLBs complete) is the Phase 1 **viewer pilot** (BIKINI export). NOLA is the **pipeline proof**.
 
