@@ -18,6 +18,14 @@ TITLE = "per-tile GLB export with local shift"
 
 def main(argv: list[str] | None = None) -> int:
     parser = add_phase_args(argparse.ArgumentParser(description=TITLE))
+    parser.add_argument(
+        "--tiles",
+        nargs="+",
+        metavar="TILE_ID",
+        default=None,
+        help="Limit processing to these specific tile IDs (space-separated). "
+             "Use with --force to reprocess tiles whose outputs already exist.",
+    )
     args = parser.parse_args(argv)
     city = load_city(args.city)
     print_header(PHASE_ID, TITLE, city, resolve_mode(args))
@@ -26,6 +34,18 @@ def main(argv: list[str] | None = None) -> int:
     if not validate_or_fail(city, PHASE_ID, args):
         return 1
     tiles = load_tiles(city, args.limit)
+
+    if args.tiles:
+        tile_set = set(args.tiles)
+        tiles = [t for t in tiles if t.tile_id in tile_set]
+        unmatched = tile_set - {t.tile_id for t in tiles}
+        if unmatched:
+            print(f"  WARNING: --tiles filter: {len(unmatched)} ID(s) not found in manifest: {sorted(unmatched)}")
+        if not tiles:
+            print(f"  ERROR: --tiles filter matched no tiles")
+            return 1
+        print(f"  tile filter: {len(tiles)} tile(s) selected")
+
     if not require_execute(args):
         for tile in tiles:
             print(f"  would export GLB: {tile.tile_id}")
