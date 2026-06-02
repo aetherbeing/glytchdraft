@@ -60,6 +60,17 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--batch-size", type=int, default=50)
     parser.add_argument("--delay", type=float, default=1.0)
     parser.add_argument(
+        "--record-limit",
+        type=int,
+        default=None,
+        metavar="N",
+        help=(
+            "Cap the number of records sent to the API. Applied after tile loading, "
+            "before any API calls. Use for sampling/cost estimation. "
+            "Output goes to anthropic_building_metadata_sample.json, not the full output file."
+        ),
+    )
+    parser.add_argument(
         "--require-ai-enrichment",
         action="store_true",
         help="Fail (exit nonzero) when ANTHROPIC_API_KEY is not set instead of skipping",
@@ -72,9 +83,24 @@ def main(argv: list[str] | None = None) -> int:
     if not validate_or_fail(city, PHASE_ID, args):
         return 1
     recs = records(city, args.limit)
-    out_path = city.metadata_dir / "anthropic_building_metadata.json"
-    print(f"  records: {len(recs)}")
-    print(f"  output:  {out_path}")
+
+    # --record-limit: true record-level cap, applied after tile load.
+    # Writes to a separate sample file so the canonical output is never
+    # partially overwritten by a test run.
+    is_sample = args.record_limit is not None
+    if is_sample:
+        recs = recs[: args.record_limit]
+        out_path = city.metadata_dir / "anthropic_building_metadata_sample.json"
+    else:
+        out_path = city.metadata_dir / "anthropic_building_metadata.json"
+
+    n_batches = (len(recs) + args.batch_size - 1) // args.batch_size
+    print(f"  records:    {len(recs)}{' (sample)' if is_sample else ''}")
+    print(f"  batches:    {n_batches} × batch_size={args.batch_size}")
+    print(f"  output:     {out_path}")
+    if is_sample:
+        print(f"  NOTE: --record-limit active — writing to sample file, not canonical output")
+
     if not require_execute(args):
         print(json.dumps(recs[:2], indent=2))
         return 0
@@ -99,18 +125,26 @@ def main(argv: list[str] | None = None) -> int:
     failed = 0
     for i in range(0, len(queued), args.batch_size):
         batch = queued[i:i + args.batch_size]
+        batch_num = i // args.batch_size + 1
         try:
+            print(f"  batch {batch_num}/{n_batches}: {len(batch)} records …")
             for item in call_anthropic(batch):
                 results[item["id"]] = item
             out_path.parent.mkdir(parents=True, exist_ok=True)
             out_path.write_text(json.dumps(list(results.values()), indent=2, ensure_ascii=False), encoding="utf-8")
+            print(f"  batch {batch_num}/{n_batches}: ok ({len(results)} total written)")
         except Exception as exc:
-            print(f"  ERROR batch {i // args.batch_size + 1}: {exc}")
+            print(f"  ERROR batch {batch_num}/{n_batches}: {exc}")
             failed += 1
         if args.delay and i + args.batch_size < len(queued):
             time.sleep(args.delay)
     status = "complete" if failed == 0 else "failed"
-    return output_summary(city, PHASE_ID, status, {"records": len(recs), "enriched": len(results), "failed_batches": failed}, [out_path])
+    return output_summary(city, PHASE_ID, status, {
+        "records": len(recs),
+        "enriched": len(results),
+        "failed_batches": failed,
+        "sample": is_sample,
+    }, [out_path])
 
 
 if __name__ == "__main__":

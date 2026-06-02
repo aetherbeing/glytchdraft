@@ -33,10 +33,10 @@
     "type": "open_county",
     "provider": "Miami-Dade County GIS",
     "source_name": "Miami Building Footprints",
-    "license": "unconfirmed",
+    "license": "open_data_terms_unconfirmed",
     "production_allowed": false,
     "needs_review": true,
-    "note": "Likely Miami-Dade County open data. Confirm license before setting production_allowed=true. SOURCE field values: P=photogrammetry, L=LiDAR, null=unknown."
+    "note": "Miami-Dade County Open Data Hub — ArcGIS Hub portal. License terms not machine-readable. Manually verify at gis-mdc.opendata.arcgis.com before setting production_allowed=true. SOURCE field values: P=photogrammetry, L=LiDAR, null=unknown."
   },
   "dbscan_eps": 3.0,
   "dbscan_min_samples": 10,
@@ -51,5 +51,6 @@
   "status_dir": "/mnt/e/miami/data_processed/miami_city/status",
   "logs_dir": "/mnt/e/miami/data_processed/miami_city/logs",
   "audit_dir": "/mnt/e/miami/data_processed/miami_city/audit",
-  "pipeline_version": "1.0"
+  "pipeline_version": "1.0",
+  "lidar_fallback_on_empty_tile": true
 }
