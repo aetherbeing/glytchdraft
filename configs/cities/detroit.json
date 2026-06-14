@@ -3,11 +3,11 @@
   "city_slug": "detroit",
   "display_name": "Detroit",
   "region": "Michigan, USA",
-  "laz_dir": "/mnt/e/detroit/data_raw/laz",
-  "tiles_root": "/mnt/e/detroit/data_processed/detroit/tiles",
-  "output_root": "/mnt/e/detroit/data_processed/detroit",
-  "tile_manifest": "/mnt/e/detroit/data_processed/detroit/tile_manifest.json",
-  "city_manifest": "/mnt/e/detroit/data_processed/detroit/metadata/detroit_manifest.json",
+  "laz_dir": "/mnt/t7/detroit/data_raw/laz",
+  "tiles_root": "/mnt/t7/detroit/data_processed/detroit/tiles",
+  "output_root": "/mnt/t7/detroit/data_processed/detroit",
+  "tile_manifest": "/mnt/t7/detroit/data_processed/detroit/tile_manifest.json",
+  "city_manifest": "/mnt/t7/detroit/data_processed/detroit/metadata/detroit_manifest.json",
   "output_epsg": 32617,
   "bbox_4326": {
     "xmin": -83.35,
@@ -15,7 +15,7 @@
     "xmax": -82.90,
     "ymax": 42.45
   },
-  "boundary_geojson": "/mnt/e/detroit/data_raw/geojson/detroit_city_boundary.geojson",
+  "boundary_geojson": "/mnt/t7/detroit/data_raw/geojson/detroit_city_boundary.geojson",
   "boundary_source": {
     "provider": "City of Detroit Open Data / Census TIGER",
     "dataset": "Detroit City Boundary",
@@ -30,7 +30,7 @@
     "note": "Wayne County / Detroit covered by MI statewide 3DEP QL1/QL2 collections"
   },
   "address_source": {
-    "path": "/mnt/e/detroit/data_raw/addresses/detroit_addresses.geojson",
+    "path": "/mnt/t7/detroit/data_raw/addresses/detroit_addresses.geojson",
     "source_name": "City of Detroit Address Points",
     "provider": "data.detroitmi.gov",
     "note": "https://data.detroitmi.gov/datasets/detroit-address-points",
@@ -42,9 +42,9 @@
       "postcode": "ZipCode"
     }
   },
-  "county_footprints_path": "/mnt/e/detroit/data_raw/geojson/detroit_building_footprints.geojson",
+  "county_footprints_path": "/mnt/t7/detroit/data_raw/geojson/detroit_building_footprints.geojson",
   "footprint_source": {
-    "path": "/mnt/e/detroit/data_raw/geojson/detroit_building_footprints.geojson",
+    "path": "/mnt/t7/detroit/data_raw/geojson/detroit_building_footprints.geojson",
     "type": "microsoft_ml",
     "source_name": "Microsoft ML Building Footprints / City of Detroit",
     "provider": "Microsoft / data.detroitmi.gov",
@@ -62,8 +62,8 @@
   "vegetation_classes": [3, 4, 5],
   "address_join_radius_m": 100.0,
   "keep_raw_laz": true,
-  "status_dir": "/mnt/e/detroit/data_processed/detroit/status",
-  "logs_dir": "/mnt/e/detroit/data_processed/detroit/logs",
-  "audit_dir": "/mnt/e/detroit/data_processed/detroit/audit",
+  "status_dir": "/mnt/t7/detroit/data_processed/detroit/status",
+  "logs_dir": "/mnt/t7/detroit/data_processed/detroit/logs",
+  "audit_dir": "/mnt/t7/detroit/data_processed/detroit/audit",
   "pipeline_version": "1.0"
 }
