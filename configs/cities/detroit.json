@@ -42,15 +42,20 @@
       "postcode": "ZipCode"
     }
   },
-  "county_footprints_path": "/mnt/t7/detroit/data_raw/geojson/detroit_building_footprints.geojson",
+  "county_footprints_path": "/mnt/t7/detroit/data_raw/footprints/detroit_buildings.geojson",
   "footprint_source": {
-    "path": "/mnt/t7/detroit/data_raw/geojson/detroit_building_footprints.geojson",
-    "type": "microsoft_ml",
-    "source_name": "Microsoft ML Building Footprints / City of Detroit",
-    "provider": "Microsoft / data.detroitmi.gov",
-    "license": "microsoft_open_use_non_commercial",
+    "path": "/mnt/t7/detroit/data_raw/footprints/detroit_buildings.geojson",
+    "type": "open_city",
+    "source_name": "City of Detroit Building Outlines",
+    "provider": "data.detroitmi.gov / ArcGIS FeatureServer",
+    "featureserver_url": "https://services2.arcgis.com/qvkbeam7Wirps6zC/arcgis/rest/services/BaseUnitFeatures/FeatureServer/2",
+    "arcgis_item_id": "2b9ab7687289457c9793a4a92d7c4eb9",
+    "arcgis_owner": "topsoil.integration_detroitmi",
+    "arcgis_access": "public",
+    "feature_count": 364210,
+    "license": "city_of_detroit_open_data_unconfirmed",
     "production_allowed": false,
-    "note": "Microsoft ML footprints are BLOCKED from production exports. Replace with open city footprints from data.detroitmi.gov (detroit-building-outlines) before enabling production. Ref: https://github.com/microsoft/USBuildingFootprints"
+    "note": "production_allowed remains false pending manual license/terms confirmation from data.detroitmi.gov. Replaces Microsoft ML footprints (previously blocked). Downloaded via ArcGIS FeatureServer pagination (364,210 features, ~202 MB GeoJSON)."
   },
   "dbscan_eps": 3.0,
   "dbscan_min_samples": 10,
