@@ -32,14 +32,17 @@
   "address_source": {
     "path": "/mnt/t7/detroit/data_raw/addresses/detroit_addresses.geojson",
     "source_name": "City of Detroit Address Points",
-    "provider": "data.detroitmi.gov",
-    "note": "https://data.detroitmi.gov/datasets/detroit-address-points",
+    "provider": "data.detroitmi.gov / ArcGIS FeatureServer",
+    "featureserver_url": "https://services2.arcgis.com/qvkbeam7Wirps6zC/arcgis/rest/services/BaseUnitFeatures/FeatureServer/0",
+    "arcgis_item_id": "2b9ab7687289457c9793a4a92d7c4eb9",
+    "feature_count": 486535,
     "input_crs": "EPSG:4326",
     "field_map": {
-      "house_number": "HouseNumber",
-      "street": "StreetName",
-      "city": "City",
-      "postcode": "ZipCode"
+      "house_number": "street_number",
+      "street": "street_name",
+      "city": null,
+      "postcode": "zip_code",
+      "neighborhood": "neighborhood"
     }
   },
   "county_footprints_path": "/mnt/t7/detroit/data_raw/footprints/detroit_buildings.geojson",
