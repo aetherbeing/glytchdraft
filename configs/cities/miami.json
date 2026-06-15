@@ -52,5 +52,54 @@
   "logs_dir": "/mnt/e/miami/data_processed/miami_city/logs",
   "audit_dir": "/mnt/e/miami/data_processed/miami_city/audit",
   "pipeline_version": "1.0",
-  "lidar_fallback_on_empty_tile": true
+  "lidar_fallback_on_empty_tile": true,
+  "open_portal_layers": [
+    {
+      "layer_id": "brownfields",
+      "label": "Miami-Dade Brownfield Sites",
+      "enabled": true,
+      "source_type": "arcgis_featureserver",
+      "source_url": "https://gisweb.miamidade.gov/arcgis/rest/services/MD_EnvironmentalConsiderations/MapServer/6",
+      "provider": "Miami-Dade County GIS",
+      "attribution": "Miami-Dade County Environmental Resources Management (DERM)",
+      "license": "miami_dade_open_data_unconfirmed",
+      "production_allowed": false,
+      "local_cache_path": "/mnt/e/miami/data_raw/portal/brownfields.geojson",
+      "input_crs": "EPSG:4326",
+      "join_target": "building",
+      "join_method": "spatial_centroid_nearest",
+      "join_radius_m": 200.0,
+      "source_value_field": "NAME",
+      "normalized_field": "environmental_risk",
+      "value_map": {},
+      "write_layer_file": true,
+      "notes": "115 brownfield sites in Miami-Dade. NAME is the site name string. portal_environmental_risk receives the site name for nearby buildings. production_allowed pending license confirmation."
+    },
+    {
+      "layer_id": "building_permits_active",
+      "label": "Miami-Dade Active Building Permits",
+      "enabled": true,
+      "source_type": "arcgis_featureserver",
+      "source_url": "https://gisweb.miamidade.gov/arcgis/rest/services/MD_LandInformation/MapServer/1",
+      "provider": "Miami-Dade County GIS",
+      "attribution": "Miami-Dade County Regulatory and Economic Resources",
+      "license": "miami_dade_open_data_unconfirmed",
+      "production_allowed": false,
+      "local_cache_path": "/mnt/e/miami/data_raw/portal/building_permits_active.geojson",
+      "input_crs": "EPSG:4326",
+      "join_target": "building",
+      "join_method": "spatial_centroid_nearest",
+      "join_radius_m": 30.0,
+      "where": "BPSTATUS = 'A'",
+      "source_value_field": "BPSTATUS",
+      "normalized_field": "permit_status",
+      "value_map": {
+        "A": "active",
+        "E": "expired",
+        "F": "completed"
+      },
+      "write_layer_file": false,
+      "notes": "BPSTATUS: A=active, E=expired, F=finaled/completed. where clause limits to active permits only. 261K total permits county-wide; active subset is smaller. production_allowed pending license confirmation."
+    }
+  ]
 }
