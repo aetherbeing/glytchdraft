@@ -1,105 +1,112 @@
 {
-  "schema_version": "1.0",
-  "city_slug": "miami",
-  "display_name": "City of Miami",
-  "region": "Florida, USA",
-  "laz_dir": "/mnt/e/miami/data_raw/laz",
-  "tiles_root": "/mnt/e/miami/data_processed/miami_city/tiles",
-  "output_root": "/mnt/e/miami/data_processed/miami_city",
-  "tile_manifest": "/mnt/e/miami/data_processed/miami_city/tile_manifest.json",
-  "city_manifest": "/mnt/e/miami/data_processed/miami_city/metadata/miami_city_manifest.json",
-  "output_epsg": 32617,
+  "city_id": "miami",
+  "city_name": "City of Miami",
+  "source_crs": "EPSG:3857",
+  "output_crs": "EPSG:32617",
   "bbox_4326": {
     "xmin": -80.2659,
     "ymin": 25.709,
     "xmax": -80.1311,
     "ymax": 25.8589
   },
-  "boundary_geojson": "/mnt/e/miami/data_processed/miami_city/boundaries/miami_city_boundary_4326.geojson",
-  "address_source": {
-    "path": "/mnt/e/miami/data_raw/addresses/miami_addresses.geojson",
-    "source_name": "Miami-Dade GeoAddress",
-    "input_crs": "EPSG:3857",
-    "field_map": {
-      "house_number": "HSE_NUM",
-      "street": "SNAME",
-      "city": "MUNIC_NAME",
-      "postcode": "ZIP"
-    }
+  "source_ids": {
+    "laz": "miami_lidar",
+    "footprints": "miami_footprints",
+    "addresses": "miami_addresses",
+    "terrain": null,
+    "streets": null
   },
-  "county_footprints_path": "/mnt/e/miami/data_raw/geojson/miami_footprints_4326.geojson",
-  "footprint_source": {
-    "path": "/mnt/e/miami/data_raw/geojson/miami_footprints_4326.geojson",
-    "type": "open_county",
-    "provider": "Miami-Dade County GIS",
-    "source_name": "Miami Building Footprints",
-    "license": "open_data_terms_unconfirmed",
-    "production_allowed": false,
-    "needs_review": true,
-    "note": "Miami-Dade County Open Data Hub — ArcGIS Hub portal. License terms not machine-readable. Manually verify at gis-mdc.opendata.arcgis.com before setting production_allowed=true. SOURCE field values: P=photogrammetry, L=LiDAR, null=unknown."
+  "provenance": {
+    "lidar_source": "USGS LPC FL Miami-Dade D23 LID2024 — tile IDs USGS_LPC_FL_MiamiDade_D23_LID2024_*. Source CRS EPSG:3857 per hero-tile manifest; verify against full collection metadata.",
+    "footprint_source": "Miami-Dade County GIS — Building Footprints (open_county). Portal: gis-mdc.opendata.arcgis.com. SOURCE field: P=photogrammetry, L=LiDAR, null=unknown.",
+    "address_source": "Miami-Dade GeoAddress. Input CRS EPSG:3857. Key fields: HSE_NUM (house number), SNAME (street), MUNIC_NAME (city), ZIP (postcode).",
+    "license_notes": "UNVERIFIED. Footprint license listed as open_data_terms_unconfirmed — commercial-use terms must be manually verified at gis-mdc.opendata.arcgis.com before license_status can be set to confirmed. Address terms not yet reviewed. See configs/miami.status.json."
   },
-  "dbscan_eps": 3.0,
-  "dbscan_min_samples": 10,
-  "hag_min_m": 2.5,
-  "hag_max_m": 300.0,
-  "building_source_class": 1,
-  "ground_class": 2,
-  "vegetation_enabled": true,
-  "vegetation_classes": [3, 4, 5],
-  "address_join_radius_m": 100.0,
-  "keep_raw_laz": true,
-  "status_dir": "/mnt/e/miami/data_processed/miami_city/status",
-  "logs_dir": "/mnt/e/miami/data_processed/miami_city/logs",
-  "audit_dir": "/mnt/e/miami/data_processed/miami_city/audit",
-  "pipeline_version": "1.0",
-  "lidar_fallback_on_empty_tile": true,
-  "open_portal_layers": [
-    {
-      "layer_id": "brownfields",
-      "label": "Miami-Dade Brownfield Sites",
-      "enabled": true,
-      "source_type": "arcgis_featureserver",
-      "source_url": "https://gisweb.miamidade.gov/arcgis/rest/services/MD_EnvironmentalConsiderations/MapServer/6",
-      "provider": "Miami-Dade County GIS",
-      "attribution": "Miami-Dade County Environmental Resources Management (DERM)",
-      "license": "miami_dade_open_data_unconfirmed",
-      "production_allowed": false,
-      "local_cache_path": "/mnt/e/miami/data_raw/portal/brownfields.geojson",
-      "input_crs": "EPSG:4326",
-      "join_target": "building",
-      "join_method": "spatial_centroid_nearest",
-      "join_radius_m": 200.0,
-      "source_value_field": "NAME",
-      "normalized_field": "environmental_risk",
-      "value_map": {},
-      "write_layer_file": true,
-      "notes": "115 brownfield sites in Miami-Dade. NAME is the site name string. portal_environmental_risk receives the site name for nearby buildings. production_allowed pending license confirmation."
+  "phase_toggles": {
+    "terrain": false,
+    "streets": false
+  },
+  "pipeline_tunables": {
+    "_note": "These fields are Miami-specific pipeline parameters. They do not belong in the city_config schema and will be moved to a separate contract in a future step (R6+). Preserved here to avoid data loss during the schema migration.",
+    "region": "Florida, USA",
+    "output_epsg": 32617,
+    "dbscan_eps": 3.0,
+    "dbscan_min_samples": 10,
+    "hag_min_m": 2.5,
+    "hag_max_m": 300.0,
+    "building_source_class": 1,
+    "ground_class": 2,
+    "vegetation_enabled": true,
+    "vegetation_classes": [3, 4, 5],
+    "address_join_radius_m": 100.0,
+    "keep_raw_laz": true,
+    "pipeline_version": "1.0",
+    "lidar_fallback_on_empty_tile": true,
+    "address_source_detail": {
+      "source_name": "Miami-Dade GeoAddress",
+      "input_crs": "EPSG:3857",
+      "field_map": {
+        "house_number": "HSE_NUM",
+        "street": "SNAME",
+        "city": "MUNIC_NAME",
+        "postcode": "ZIP"
+      }
     },
-    {
-      "layer_id": "building_permits_active",
-      "label": "Miami-Dade Active Building Permits",
-      "enabled": true,
-      "source_type": "arcgis_featureserver",
-      "source_url": "https://gisweb.miamidade.gov/arcgis/rest/services/MD_LandInformation/MapServer/1",
+    "footprint_source_detail": {
+      "type": "open_county",
       "provider": "Miami-Dade County GIS",
-      "attribution": "Miami-Dade County Regulatory and Economic Resources",
-      "license": "miami_dade_open_data_unconfirmed",
+      "source_name": "Miami Building Footprints",
+      "license": "open_data_terms_unconfirmed",
       "production_allowed": false,
-      "local_cache_path": "/mnt/e/miami/data_raw/portal/building_permits_active.geojson",
-      "input_crs": "EPSG:4326",
-      "join_target": "building",
-      "join_method": "spatial_centroid_nearest",
-      "join_radius_m": 30.0,
-      "where": "BPSTATUS = 'A'",
-      "source_value_field": "BPSTATUS",
-      "normalized_field": "permit_status",
-      "value_map": {
-        "A": "active",
-        "E": "expired",
-        "F": "completed"
+      "needs_review": true,
+      "note": "Miami-Dade County Open Data Hub — ArcGIS Hub portal. License terms not machine-readable. Manually verify at gis-mdc.opendata.arcgis.com before setting production_allowed=true. SOURCE field values: P=photogrammetry, L=LiDAR, null=unknown."
+    },
+    "open_portal_layers": [
+      {
+        "layer_id": "brownfields",
+        "label": "Miami-Dade Brownfield Sites",
+        "enabled": true,
+        "source_type": "arcgis_featureserver",
+        "source_url": "https://gisweb.miamidade.gov/arcgis/rest/services/MD_EnvironmentalConsiderations/MapServer/6",
+        "provider": "Miami-Dade County GIS",
+        "attribution": "Miami-Dade County Environmental Resources Management (DERM)",
+        "license": "miami_dade_open_data_unconfirmed",
+        "production_allowed": false,
+        "input_crs": "EPSG:4326",
+        "join_target": "building",
+        "join_method": "spatial_centroid_nearest",
+        "join_radius_m": 200.0,
+        "source_value_field": "NAME",
+        "normalized_field": "environmental_risk",
+        "value_map": {},
+        "write_layer_file": true,
+        "notes": "115 brownfield sites in Miami-Dade. NAME is the site name string. portal_environmental_risk receives the site name for nearby buildings. production_allowed pending license confirmation."
       },
-      "write_layer_file": false,
-      "notes": "BPSTATUS: A=active, E=expired, F=finaled/completed. where clause limits to active permits only. 261K total permits county-wide; active subset is smaller. production_allowed pending license confirmation."
-    }
-  ]
+      {
+        "layer_id": "building_permits_active",
+        "label": "Miami-Dade Active Building Permits",
+        "enabled": true,
+        "source_type": "arcgis_featureserver",
+        "source_url": "https://gisweb.miamidade.gov/arcgis/rest/services/MD_LandInformation/MapServer/1",
+        "provider": "Miami-Dade County GIS",
+        "attribution": "Miami-Dade County Regulatory and Economic Resources",
+        "license": "miami_dade_open_data_unconfirmed",
+        "production_allowed": false,
+        "input_crs": "EPSG:4326",
+        "join_target": "building",
+        "join_method": "spatial_centroid_nearest",
+        "join_radius_m": 30.0,
+        "where": "BPSTATUS = 'A'",
+        "source_value_field": "BPSTATUS",
+        "normalized_field": "permit_status",
+        "value_map": {
+          "A": "active",
+          "E": "expired",
+          "F": "completed"
+        },
+        "write_layer_file": false,
+        "notes": "BPSTATUS: A=active, E=expired, F=finaled/completed. where clause limits to active permits only. 261K total permits county-wide; active subset is smaller. production_allowed pending license confirmation."
+      }
+    ]
+  }
 }

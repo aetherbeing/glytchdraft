@@ -1,0 +1,22 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "glytchos.city_config.v1",
+  "type": "object",
+  "required": ["city_id","city_name","source_crs","output_crs","bbox_4326","source_ids","provenance"],
+  "additionalProperties": false,
+  "properties": {
+    "city_id": { "type": "string", "pattern": "^[a-z0-9_]+$" },
+    "city_name": { "type": "string" },
+    "source_crs": { "type": "string" },
+    "output_crs": { "type": "string" },
+    "bbox_4326": { "type": "object", "required": ["xmin","ymin","xmax","ymax"], "additionalProperties": false,
+      "properties": { "xmin": {"type":"number"}, "ymin": {"type":"number"}, "xmax": {"type":"number"}, "ymax": {"type":"number"} } },
+    "source_ids": { "type": "object", "required": ["laz","footprints","addresses"], "additionalProperties": false,
+      "properties": { "laz": {"type":"string"}, "footprints": {"type":["string","null"]}, "addresses": {"type":["string","null"]},
+        "terrain": {"type":["string","null"]}, "streets": {"type":["string","null"]} } },
+    "provenance": { "type": "object", "required": ["lidar_source","footprint_source","address_source","license_notes"], "additionalProperties": false,
+      "properties": { "lidar_source": {"type":"string"}, "footprint_source": {"type":"string"}, "address_source": {"type":"string"}, "license_notes": {"type":"string"} } },
+    "phase_toggles": { "type": "object", "additionalProperties": {"type":"boolean"} },
+    "pipeline_tunables": { "type": "object" }
+  }
+}

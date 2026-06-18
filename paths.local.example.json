@@ -1,0 +1,16 @@
+{
+  "_comment": "Copy this file to paths.local.json and fill in paths for THIS machine. paths.local.json is gitignored and must never be committed.",
+  "machine": "your-hostname-here",
+  "source_roots": {
+    "miami_lidar":      "/mnt/<drive>/miami/data_raw/laz",
+    "miami_footprints": "/mnt/<drive>/miami/data_raw/geojson/miami_footprints_4326.geojson",
+    "miami_addresses":  "/mnt/<drive>/miami/data_raw/addresses/miami_addresses.geojson",
+    "nola_lidar":       "/mnt/<drive>/new_orleans/data_raw/laz",
+    "nola_footprints":  "/mnt/<drive>/new_orleans/data_raw/geojson/nola_footprints_4326.geojson",
+    "nola_addresses":   null,
+    "la_lidar":         "/mnt/<drive>/la/data_raw/laz",
+    "la_footprints":    "/mnt/<drive>/la/data_raw/geojson/la_county_building_outlines_4326.geojson",
+    "la_addresses":     null
+  },
+  "output_root": "/mnt/<drive>/<city>/data_processed"
+}

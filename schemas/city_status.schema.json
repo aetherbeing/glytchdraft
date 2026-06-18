@@ -1,0 +1,22 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "glytchos.city_status.v1",
+  "type": "object",
+  "required": ["city_id","pipeline_status","viewer_status","license_status","thresholds","artifact_budget","production_allowed"],
+  "additionalProperties": false,
+  "properties": {
+    "city_id": { "type":"string","pattern":"^[a-z0-9_]+$" },
+    "pipeline_status": { "enum": ["not_started","source_ready","processing","viewer_ready","production_ready","repair_needed"] },
+    "viewer_status": { "enum": ["not_loaded","demo_loaded","viewer_ready","visual_regression","broken"] },
+    "license_status": { "enum": ["confirmed","needs_review","blocked"] },
+    "thresholds": { "type":"object","required":["min_address_coverage","max_missing_glb","max_invalid_geometry","expected_tile_tolerance"],"additionalProperties":false,
+      "properties": { "min_address_coverage":{"type":"number","minimum":0,"maximum":100}, "max_missing_glb":{"type":"integer","minimum":0},
+                      "max_invalid_geometry":{"type":"integer","minimum":0}, "expected_tile_tolerance":{"type":"integer","minimum":0} } },
+    "artifact_budget": { "type":"object","required":["reveal_radius_m","max_total_glb_mb","max_per_tile_glb_mb","hosting_tier"],"additionalProperties":false,
+      "properties": { "reveal_radius_m":{"type":"number","minimum":0}, "max_total_glb_mb":{"type":"number","minimum":0},
+                      "max_per_tile_glb_mb":{"type":"number","minimum":0}, "hosting_tier":{"enum":["vercel_hobby","vercel_pro","r2","s3"]},
+                      "estimated_monthly_gb_egress":{"type":"number","minimum":0} } },
+    "production_allowed": { "type":"boolean" },
+    "notes": { "type":"array","items":{"type":"string"} }
+  }
+}

@@ -1,0 +1,24 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "glytchos.artifact.v1",
+  "type": "object",
+  "required": ["schema_version","artifact_id","city_id","artifact_type","title","created_at","coordinate_system","units","geometry","metadata","provenance","audit"],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": { "const": "glytchos.artifact.v1" },
+    "artifact_id": {"type":"string"}, "city_id": {"type":"string"},
+    "artifact_type": { "enum":["city_tile","city_scene","district","building_cluster"] },
+    "title": {"type":"string"}, "description": {"type":"string"},
+    "created_at": {"type":"string","format":"date-time"}, "coordinate_system": {"type":"string"}, "units": {"const":"meters"},
+    "geometry": { "type":"object","required":["primary_glb"],"additionalProperties":false,
+      "properties": { "primary_glb":{"type":"string"}, "lods":{"type":"array","items":{"type":"string"}} } },
+    "metadata": { "type":"object","required":["viewer_manifest","structures"],"additionalProperties":false,
+      "properties": { "viewer_manifest":{"type":"string"}, "structures":{"type":"string"}, "tile_metadata":{"type":"array","items":{"type":"string"}} } },
+    "provenance": { "type":"object","required":["lidar","footprints","addresses","license_notes"],"additionalProperties":false,
+      "properties": { "lidar":{"type":"string"}, "footprints":{"type":"string"}, "addresses":{"type":"string"}, "license_notes":{"type":"string"} } },
+    "deployment_targets": { "type":"object","additionalProperties":false,
+      "properties": { "web":{"type":"boolean"}, "ar":{"type":"boolean"}, "vr":{"type":"boolean"}, "unreal_future":{"type":"boolean"} } },
+    "audit": { "type":"object","required":["status","report"],"additionalProperties":false,
+      "properties": { "status":{"enum":["pass","warn","fail"]}, "report":{"type":"string"} } }
+  }
+}

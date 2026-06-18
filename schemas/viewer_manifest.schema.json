@@ -1,0 +1,30 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "glytchos.viewer_manifest.v1",
+  "type": "object",
+  "required": ["schema_version","city_id","city_name","crs","units","origin","reveal_radius_m","tiles"],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": { "const": "glytchos.viewer_manifest.v1" },
+    "city_id": { "type": "string", "pattern": "^[a-z0-9_]+$" },
+    "city_name": { "type": "string" },
+    "crs": { "type": "string" },
+    "units": { "const": "meters" },
+    "origin": { "type": "object", "required": ["x","y","z"], "additionalProperties": false,
+      "properties": { "x":{"type":"number"}, "y":{"type":"number"}, "z":{"type":"number"} } },
+    "reveal_radius_m": { "type": "number", "minimum": 0 },
+    "tiles": { "type": "array", "items": { "type": "object",
+      "required": ["tile_id","label","glb_url","metadata_url","bbox","building_count","selectable"],
+      "additionalProperties": false,
+      "properties": {
+        "tile_id": {"type":"string"}, "label": {"type":"string"},
+        "glb_url": {"type":["string","null"]}, "metadata_url": {"type":["string","null"]},
+        "bbox": { "type":"object", "required":["min","max"], "additionalProperties": false,
+          "properties": { "min":{"type":"array","items":{"type":"number"},"minItems":3,"maxItems":3},
+                          "max":{"type":"array","items":{"type":"number"},"minItems":3,"maxItems":3} } },
+        "building_count": {"type":"integer","minimum":0}, "selectable": {"type":"boolean"},
+        "provenance": { "type":"object","additionalProperties":false,
+          "properties": { "lidar":{"type":"string"}, "footprints":{"type":"string"}, "addresses":{"type":"string"} } }
+      } } }
+  }
+}

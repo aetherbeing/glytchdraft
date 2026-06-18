@@ -1,0 +1,19 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "glytchos.building_metadata.v1",
+  "type": "object",
+  "required": ["building_id","tile_id","centroid","bbox","source"],
+  "additionalProperties": false,
+  "properties": {
+    "building_id": {"type":"string"}, "tile_id": {"type":"string"},
+    "address": {"type":["string","null"]}, "height_m": {"type":["number","null"]},
+    "floors_est": {"type":["number","null"]}, "footprint_area_m2": {"type":["number","null"]},
+    "centroid": { "type":"object","required":["x","y","z"],"additionalProperties":false,
+      "properties": { "x":{"type":"number"},"y":{"type":"number"},"z":{"type":"number"} } },
+    "bbox": { "type":"object","required":["min","max"],"additionalProperties":false,
+      "properties": { "min":{"type":"array","items":{"type":"number"},"minItems":3,"maxItems":3},
+                      "max":{"type":"array","items":{"type":"number"},"minItems":3,"maxItems":3} } },
+    "source": { "type":"object","required":["lidar_tile"],"additionalProperties":false,
+      "properties": { "footprint_id":{"type":["string","null"]}, "address_id":{"type":["string","null"]}, "lidar_tile":{"type":"string"} } }
+  }
+}

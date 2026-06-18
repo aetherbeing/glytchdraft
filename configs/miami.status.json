@@ -1,0 +1,28 @@
+{
+  "city_id": "miami",
+  "pipeline_status": "viewer_ready",
+  "viewer_status": "viewer_ready",
+  "license_status": "needs_review",
+  "thresholds": {
+    "min_address_coverage": 90,
+    "max_missing_glb": 0,
+    "max_invalid_geometry": 50,
+    "expected_tile_tolerance": 5
+  },
+  "artifact_budget": {
+    "reveal_radius_m": 800,
+    "max_total_glb_mb": 2048,
+    "max_per_tile_glb_mb": 8,
+    "hosting_tier": "r2",
+    "estimated_monthly_gb_egress": 0
+  },
+  "production_allowed": false,
+  "notes": [
+    "Miami is market #1 and the technical reference city.",
+    "production_allowed: false — license_status must be 'confirmed' before production (footprint + address commercial-use terms must be verified with citations in provenance.json).",
+    "pipeline_status: viewer_ready — 108 tiles, all GLBs complete.",
+    "viewer_status: viewer_ready — Miami is the Phase 1 viewer pilot (BIKINI export).",
+    "license_status: needs_review — Miami-Dade County open data footprint license not yet verified for commercial use (gis-mdc.opendata.arcgis.com). Address (GeoAddress) terms not yet reviewed.",
+    "Zero-building tiles missing per-tile GLBs are INFO, not blocking WARN, when production_ready and viewer_ready are both true."
+  ]
+}
