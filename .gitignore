@@ -1,40 +1,33 @@
 ﻿# Dependencies
 node_modules/
 */node_modules/
-
 # Build outputs
 dist/
 build/
 *.tsbuildinfo
-
 # Environment files
 .env
 .env.local
 .env.development.local
 .env.test.local
 .env.production.local
-
 # Logs
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
-
 # Runtime data
 pids
 *.pid
 *.seed
 *.pid.lock
-
 # Coverage directory used by tools like istanbul
 coverage/
 *.lcov
-
 # VS Code
 .vscode/
 !.vscode/extensions.json
-
 # OS generated files
 .DS_Store
 .DS_Store?
@@ -43,40 +36,31 @@ coverage/
 .Trashes
 ehthumbs.db
 Thumbs.db
-
 # Temporary folders
 tmp/
 temp/
-
 # Supabase
 .supabase/
-
 # AI keys and sensitive data
 *.key
 secrets/
-
 # Three.js cache
 .cache/
-
 # Vercel
 .vercel
-
 # Local development
 .local
-
 GlytchDraftMiami/Saved/
 GlytchDraftMiami/Intermediate/
 GlytchDraftMiami/DerivedDataCache/
 GlytchDraftMiami/Build/
 GlytchDraftMiami/Binaries/
 *.aps
-
 # Python
 __pycache__/
 *.pyc
 *.pyo
-
-# Pipeline outputs (generated data — not source)
+# Pipeline outputs (generated data - not source)
 atlas_output/
 data_processed/
 data_raw/
@@ -91,3 +75,5 @@ exports/
 viewer/public/models/MIAMI_BIKINI
 viewer/public/models/tile_manifest.json
 GlytchDraftMiami/Content/Maps/miami_hero_tile_masses.uasset
+# Machine-specific paths — never committed, one per machine
+paths.local.json

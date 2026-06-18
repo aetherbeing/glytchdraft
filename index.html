@@ -1,0 +1,288 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Founding Supporter Packages for GlytchDraft — NFT collectibles, early access, and creative influence in the spatial-media revolution.">
+  <title>gLYTCHDRAFT | Founding Supporter Portal</title>
+
+  <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@900&family=Rajdhani:wght@600;700&family=IBM+Plex+Mono:wght@400;600&family=Inter:wght@300;400;600&display=swap" rel="stylesheet">
+
+  <style>
+    :root {
+      --cyan:#00ffff;
+      --magenta:#ff00ff;
+      --gold:#ffd700;
+      --text:#c8c8c8;
+    }
+    *{box-sizing:border-box;}
+    body{
+      margin:0;background:#000;color:var(--text);
+      font-family:'Inter',sans-serif;overflow-x:hidden;
+      scroll-behavior:smooth;
+    }
+    section{padding:4rem 1.25rem;max-width:1400px;margin:auto;}
+    @media(min-width:768px){section{padding:5rem 3rem;}}
+
+    /* HERO TITLE */
+    h1{
+      font-family:'Orbitron',sans-serif;
+      font-weight:900;
+      text-transform:uppercase;
+      letter-spacing:.05em;
+      -webkit-text-stroke:1px #e5e5e5;
+      color:transparent;
+      margin:0;
+      text-align:center;
+      line-height:.9;
+      transform:translateY(-1%);
+      font-size:clamp(2rem,8vw,4.5rem);
+      max-width:95vw;
+      overflow-wrap:break-word;
+      white-space:normal;
+    }
+    @media(max-width:480px){
+      h1{
+        font-size:clamp(1.8rem,9vw,3.8rem);
+        line-height:.88;
+        -webkit-text-stroke:.8px #e5e5e5;
+        letter-spacing:.03em;
+        transform:translateY(0);
+      }
+    }
+
+    h2{font-family:'Rajdhani',sans-serif;font-size:1.8rem;text-transform:uppercase;color:#eaeaea;margin:0 0 1.5rem;text-align:center;}
+    p{line-height:1.7;margin:0 0 1rem;}
+    .lead{font-size:1.05rem;color:#e0e0e0;text-align:center;}
+    .btn-glitch{
+      border:1px solid var(--magenta);color:var(--magenta);
+      background:none;text-transform:uppercase;letter-spacing:.15em;
+      padding:.8rem 1.8rem;font-family:'IBM Plex Mono',monospace;
+      font-size:.75rem;font-weight:600;cursor:pointer;
+      transition:all .15s ease;display:inline-block;
+    }
+    .btn-glitch:hover{background:var(--magenta);color:#000;box-shadow:0 0 8px var(--magenta);}
+    .space-sm{margin-bottom:1.25rem;} .space-md{margin-bottom:2rem;} .space-lg{margin-bottom:3rem;}
+    .section-border{border-top:1px solid rgba(255,255,255,0.08);}
+    .refined-list{list-style:none;padding:0;margin:0;}
+    .refined-list li{position:relative;padding-left:1.2rem;margin-bottom:.7rem;}
+    .refined-list li::before{content:'▸';position:absolute;left:0;color:var(--cyan);}
+    .badge{display:inline-block;padding:.35rem .75rem;background:rgba(255,0,255,0.15);border:1px solid rgba(255,0,255,0.4);color:var(--magenta);font-family:'IBM Plex Mono',monospace;font-size:.65rem;text-transform:uppercase;letter-spacing:.12em;border-radius:.25rem;}
+
+    /* FORM */
+    .contact-form{max-width:500px;margin:2rem auto;}
+    .form-field{margin-bottom:1.25rem;}
+    .contact-form input,.contact-form select,.contact-form textarea{
+      width:100%;background:rgba(255,255,255,0.04);
+      border:1px solid rgba(0,255,255,0.2);
+      border-radius:6px;color:#e0e0e0;
+      padding:.75rem;font-size:.9rem;transition:all .2s ease;
+    }
+    .contact-form input:hover,.contact-form select:hover,.contact-form textarea:hover{
+      border-color:rgba(0,255,255,0.4);
+      box-shadow:0 0 6px rgba(0,255,255,0.25);
+    }
+    .contact-form input:focus,.contact-form select:focus,.contact-form textarea:focus{border-color:var(--cyan);}
+    .contact-form label{
+      display:block;
+      font-family:'IBM Plex Mono',monospace;
+      font-size:.7rem;text-transform:uppercase;
+      letter-spacing:.12em;color:var(--cyan);
+      margin-bottom:.3rem;
+    }
+
+    #package>div{
+      display:grid;
+      grid-template-columns:repeat(auto-fit,minmax(260px,1fr));
+      gap:2rem;
+      max-width:1200px;
+      margin:0 auto;
+      justify-items:center;
+    }
+
+    #ai-button{
+      position:fixed;bottom:1rem;right:1rem;width:2.6rem;height:2.3rem;
+      background:rgba(0,255,255,0.15);
+      clip-path:polygon(25% 0,75% 0,100% 50%,75% 100%,25% 100%,0 50%);
+      border:1px solid #0ff6;cursor:pointer;z-index:50;transition:.2s all;
+    }
+    #ai-button:hover{background:rgba(0,255,255,0.25);box-shadow:0 0 10px #0ff;}
+    #ai-panel{display:none;position:fixed;bottom:4.2rem;right:1rem;width:18rem;max-width:90vw;border:1px solid #0ff3;background:rgba(0,0,0,0.85);backdrop-filter:blur(12px);border-radius:.5rem;padding:.75rem;color:#cfcfcf;font-family:'IBM Plex Mono',monospace;font-size:.75rem;}
+    #ai-log{height:8rem;overflow-y:auto;margin-bottom:.4rem;}
+    #ai-input{width:100%;background:transparent;border-top:1px solid #0ff3;padding:.35rem;color:#e0e0e0;outline:none;}
+    @media(max-width:640px){#contact h2{font-size:1.4rem;}.contact-form{padding:0 .25rem;}}
+  </style>
+</head>
+
+<body>
+
+  <!-- HERO -->
+  <section style="min-height:75vh;display:flex;flex-direction:column;justify-content:center;align-items:center;text-align:center;padding-top:5vh;padding-bottom:5vh;">
+    <h1>gLYTCHDRAFT</h1>
+    <div class="space-md" style="font-family:'IBM Plex Mono',monospace;font-size:.75rem;letter-spacing:.2em;color:var(--cyan);">
+      FOUNDING SUPPORTER PORTAL
+    </div>
+    <p class="lead space-md" style="max-width:600px;">
+      Join the architects of the mythic internet. Claim your tier, shape the platform, and become part of a living architectural legend.
+    </p>
+    <div class="space-lg" style="display:flex;gap:1rem;flex-wrap:wrap;justify-content:center;">
+      <a href="#package" class="btn-glitch">View Tiers</a>
+      <a href="#contact" class="btn-glitch" style="border-color:var(--cyan);color:var(--cyan);">Reserve Now</a>
+    </div>
+  </section>
+
+  <!-- VIDEO -->
+  <section class="section-border">
+    <h2 style="color:var(--cyan);">The Platform</h2>
+    <p class="lead space-md" style="max-width:700px;margin:auto;">
+      GlytchDraft transforms real-world building footprints into interactive, AI-driven mythologies — a spatial-media OS where architecture, story, and ritual converge.
+    </p>
+    <div style="position:relative;padding-bottom:56.25%;height:0;overflow:hidden;max-width:900px;margin:auto;">
+      <iframe src="https://www.youtube.com/embed/FXycRuwVBPM?rel=0&modestbranding=1"
+              title="GlytchDraft Animation" allowfullscreen
+              style="position:absolute;top:0;left:0;width:100%;height:100%;border:none;"></iframe>
+    </div>
+  </section>
+
+  <!-- TIERS -->
+  <section id="package" class="section-border">
+    <h2 style="color:var(--magenta);">Founding Supporter Tiers</h2>
+    <p class="lead space-lg" style="max-width:800px;margin:auto;">
+      Each tier unlocks deeper creative rights, rarer artifacts, and direct influence over GlytchDraft’s evolving city of code.
+    </p>
+
+    <div>
+      <div style="background:rgba(0,255,255,0.03);border:1px solid rgba(0,255,255,0.2);padding:2rem;border-radius:6px;">
+        <h3 style="color:var(--cyan);margin-bottom:.5rem;">DRAFT</h3>
+        <p><strong>$100</strong> · Limited 200</p>
+        <ul class="refined-list">
+          <li>Digital collectible from the GlytchDraft universe</li>
+          <li>30-day early beta access</li>
+          <li>Founding badge + community Discord access</li>
+          <li>Monthly developer dispatch newsletter</li>
+        </ul>
+      </div>
+
+      <div style="background:rgba(255,0,255,0.05);border:2px solid rgba(255,0,255,0.4);padding:2rem;border-radius:6px;">
+        <h3 style="color:var(--magenta);margin-bottom:.5rem;">ARCHITECT</h3>
+        <p><strong>$500</strong> · Limited 250</p>
+        <ul class="refined-list">
+          <li>Exclusive NFT (1 of 250) with commercial rights</li>
+          <li>Signed 11×14″ archival print</li>
+          <li>60-day early access + feature voting rights</li>
+          <li>Private Discord + quarterly roundtables with founders</li>
+          <li>Lifetime 20 % platform discount</li>
+        </ul>
+      </div>
+
+      <div style="background:rgba(255,215,0,0.05);border:1px solid rgba(255,215,0,0.3);padding:2rem;border-radius:6px;">
+        <h3 style="color:var(--gold);margin-bottom:.5rem;">ORACLE</h3>
+        <p><strong>$1,000</strong> · Limited 50</p>
+        <ul class="refined-list">
+          <li>1-of-1 commissioned AI artwork NFT + framed 20×30″ print</li>
+          <li>90-day early access + exclusive “Oracle Council” chat</li>
+          <li>Direct line to dev team + roadmap veto rights</li>
+          <li>Lifetime premium features + equity first refusal</li>
+          <li>Name etched on the Founders Monument</li>
+        </ul>
+      </div>
+
+      <div style="background:rgba(255,255,0,0.06);border:2px solid rgba(255,215,0,0.5);padding:2rem;border-radius:6px;">
+        <h3 style="color:var(--gold);margin-bottom:.5rem;">WORLDBUILDER</h3>
+        <p><strong>$5,000</strong> · Ultra Limited 10</p>
+        <ul class="refined-list">
+          <li>Bespoke AI city module co-created with the founders team</li>
+          <li>1-of-1 Genesis NFT + museum-grade print signed by core artists</li>
+          <li>Personal strategy session + lifetime direct access channel</li>
+          <li>Invitation to annual IRL “GlytchDraft Salon” summit</li>
+          <li>Founder-level equity option (when round opens)</li>
+          <li>All Oracle benefits + immortalization in system lore</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <!-- RESERVE & PURCHASE -->
+  <section id="contact" class="section-border">
+    <h2 style="color:var(--cyan);letter-spacing:.1em;">RESERVE & PURCHASE</h2>
+    <p class="lead space-md" style="max-width:600px;margin:auto;color:#9ae8e8;">
+      Reserve your tier and securely complete checkout via Stripe.
+    </p>
+
+    <form class='contact-form' id='purchaseForm' method='POST' name='purchase' style='margin-top:2.5rem;'>
+      <input type="hidden" name="form-name" value="purchase">
+      <p style="display:none;"><label>Don’t fill this out <input name="bot-field"></label></p>
+
+      <div class="form-field"><label>Full Name</label><input type="text" name="name" required placeholder="Your full name"></div>
+      <div class="form-field"><label>Email</label><input type="email" name="email" id="email" required placeholder="you@example.com"></div>
+      <div class="form-field">
+        <label>Desired Tier</label>
+        <select name="tier" id="tier" required>
+          <option value="">Select a tier…</option>
+          <option value="draft">Draft — $100</option>
+          <option value="architect">Architect — $500</option>
+          <option value="oracle">Oracle — $1,000</option>
+          <option value="worldbuilder">Worldbuilder — $5,000</option>
+        </select>
+      </div>
+      <div class="form-field"><label>Quantity</label><input id="quantity" type="number" name="quantity" min="1" max="5" value="1" required></div>
+      <div class="form-field"><label>Country</label><input type="text" name="country" placeholder="United States" required></div>
+      <div class="form-field"><label>Wallet (optional)</label><input type="text" name="wallet" placeholder="0x..."></div>
+      <div class="form-field"><label>Notes (optional)</label><textarea name="notes" rows="3" placeholder="Special requests or comments"></textarea></div>
+
+      <button type="submit" class="btn-glitch space-sm" id="checkoutButton"
+              style="width:100%;border-color:var(--cyan);color:var(--cyan);font-size:.8rem;">
+        Proceed to Payment
+      </button>
+      <div id="form-status"></div>
+    </form>
+
+    <p class="small" style="text-align:center;margin-top:2rem;color:#888;">
+      Need help? Email <a href="mailto:hello@glytchdraft.com" style="color:var(--cyan);text-decoration:underline;">hello@glytchdraft.com</a>
+    </p>
+  </section>
+
+  <!-- FOOTER -->
+  <footer class="section-border" style="padding:2rem 1rem;text-align:center;">
+    <p style="text-transform:uppercase;font-size:.8rem;color:#666;">
+      © 2025 
+      <a href="https://laborandcode.com" target="_blank" rel="noopener"
+         style="color:var(--gold);text-decoration:none;font-weight:600;transition:all .2s ease;">
+        Labor & Code, Inc.
+      </a> · Delaware C-Corporation
+    </p>
+    <p style="font-size:.75rem;color:#555;max-width:700px;margin:auto;">
+      Founding Supporter Packages are product purchases, not securities or equity investments.
+    </p>
+  </footer>
+
+  <!-- AI WIDGET -->
+  <div id="ai-button" title="Ask about the package"></div>
+  <div id="ai-panel"><div id="ai-log"></div><input id="ai-input" type="text" placeholder="Ask about the Founding Package…"></div>
+
+  <!-- STRIPE -->
+  <script src="https://js.stripe.com/v3/"></script>
+  <script>
+    const stripe = Stripe("pk_live_REPLACE_WITH_YOUR_PUBLIC_KEY");
+    document.getElementById("purchaseForm").addEventListener("submit", async (e)=>{
+      e.preventDefault();
+      const tier=document.getElementById("tier").value;
+      const qty=parseInt(document.getElementById("quantity").value)||1;
+      const priceMap={
+        "draft":"price_123DRAFTID",
+        "architect":"price_456ARCHITECTID",
+        "oracle":"price_789ORACLEID",
+        "worldbuilder":"price_999WORLDBUILDERID"
+      };
+      if(!tier)return alert("Select a tier.");
+
+      const form=e.target;const data=new FormData(form);
+      await fetch("/",{method:"POST",body:data});
+
+      const {error}=await stripe.redirectToCheckout({
+        lineItems:[{price:priceMap[tier],quantity:qty}],
+        mode:"payment",
+        successUrl:window.location.origin+"/thank-you",
+        cancelUrl:window.location.origin+"/",
+      });
+      if(error)console.error
