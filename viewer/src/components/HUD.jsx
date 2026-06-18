@@ -91,7 +91,7 @@ export function HUD({
       {/* Top-left title card */}
       <div style={{ position: 'fixed', top: 24, left: 24, ...PANEL, minWidth: 0 }}>
         <div style={{ fontWeight: 700, fontSize: 13, letterSpacing: '0.12em' }}>
-          GLYTCHOS
+          GlitchOS.io
         </div>
         <div style={{ ...DIM, marginTop: 2 }}>CITY OF MIAMI · FULL GLB</div>
         <div style={DIM}>buildings · terrain · vegetation</div>
