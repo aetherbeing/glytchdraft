@@ -42,7 +42,7 @@ def run_script(*args: str) -> subprocess.CompletedProcess[str]:
 
 
 def build_source_fixture(tmp_path: Path) -> Path:
-    source_dir = tmp_path / "miami_city"
+    source_dir = tmp_path / "city_export"
     tile_manifest = {
         "tiles": [
             {
@@ -57,16 +57,8 @@ def build_source_fixture(tmp_path: Path) -> Path:
     }
     write_json(source_dir / "tile_manifest.json", tile_manifest)
     write_json(
-        source_dir / "blender_ready" / "miami_city_glb_offset.json",
+        source_dir / "blender_ready" / "test_city_glb_offset.json",
         {"shift_x": 10, "shift_y": 20, "shift_z": 30},
-    )
-    write_json(
-        source_dir / "tiles" / "tile_a" / "manifest" / "tile_a_manifest.json",
-        {"tile_id": "tile_a", "bbox_4326": tile_manifest["tiles"][0]["bbox_4326"]},
-    )
-    write_json(
-        source_dir / "tiles" / "tile_b" / "manifest" / "tile_b_manifest.json",
-        {"tile_id": "tile_b", "bbox_4326": tile_manifest["tiles"][1]["bbox_4326"]},
     )
     write_glb(
         source_dir / "tiles" / "tile_a" / "blender_ready" / "tile_a.glb",
@@ -82,31 +74,72 @@ def build_source_fixture(tmp_path: Path) -> Path:
 
 def test_generate_viewer_manifest_from_fixture(tmp_path: Path):
     source_dir = build_source_fixture(tmp_path)
-    output_path = tmp_path / "tile_manifest.json"
+    output_path = tmp_path / "viewer_manifest.json"
 
-    result = run_script("--source-dir", str(source_dir), "--output", str(output_path))
+    result = run_script(
+        "--source-dir", str(source_dir),
+        "--output", str(output_path),
+        "--city-id", "test_city",
+        "--city-name", "Test City",
+        "--crs", "EPSG:6346",
+    )
 
     assert result.returncode == 0, result.stderr
     assert output_path.exists()
 
     manifest = json.loads(output_path.read_text(encoding="utf-8"))
+    assert manifest["schema_version"] == "glytchos.viewer_manifest.v1"
+    assert manifest["city_id"] == "test_city"
+    assert manifest["city_name"] == "Test City"
+    assert manifest["crs"] == "EPSG:6346"
+    assert manifest["units"] == "meters"
+    assert manifest["reveal_radius_m"] == 600.0
+    assert isinstance(manifest["origin"], dict)
+    assert set(manifest["origin"]) == {"x", "y", "z"}
     assert "tiles" in manifest
-    assert manifest["schema_version"] == "1.0"
-    assert manifest["count"] == 2
 
     tiles = {tile["tile_id"]: tile for tile in manifest["tiles"]}
-    assert tiles["tile_a"]["has_glb"] is True
-    assert tiles["tile_b"]["has_glb"] is False
-    assert tiles["tile_a"]["bbox_4326"] == {"xmin": -80.3, "ymin": 25.7, "xmax": -80.2, "ymax": 25.8}
-    assert tiles["tile_b"]["bbox_4326"] == {"xmin": -80.2, "ymin": 25.8, "xmax": -80.1, "ymax": 25.9}
-    assert tiles["tile_a"]["url"] == "/models/tiles/tile_a.glb"
-    assert tiles["tile_b"]["url"] == "/models/tiles/tile_b.glb"
-    assert tiles["tile_a"]["bbox_source"] == "tile_manifest"
-    assert tiles["tile_b"]["bbox_source"] == "tile_manifest"
+    assert tiles["tile_a"]["glb_url"] == "/models/tiles/tile_a.glb"
+    assert tiles["tile_b"]["glb_url"] is None
+    assert tiles["tile_a"]["selectable"] is True
+    assert tiles["tile_b"]["selectable"] is False
+    assert tiles["tile_a"]["label"] == "tile_a"
+    assert tiles["tile_b"]["label"] == "tile_b"
+    assert tiles["tile_a"]["metadata_url"] is None
+    assert tiles["tile_b"]["metadata_url"] is None
+    assert len(tiles["tile_a"]["bbox"]["min"]) == 3
+    assert len(tiles["tile_a"]["bbox"]["max"]) == 3
+    assert isinstance(tiles["tile_a"]["building_count"], int)
+    assert isinstance(tiles["tile_b"]["building_count"], int)
+
+
+def test_output_validates_against_schema(tmp_path: Path):
+    """Generator output must pass Draft7Validator against schemas/viewer_manifest.schema.json."""
+    import jsonschema
+
+    source_dir = build_source_fixture(tmp_path)
+    output_path = tmp_path / "viewer_manifest.json"
+    schema_path = REPO_ROOT / "schemas" / "viewer_manifest.schema.json"
+
+    result = run_script(
+        "--source-dir", str(source_dir),
+        "--output", str(output_path),
+        "--city-id", "test_city",
+        "--city-name", "Test City",
+        "--crs", "EPSG:6346",
+    )
+    assert result.returncode == 0, result.stderr
+
+    schema = json.loads(schema_path.read_text(encoding="utf-8"))
+    manifest = json.loads(output_path.read_text(encoding="utf-8"))
+
+    validator = jsonschema.Draft7Validator(schema)
+    errors = list(validator.iter_errors(manifest))
+    assert not errors, "Schema validation failed:\n" + "\n".join(str(e) for e in errors)
 
 
 def test_generate_viewer_manifest_help_runs():
     result = run_script("--help")
 
     assert result.returncode == 0
-    assert "Generate the static viewer tile manifest" in result.stdout
+    assert "Generate a viewer manifest" in result.stdout

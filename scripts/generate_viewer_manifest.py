@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Generate a static viewer streaming manifest.
+Generate a static viewer manifest conforming to schemas/viewer_manifest.schema.json.
 
 The viewer already serves this manifest dynamically in development. This script
 writes the same structure to disk so offline previews and production builds can
@@ -9,9 +9,7 @@ use it without a live middleware server.
 Default layout:
   <source-dir>/tile_manifest.json
   <source-dir>/tiles/<tile_id>/blender_ready/<tile_id>.glb
-  <source-dir>/blender_ready/<city>_glb_offset.json
-
-You can override every path on the command line.
+  <source-dir>/blender_ready/<city_id>_glb_offset.json
 """
 from __future__ import annotations
 
@@ -25,18 +23,17 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_OUTPUT = REPO_ROOT / "viewer" / "public" / "models" / "tile_manifest.json"
-DEFAULT_SCENE_BOUNDS = {
-    "min": [0.0, -21.0, -18282.0],
-    "max": [15235.0, 313.0, 0.0],
-}
-DEFAULT_MAX_STREAMED_TILES = 10
 
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Generate the static viewer tile manifest from a city export directory.",
+        description="Generate a viewer manifest (glytchos.viewer_manifest.v1) from a city export directory.",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
+    parser.add_argument("--city-id", required=True, help="City identifier matching ^[a-z0-9_]+$ (e.g. portland).")
+    parser.add_argument("--city-name", required=True, help="Human-readable city name (e.g. Portland).")
+    parser.add_argument("--crs", required=True, help="Coordinate reference system of source data (e.g. EPSG:6346).")
+    parser.add_argument("--reveal-radius-m", type=float, default=600.0, help="Fetch ring radius in meters.")
     parser.add_argument(
         "--source-dir",
         type=Path,
@@ -72,28 +69,6 @@ def build_parser() -> argparse.ArgumentParser:
         type=Path,
         default=None,
         help="Optional structures_enriched.geojson used to add per-tile structure counts.",
-    )
-    parser.add_argument(
-        "--max-streamed-tiles",
-        type=int,
-        default=DEFAULT_MAX_STREAMED_TILES,
-        help="Maximum tiles to stream in the viewer.",
-    )
-    parser.add_argument(
-        "--scene-min",
-        type=float,
-        nargs=3,
-        metavar=("X", "Y", "Z"),
-        default=DEFAULT_SCENE_BOUNDS["min"],
-        help="Minimum viewer scene bounds used for culling remapping.",
-    )
-    parser.add_argument(
-        "--scene-max",
-        type=float,
-        nargs=3,
-        metavar=("X", "Y", "Z"),
-        default=DEFAULT_SCENE_BOUNDS["max"],
-        help="Maximum viewer scene bounds used for culling remapping.",
     )
     parser.add_argument("--dry-run", action="store_true", help="Print a summary without writing output.")
     return parser
@@ -132,30 +107,6 @@ def read_glb_json(path: Path) -> dict:
     json_start = 20
     json_end = json_start + json_length
     return json.loads(data[json_start:json_end])
-
-
-def normalize_bbox(raw: object) -> dict | None:
-    try:
-        if isinstance(raw, (list, tuple)):
-            xmin, ymin, xmax, ymax = raw[:4]
-            return {
-                "xmin": float(xmin),
-                "ymin": float(ymin),
-                "xmax": float(xmax),
-                "ymax": float(ymax),
-            }
-
-        if not isinstance(raw, dict):
-            return None
-
-        return {
-            "xmin": float(raw.get("xmin", raw.get("min_lon", raw.get("west")))),
-            "ymin": float(raw.get("ymin", raw.get("min_lat", raw.get("south")))),
-            "xmax": float(raw.get("xmax", raw.get("max_lon", raw.get("east")))),
-            "ymax": float(raw.get("ymax", raw.get("max_lat", raw.get("north")))),
-        }
-    except (IndexError, TypeError, ValueError):
-        return None
 
 
 def load_source_tiles(tile_manifest_path: Path) -> list[dict]:
@@ -243,7 +194,6 @@ def source_to_scene_bounds(local_min: list[float], local_max: list[float], tile_
     return {
         "min": [position[i] + local_min[i] for i in range(3)],
         "max": [position[i] + local_max[i] for i in range(3)],
-        "position": position,
     }
 
 
@@ -258,75 +208,20 @@ def infer_tile_bounds(index: int) -> dict:
     return {
         "min": [x0, -20.0, z0],
         "max": [x0 + tile_size, 320.0, z1],
-        "position": [x0, 0.0, z0],
-        "inferred": True,
     }
-
-
-def map_range(value: float, in_min: float, in_max: float, out_min: float, out_max: float) -> float:
-    if in_max == in_min:
-        return (out_min + out_max) / 2
-    return out_min + (out_max - out_min) * (value - in_min) / (in_max - in_min)
-
-
-def bbox_to_cull_bounds(bbox: dict | None, extent: dict | None, scene_bounds: dict) -> dict | None:
-    if not bbox or not extent:
-        return None
-
-    x0 = map_range(bbox["xmin"], extent["xmin"], extent["xmax"], scene_bounds["min"][0], scene_bounds["max"][0])
-    x1 = map_range(bbox["xmax"], extent["xmin"], extent["xmax"], scene_bounds["min"][0], scene_bounds["max"][0])
-    z0 = map_range(bbox["ymin"], extent["ymin"], extent["ymax"], scene_bounds["max"][2], scene_bounds["min"][2])
-    z1 = map_range(bbox["ymax"], extent["ymin"], extent["ymax"], scene_bounds["max"][2], scene_bounds["min"][2])
-    return {
-        "min": [min(x0, x1), scene_bounds["min"][1], min(z0, z1)],
-        "max": [max(x0, x1), scene_bounds["max"][1], max(z0, z1)],
-        "source": "bbox_4326",
-    }
-
-
-def geo_extent(tiles: list[dict]) -> dict | None:
-    boxes = [normalize_bbox(tile.get("bbox_4326")) for tile in tiles]
-    boxes = [bbox for bbox in boxes if bbox]
-    if not boxes:
-        return None
-    return {
-        "xmin": min(box["xmin"] for box in boxes),
-        "ymin": min(box["ymin"] for box in boxes),
-        "xmax": max(box["xmax"] for box in boxes),
-        "ymax": max(box["ymax"] for box in boxes),
-    }
-
-
-def tile_manifest_bbox(tile_root: Path, tile_id: str) -> dict | None:
-    manifest_path = tile_root / tile_id / "manifest" / f"{tile_id}_manifest.json"
-    if not manifest_path.exists():
-        return None
-
-    manifest = read_json(manifest_path)
-    if not isinstance(manifest, dict):
-        return None
-
-    return normalize_bbox(
-        manifest.get("bbox_4326")
-        or manifest.get("bbox4326")
-        or manifest.get("bounds_4326")
-        or manifest.get("bounds", {}).get("bbox_4326")
-    )
-
-
-def source_relative_glb_path(tile_root: Path, tile_id: str) -> str:
-    return f"tiles/{tile_id}/blender_ready/{tile_id}.glb"
 
 
 def build_streaming_manifest(
     tile_root: Path,
     city_offset: dict,
     source_tiles: list[dict],
-    scene_bounds: dict,
-    max_streamed_tiles: int,
+    *,
+    city_id: str,
+    city_name: str,
+    crs: str,
+    reveal_radius_m: float,
     structures_by_tile: dict[str, int] | None = None,
 ) -> dict:
-    extent = geo_extent(source_tiles)
     structures_by_tile = structures_by_tile or {}
     tiles: list[dict] = []
     missing_glb = 0
@@ -341,12 +236,12 @@ def build_streaming_manifest(
         glb_path = tile_root / tile_id / "blender_ready" / f"{tile_id}.glb"
         offset_path = tile_root / tile_id / "blender_ready" / f"{tile_id}_glb_offset.json"
         has_glb = glb_path.exists()
+
         structure_count = structures_by_tile.get(tile_id)
         mass_count = mass_metadata_count(tile_root, tile_id)
         manifest_count = source_building_count(tile)
-        building_count = max(count for count in (structure_count, mass_count, manifest_count) if count is not None) if any(count is not None for count in (structure_count, mass_count, manifest_count)) else None
-        per_tile_bbox = tile_manifest_bbox(tile_root, tile_id)
-        bbox_4326 = per_tile_bbox or normalize_bbox(tile.get("bbox_4326"))
+        counts = [c for c in (structure_count, mass_count, manifest_count) if c is not None]
+        building_count = max(counts) if counts else 0
 
         bounds = infer_tile_bounds(index)
         if has_glb and offset_path.exists():
@@ -365,35 +260,20 @@ def build_streaming_manifest(
         else:
             missing_glb += 1
 
-        cull_bounds = bbox_to_cull_bounds(bbox_4326, extent, scene_bounds)
-        center = [
-            (bounds["min"][0] + bounds["max"][0]) / 2,
-            (bounds["min"][1] + bounds["max"][1]) / 2,
-            (bounds["min"][2] + bounds["max"][2]) / 2,
-        ]
-
-        tile_record = {
+        tiles.append({
             "tile_id": tile_id,
-            "url": f"/models/tiles/{tile_id}.glb",
-            "glb_path": source_relative_glb_path(tile_root, tile_id),
-            "has_glb": has_glb,
-            "bbox_4326": bbox_4326,
-            "bbox_source": "tile_manifest" if per_tile_bbox else tile.get("bbox_source", "city_tile_manifest"),
-            "bounds": bounds,
-            "cull_bounds": cull_bounds,
-            "center": center,
-        }
-        if building_count is not None:
-            tile_record["building_count"] = building_count
-        if structure_count is not None:
-            tile_record["structure_count"] = structure_count
-        if mass_count is not None:
-            tile_record["mass_metadata_count"] = mass_count
-        if manifest_count is not None:
-            tile_record["manifest_building_count"] = manifest_count
-        tiles.append(tile_record)
+            "label": tile_id,
+            "glb_url": f"/models/tiles/{tile_id}.glb" if has_glb else None,
+            "metadata_url": None,
+            "bbox": {
+                "min": list(bounds["min"]),
+                "max": list(bounds["max"]),
+            },
+            "building_count": building_count,
+            "selectable": has_glb,
+        })
 
-    print(f"  tiles: {len(tiles)} total, {sum(1 for tile in tiles if tile['has_glb'])} with GLB", file=sys.stderr)
+    print(f"  tiles: {len(tiles)} total, {sum(1 for t in tiles if t['glb_url'] is not None)} with GLB", file=sys.stderr)
     if missing_glb:
         print(f"  WARNING: {missing_glb} tiles missing GLB", file=sys.stderr)
     if missing_offset:
@@ -402,10 +282,17 @@ def build_streaming_manifest(
         print(f"  WARNING: {inferred} tiles fell back to inferred bounds", file=sys.stderr)
 
     return {
-        "schema_version": "1.0",
-        "source": "generate_viewer_manifest.py",
-        "count": len(tiles),
-        "max_streamed_tiles": max_streamed_tiles,
+        "schema_version": "glytchos.viewer_manifest.v1",
+        "city_id": city_id,
+        "city_name": city_name,
+        "crs": crs,
+        "units": "meters",
+        "origin": {
+            "x": float(city_offset.get("shift_x", 0.0)),
+            "y": float(city_offset.get("shift_y", 0.0)),
+            "z": float(city_offset.get("shift_z", 0.0)),
+        },
+        "reveal_radius_m": reveal_radius_m,
         "tiles": tiles,
     }
 
@@ -433,8 +320,8 @@ def main(argv: list[str] | None = None) -> int:
         city_offset_path = resolve_input_path(
             args.city_offset,
             [
-                source_dir / "blender_ready" / "miami_city_glb_offset.json",
-                source_dir / "blender_ready" / "miami_glb_offset.json",
+                source_dir / "blender_ready" / f"{args.city_id}_glb_offset.json",
+                source_dir / "blender_ready" / "city_glb_offset.json",
             ],
             "city offset",
         )
@@ -449,8 +336,7 @@ def main(argv: list[str] | None = None) -> int:
             return 1
         city_offset = load_city_offset(city_offset_path)
         structures_path = args.structures_enriched or source_dir / "metadata" / "structures_enriched.geojson"
-        structures_by_tile = structure_counts_by_tile(structures_path)
-        scene_bounds = {"min": list(args.scene_min), "max": list(args.scene_max)}
+        structures_by_tile_map = structure_counts_by_tile(structures_path)
     except (ValueError, OSError, json.JSONDecodeError) as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
         return 1
@@ -460,12 +346,21 @@ def main(argv: list[str] | None = None) -> int:
     print(f"city offset:    {city_offset_path}", file=sys.stderr)
     print(f"output:         {args.output}", file=sys.stderr)
 
-    manifest = build_streaming_manifest(tile_root, city_offset, source_tiles, scene_bounds, args.max_streamed_tiles, structures_by_tile)
+    manifest = build_streaming_manifest(
+        tile_root,
+        city_offset,
+        source_tiles,
+        city_id=args.city_id,
+        city_name=args.city_name,
+        crs=args.crs,
+        reveal_radius_m=args.reveal_radius_m,
+        structures_by_tile=structures_by_tile_map,
+    )
 
     if args.dry_run:
-        glb_true = sum(1 for tile in manifest["tiles"] if tile["has_glb"])
+        glb_count = sum(1 for tile in manifest["tiles"] if tile["glb_url"] is not None)
         print(
-            f'DRY RUN: would write {len(manifest["tiles"])} tiles ({glb_true} with has_glb=true) to {args.output}'
+            f'DRY RUN: would write {len(manifest["tiles"])} tiles ({glb_count} with glb_url set) to {args.output}'
         )
         return 0
 

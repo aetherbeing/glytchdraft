@@ -64,7 +64,7 @@ def viewer_manifest_fixture(tmp_path: Path):
             'meshes': [{'primitives': [{'attributes': {'POSITION': 0}}]}],
         },
     )
-    write_json(source_dir / 'blender_ready' / 'miami_city_glb_offset.json', {
+    write_json(source_dir / 'blender_ready' / 'test_city_glb_offset.json', {
         'shift_x': 10.0,
         'shift_y': 20.0,
         'shift_z': 30.0,
@@ -96,43 +96,55 @@ def test_generate_viewer_manifest_writes_static_manifest(viewer_manifest_fixture
     code = generate_manifest.main([
         '--source-dir', str(viewer_manifest_fixture['source_dir']),
         '--output', str(viewer_manifest_fixture['output']),
+        '--city-id', 'test_city',
+        '--city-name', 'Test City',
+        '--crs', 'EPSG:6346',
     ])
 
     assert code == 0
 
     manifest = json.loads(viewer_manifest_fixture['output'].read_text(encoding='utf-8'))
-    assert manifest['count'] == 1
-    assert manifest['tiles'][0]['tile_id'] == viewer_manifest_fixture['tile_id']
-    assert manifest['tiles'][0]['has_glb'] is True
-    assert manifest['tiles'][0]['url'] == '/models/tiles/tile_001.glb'
-    assert manifest['tiles'][0]['glb_path'] == 'tiles/tile_001/blender_ready/tile_001.glb'
-    assert manifest['tiles'][0]['building_count'] == 2
-    assert manifest['tiles'][0]['structure_count'] == 2
-    assert manifest['tiles'][0]['mass_metadata_count'] == 2
-    assert manifest['tiles'][0]['bbox_4326'] == {
-        'xmin': -80.25,
-        'ymin': 25.70,
-        'xmax': -80.20,
-        'ymax': 25.75,
-    }
-    assert manifest['tiles'][0]['cull_bounds']['source'] == 'bbox_4326'
+    assert manifest['schema_version'] == 'glytchos.viewer_manifest.v1'
+    assert manifest['city_id'] == 'test_city'
+    assert manifest['units'] == 'meters'
+    tile = manifest['tiles'][0]
+    assert tile['tile_id'] == viewer_manifest_fixture['tile_id']
+    assert tile['glb_url'] == '/models/tiles/tile_001.glb'
+    assert tile['selectable'] is True
+    assert tile['label'] == 'tile_001'
+    assert tile['metadata_url'] is None
+    assert tile['building_count'] == 2
+    assert len(tile['bbox']['min']) == 3
+    assert len(tile['bbox']['max']) == 3
 
 
-def test_validate_tile_manifest_accepts_generated_manifest(viewer_manifest_fixture):
-    generate_manifest.main([
-        '--source-dir', str(viewer_manifest_fixture['source_dir']),
-        '--output', str(viewer_manifest_fixture['output']),
-    ])
+def test_validate_tile_manifest_accepts_old_format_manifest(tmp_path: Path):
+    # validate_tile_manifest validates the old streaming format; this tests it
+    # directly without coupling to generate_viewer_manifest output format.
+    tile_root = tmp_path / 'tiles'
+    glb_path = tile_root / 'tile_001' / 'blender_ready' / 'tile_001.glb'
+    glb_path.parent.mkdir(parents=True, exist_ok=True)
+    glb_path.write_bytes(b'glb')
+    manifest_path = tmp_path / 'tile_manifest.json'
+    write_json(manifest_path, {
+        'tiles': [{
+            'tile_id': 'tile_001',
+            'bbox_4326': {'xmin': -80.25, 'ymin': 25.70, 'xmax': -80.20, 'ymax': 25.75},
+            'has_glb': True,
+            'glb_path': str(glb_path),
+            'cull_bounds': {'min': [-100.0, -50.0, -100.0], 'max': [100.0, 300.0, 0.0], 'source': 'inferred'},
+        }]
+    })
 
     code = validate_manifest.main([
-        '--manifest', str(viewer_manifest_fixture['output']),
-        '--tile-root', str(viewer_manifest_fixture['tile_root']),
+        '--manifest', str(manifest_path),
+        '--tile-root', str(tile_root),
     ])
 
     assert code == 0
 
 
-def test_generate_viewer_manifest_marks_missing_glb_false(tmp_path: Path):
+def test_generate_viewer_manifest_marks_missing_glb_null(tmp_path: Path):
     source_dir = tmp_path / 'source'
     write_json(
         source_dir / 'tile_manifest.json',
@@ -145,22 +157,27 @@ def test_generate_viewer_manifest_marks_missing_glb_false(tmp_path: Path):
             ]
         },
     )
-    write_json(source_dir / 'blender_ready' / 'miami_city_glb_offset.json', {'shift_x': 0, 'shift_y': 0, 'shift_z': 0})
+    write_json(source_dir / 'blender_ready' / 'test_city_glb_offset.json', {'shift_x': 0, 'shift_y': 0, 'shift_z': 0})
     (source_dir / 'tiles').mkdir(parents=True, exist_ok=True)
     output = tmp_path / 'tile_manifest.json'
 
-    code = generate_manifest.main(['--source-dir', str(source_dir), '--output', str(output)])
+    code = generate_manifest.main([
+        '--source-dir', str(source_dir),
+        '--output', str(output),
+        '--city-id', 'test_city',
+        '--city-name', 'Test City',
+        '--crs', 'EPSG:6346',
+    ])
 
     assert code == 0
-    manifest = json.loads(output.read_text(encoding='utf-8'))
-    assert manifest['tiles'][0]['has_glb'] is False
-    assert manifest['tiles'][0]['bbox_4326'] == {'xmin': -1.0, 'ymin': -1.0, 'xmax': 1.0, 'ymax': 1.0}
-    assert manifest['tiles'][0]['cull_bounds']['source'] == 'bbox_4326'
-    assert 'building_count' not in manifest['tiles'][0]
-    assert 'mass_metadata_count' not in manifest['tiles'][0]
+    tile = json.loads(output.read_text(encoding='utf-8'))['tiles'][0]
+    assert tile['glb_url'] is None
+    assert tile['selectable'] is False
+    assert tile['building_count'] == 0
+    assert tile['metadata_url'] is None
 
 
-def test_generate_viewer_manifest_preserves_array_bbox(tmp_path: Path):
+def test_generate_viewer_manifest_tile_without_glb_has_inferred_bbox(tmp_path: Path):
     source_dir = tmp_path / 'source'
     write_json(
         source_dir / 'tile_manifest.json',
@@ -173,24 +190,26 @@ def test_generate_viewer_manifest_preserves_array_bbox(tmp_path: Path):
             ]
         },
     )
-    write_json(source_dir / 'blender_ready' / 'miami_city_glb_offset.json', {'shift_x': 0, 'shift_y': 0, 'shift_z': 0})
+    write_json(source_dir / 'blender_ready' / 'test_city_glb_offset.json', {'shift_x': 0, 'shift_y': 0, 'shift_z': 0})
     (source_dir / 'tiles').mkdir(parents=True, exist_ok=True)
     output = tmp_path / 'tile_manifest.json'
 
-    code = generate_manifest.main(['--source-dir', str(source_dir), '--output', str(output)])
+    code = generate_manifest.main([
+        '--source-dir', str(source_dir),
+        '--output', str(output),
+        '--city-id', 'test_city',
+        '--city-name', 'Test City',
+        '--crs', 'EPSG:6346',
+    ])
 
     assert code == 0
     tile = json.loads(output.read_text(encoding='utf-8'))['tiles'][0]
-    assert tile['bbox_4326'] == {
-        'xmin': -80.3,
-        'ymin': 25.7,
-        'xmax': -80.2,
-        'ymax': 25.8,
-    }
-    assert tile['cull_bounds']['source'] == 'bbox_4326'
+    assert tile['glb_url'] is None
+    assert len(tile['bbox']['min']) == 3
+    assert len(tile['bbox']['max']) == 3
 
 
-def test_generate_viewer_manifest_keeps_unknown_mass_counts_empty(tmp_path: Path):
+def test_generate_viewer_manifest_glb_only_tile_defaults_building_count_zero(tmp_path: Path):
     source_dir = tmp_path / 'source'
     write_json(
         source_dir / 'tile_manifest.json',
@@ -203,19 +222,25 @@ def test_generate_viewer_manifest_keeps_unknown_mass_counts_empty(tmp_path: Path
             ]
         },
     )
-    write_json(source_dir / 'blender_ready' / 'miami_city_glb_offset.json', {'shift_x': 0, 'shift_y': 0, 'shift_z': 0})
+    write_json(source_dir / 'blender_ready' / 'test_city_glb_offset.json', {'shift_x': 0, 'shift_y': 0, 'shift_z': 0})
     tile_dir = source_dir / 'tiles' / 'tile_glb_only' / 'blender_ready'
     tile_dir.mkdir(parents=True, exist_ok=True)
     (tile_dir / 'tile_glb_only.glb').write_bytes(b'glb')
     output = tmp_path / 'tile_manifest.json'
 
-    code = generate_manifest.main(['--source-dir', str(source_dir), '--output', str(output)])
+    code = generate_manifest.main([
+        '--source-dir', str(source_dir),
+        '--output', str(output),
+        '--city-id', 'test_city',
+        '--city-name', 'Test City',
+        '--crs', 'EPSG:6346',
+    ])
 
     assert code == 0
     tile = json.loads(output.read_text(encoding='utf-8'))['tiles'][0]
-    assert tile['has_glb'] is True
-    assert 'building_count' not in tile
-    assert 'mass_metadata_count' not in tile
+    assert tile['glb_url'] == '/models/tiles/tile_glb_only.glb'
+    assert tile['selectable'] is True
+    assert tile['building_count'] == 0
 
 
 def test_validate_tile_manifest_rejects_null_has_glb(tmp_path: Path):
