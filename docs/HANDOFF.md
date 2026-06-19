@@ -1,12 +1,12 @@
-# Handoff — R10 complete, next milestone planned
+# Handoff — R11 complete, next milestone planned
 
-**Current HEAD:** (see git log — updated after R10 commit)
+**Current HEAD:** (see git log — updated after R11 commit)
 **Date:** 2026-06-19
 **Source of truth:** docs/GLYTCHOS_SPEC.md
 
 ---
 
-## What's done (R1–R10)
+## What's done (R1–R11)
 
 - R1: All 7 JSON schemas in schemas/ (validate as Draft-07)
 - R2: scripts/preflight.sh, save.sh, agnostic_gate.sh (executable)
@@ -20,6 +20,7 @@
 - R8: Phase 01 schema validation + paths.local resolution wired. Three new functions in phase_common.py; new-format detection in phase_00; 6 new tests. Commit da79ae0. Details in R8 section below.
 - R9: Agnostic runtime constructor — `build_runtime_from_agnostic_config()` + new-format branch in `load_city()`. All 20 CityRuntime fields traced and mapped. paths_local schema sufficient — no schema change. 6 new tests. Commit 451edc8. Details in R9 section below.
 - R10: Real-machine Phase 00 and Phase 01 proof against Miami data on `jaDeFireLoom1`. No code changes. Details in R10 section below.
+- R11: Miami Phase 02 tile manifest written and all 108 bboxes hydrated via PDAL. `jsonschema` added to `pdal_env`. No source-code changes. Details in R11 section below.
 
 ---
 
@@ -219,6 +220,115 @@ None — this milestone was proof-only. No source files were modified.
 
 ---
 
+## R11 — complete (Miami Phase 02 tile manifest and bbox hydration)
+
+### Phase 02 dry-run
+
+```bash
+python phase_02_tile_manifest.py --city miami --dry-run
+```
+
+- New-format `CityRuntime` loaded successfully.
+- Phase 01 inventory consumed from `/mnt/e/miami/data_processed/metadata/laz_inventory.json`.
+- 108 LAZ tiles recognized; 108 on disk; 0 missing.
+- Planned output: `/mnt/e/miami/data_processed/tile_manifest.json`
+- No PDAL work performed in dry-run.
+- Exit code: **0**
+
+### Initial Phase 02 execute (no hydration)
+
+```bash
+python phase_02_tile_manifest.py --city miami --execute
+```
+
+- First manifest written — no prior file existed.
+- 108 tile records; 108 on disk; 0 missing.
+- All 108 `bbox_4326` values initially null (hydration not yet run).
+- Output: `/mnt/e/miami/data_processed/tile_manifest.json`
+- Phase status: `/mnt/e/miami/data_processed/status/phase_02.json`
+- Exit code: **0**
+
+Manifest metadata:
+- `schema_version`: `"1.0"`
+- `city_id`: `"miami"`
+- `display_name`: `"City of Miami"`
+- `discovery_source`: `"laz_inventory"`
+- `catalog_path`: `null`
+- `local_data_gb`: `13.943`
+
+### Environment completion
+
+BBox hydration requires PDAL, pyproj, and jsonschema in one environment. The existing `pdal_env` had PDAL and pyproj but lacked jsonschema. The following packages were added to `pdal_env` via `conda install -n pdal_env -c conda-forge jsonschema`:
+
+- jsonschema 4.26.0
+- jsonschema-specifications 2025.9.1
+- referencing 0.37.0
+- rpds-py 2026.5.1 (py311)
+- attrs 26.1.0
+- ca-certificates, certifi, openssl (patch-level certificate updates only)
+
+PDAL, pyproj, Python 3.11, and all other geospatial packages were not changed.
+
+Verified `pdal_env` after install:
+```
+Python:     3.11.15
+PDAL:       2.10.1
+pyproj:     3.7.2
+jsonschema: 4.26.0
+```
+
+Phase 00 was rerun inside `pdal_env` and exited 0 before hydration was launched.
+
+### Bbox hydration
+
+```bash
+conda run -n pdal_env \
+  python phase_02_tile_manifest.py \
+  --city miami --execute --hydrate-bbox --force
+```
+
+(`--force` required because Phase 02 status was already `complete` from the prior null-bbox execute.)
+
+- Exit code: **0**
+- Elapsed: ~10.356 seconds (108 × `pdal info --metadata`)
+- Total tiles: **108**; on disk: **108**; missing: **0**
+- Populated `bbox_4326`: **108**
+- Null `bbox_4326`: **0**
+- Hydration failures: **0**
+
+Coordinate validation — all tiles in Miami, Florida:
+- Longitude: approximately −80.27 to −80.12
+- Latitude: approximately 25.71 to 25.87
+- Format: decimal-degree EPSG:4326 (`{xmin, ymin, xmax, ymax}`), no projected-meter values
+
+Live manifest:
+- `/mnt/e/miami/data_processed/tile_manifest.json` (62 KB)
+- SHA-256: `4ba50e7d34ead2de7f852ab127e7586265d6b8b2fe00a8e8c5ea60246340cad6`
+
+Pre-hydration backup (unmodified):
+- `/mnt/e/miami/data_processed/tile_manifest.pre_bbox_hydration.json`
+- SHA-256: `d8a39228535437cec1378709d77ad323da09673f74d2ff080097cbcf559a9f86`
+
+Phase status:
+- `/mnt/e/miami/data_processed/status/phase_02.json` — `status: complete`, `null_bbox_count: 0`
+
+### Architectural proof
+
+- Agnostic runtime consumed real Miami data through Phase 02.
+- Phase 01 inventory fed Phase 02 tile discovery (`discovery_source: "laz_inventory"`).
+- Manifest output path derived deterministically from machine-local `output_root`.
+- Bbox hydration succeeded for every one of 108 tiles.
+- No committed machine paths were introduced.
+- No legacy city loader was used.
+- No source-code modification was required.
+- Phase 03 remains **PLANNED — NOT STARTED**.
+
+### Files changed in R11
+
+None committed — this milestone was real-data proof plus environment fix. Only `pdal_env` was modified (conda package install); no repository source files changed.
+
+---
+
 ## Known untouched local modifications (DO NOT TOUCH)
 
 - .claude/settings.local.json (pre-existing)
@@ -240,24 +350,26 @@ None — this milestone was proof-only. No source files were modified.
 
 ---
 
-## Next milestone — Phase 02 source catalog for Miami
+## Next milestone — Phase 03 point-cloud validation for Miami
 
 **Status: PLANNED — NOT STARTED.**
 
-Phase 01 is complete and verified against real Miami data. Phase 00 and Phase 01 prove the agnostic foundation end-to-end on `jaDeFireLoom1`.
+Phases 00, 01, and 02 are complete and verified against real Miami data on `jaDeFireLoom1`. The tile manifest has 108 entries with fully hydrated EPSG:4326 bboxes.
 
-**Phase 02 — source catalog (spec §5.6):**
-> Catalog LAZ/LAS: path, size, point count, bounds, CRS, source notes.
+**Phase 03 — point-cloud validation (spec §5.6):**
+> Files exist/readable; bounds intersect bbox; CRS known or transformable; Z plausible. Empty batches are WARN, not fatal. Global failure only if all meaningful batches fail.
 
-The inventory written by Phase 01 (`laz_inventory.json`) lists 108 files with basic stat metadata (path, size, modified_at). Phase 02 deepens this into a spatial catalog: per-file point counts, bounds, CRS, and source notes needed by Phase 03 (point-cloud validation) and Phase 06 (tile grid).
+Phase 03 validates each LAZ tile's spatial integrity against the city bbox. It reads from the tile manifest produced by Phase 02. Run via `pdal_env` (requires PDAL and pyproj).
 
 Before starting, read:
-- `docs/GLYTCHOS_SPEC.md` §5.6 (Phase 02 definition)
-- `scripts/phases/phase_02_source_catalog.py` (if it exists) or the analogous phase script
-- `scripts/phases/phase_common.py` — `laz_files()`, `CityRuntime`
-- `/mnt/e/miami/data_processed/metadata/laz_inventory.json` — current Phase 01 output
+- `docs/GLYTCHOS_SPEC.md` §5.6 (Phase 03 definition)
+- `scripts/phases/phase_03_validate_laz.py` (or the analogous script)
+- `/mnt/e/miami/data_processed/tile_manifest.json` — Phase 02 output, 108 tiles with bboxes
+- `scripts/phases/phase_common.py` — `validate_city_config()`, `CityRuntime`
 
-Do not start implementation without approval.
+Run dry-run first; confirm all 108 tiles intersect the city bbox before executing.
+
+Do not start without approval.
 
 ---
 
