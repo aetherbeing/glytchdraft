@@ -1,4 +1,4 @@
-# Handoff — R11 complete, next milestone planned
+# Handoff — R12 complete, R13 planned
 
 **Current HEAD:** (see git log — updated after R11 commit)
 **Date:** 2026-06-19
@@ -21,6 +21,7 @@
 - R9: Agnostic runtime constructor — `build_runtime_from_agnostic_config()` + new-format branch in `load_city()`. All 20 CityRuntime fields traced and mapped. paths_local schema sufficient — no schema change. 6 new tests. Commit 451edc8. Details in R9 section below.
 - R10: Real-machine Phase 00 and Phase 01 proof against Miami data on `jaDeFireLoom1`. No code changes. Details in R10 section below.
 - R11: Miami Phase 02 tile manifest written and all 108 bboxes hydrated via PDAL. `jsonschema` added to `pdal_env`. No source-code changes. Details in R11 section below.
+- R12: Miami Phase 03 five-tile local canary — Phases 00–03 run against five representative LAZ tiles copied to local SSD. 20 PDAL jobs, 20 PLY files, 2.0 GB output, 10m19s wall time. Full `/mnt/e` output tree untouched. No source-code changes. Details in R12 section below.
 
 ---
 
@@ -350,24 +351,140 @@ None committed — this milestone was real-data proof plus environment fix. Only
 
 ---
 
-## Next milestone — Phase 03 point-cloud validation for Miami
+## R12 — complete (Miami Phase 03 five-tile local canary)
+
+### Goal
+
+Prove Phase 03 (point-cloud extraction) end-to-end before committing to a full 108-tile run. Five representative Miami LAZ tiles were copied from `/mnt/e` to local SSD and run through the complete Phases 00–03 pipeline in isolation, with the full `/mnt/e/miami/data_processed` output tree left untouched.
+
+### Canary tile selection
+
+Five tiles selected by file size from the 108-tile Phase 02 manifest (all on disk, all bbox-hydrated):
+
+| Label | Tile ID | Size |
+|-------|---------|------|
+| smallest | `USGS_LPC_FL_MiamiDade_D23_LID2024_317254_0901` | 0.50 MB |
+| p25 | `USGS_LPC_FL_MiamiDade_D23_LID2024_317854_0901` | 68.21 MB |
+| median | `USGS_LPC_FL_MiamiDade_D23_LID2024_316948_0901` | 157.58 MB |
+| p75 | `USGS_LPC_FL_MiamiDade_D23_LID2024_317549_0901` | 186.20 MB |
+| largest | `USGS_LPC_FL_MiamiDade_D23_LID2024_319946_0901` | 237.26 MB |
+
+Input: approximately 650 MB. Canary roots:
+- LAZ: `~/glitchos_canary/miami/data_raw/laz`
+- Output: `~/glitchos_canary/miami/data_processed`
+
+### Pipeline execution — all phases
+
+`paths.local.json` was temporarily pointed at the canary roots (footprint and address paths preserved), then restored byte-for-byte after the run.
+
+**Phase 00 — dry-run (canary paths)**
+- New-format config recognized; canary LAZ dir and footprint/address paths resolved.
+- Exit code: **0**
+
+**Phase 01 — execute**
+- 5 LAZ files inventoried; total size 0.635 GB.
+- Output: `~/glitchos_canary/miami/data_processed/metadata/laz_inventory.json`
+- Exit code: **0**
+
+**Phase 02 — execute + hydrate-bbox**
+- 5 tile records written; 5/5 bboxes hydrated via PDAL.
+- No hydration failures.
+- Output: `~/glitchos_canary/miami/data_processed/tile_manifest.json`
+- Exit code: **0**
+
+**Phase 03 — dry-run**
+- 5 tiles recognized; all with `vegetation_enabled=True`.
+- No PDAL work performed.
+- Exit code: **0**
+
+**Phase 03 — execute (`--resume`)**
+- 20 PDAL jobs (5 tiles × 4 pipelines: `building_1m`, `building_025m`, `ground_1m`, `vegetation_1m`).
+- `tiles_total: 5`, `tiles_complete: 5`, `tiles_failed: 0`, `tiles_skipped: 0`
+- Wall time: **10m19s**; user time: 12m23s.
+- Exit code: **0**
+
+### Phase 03 output verification
+
+**Counts:** 5 tile directories, 20 PLY files — correct.
+
+**Point counts per tile (from phase_03.json `details.points`):**
+
+| Tile | building_1m | building_025m | ground_1m | vegetation_1m |
+|------|-------------|---------------|-----------|---------------|
+| 317254 (0.5 MB) | 6,168 | 27,514 | 3,200 | 0 |
+| 317854 (68 MB) | 904,873 | 4,526,198 | 374,636 | 0 |
+| 316948 (157 MB) | 2,015,210 | 9,605,413 | 1,296,380 | 0 |
+| 317549 (186 MB) | 2,444,088 | 12,418,902 | 1,203,373 | 0 |
+| 319946 (237 MB) | 4,436,375 | 21,567,204 | 983,950 | 0 |
+| **Totals** | **9,806,714** | **48,145,231** | **3,861,539** | **0** |
+
+**PLY file status:**
+- 15 nonempty PLYs (building_1m, building_025m, ground_1m for each of 5 tiles): all contain expected point counts.
+- 5 vegetation PLYs: 174-byte header-only files (0 points). Vegetation classes 3–5 were absent in all five sampled tiles. **This pattern is observed for 5 tiles only; it has not been verified across the full 108-tile dataset.**
+
+**Coordinate validation:**
+- All PLY files use `property double X/Y/Z` (binary little-endian).
+- Output CRS: EPSG:32617 (UTM Zone 17N), as configured by `miami.json`.
+- All sampled coordinates finite; X approximately 572,000–587,000 m (Easting), Y approximately 2,843,000–2,861,000 m (Northing), Z approximately −1.1 to +157.5 m — geographically correct for Miami.
+- No NaN or Inf values found.
+
+**Total canary output size:** approximately 2.0 GB (from 650 MB input; ratio ≈ 3.1×).
+
+### Safety checks
+
+- Full `/mnt/e/miami/data_processed/tiles` remained at 0 directories — untouched.
+- `/mnt/e/miami/data_processed/status/phase_03.json` does not exist.
+- `paths.local.json` restored byte-for-byte (SHA-256 matched backup).
+- No tracked repository files changed.
+- `git status --short` identical to pre-canary state (same 6 pre-existing dirty files).
+- Phase 04 was not started.
+
+### Runtime estimates for full 108-tile Phase 03 (estimates only)
+
+These are projections based on canary data. Actual results will vary with I/O throughput.
+
+- **Full job count:** 432 PDAL jobs (108 tiles × 4 pipelines)
+- **Runtime on local SSD:** approximately 3.5–5 hours
+- **Runtime from USB drive (`/mnt/e`):** may be substantially slower (USB 3.0 I/O bottleneck adds 2–4× latency per tile)
+- **Output size:** approximately 40–50 GB (at the observed 3.1× expansion ratio across 14 GB of input)
+
+### Files changed in R12
+
+None — this milestone was real-data canary proof. No repository source files were modified.
+
+---
+
+## R13 PLANNED — full Miami Phase 03 extraction on isolated local SSD storage
 
 **Status: PLANNED — NOT STARTED.**
 
-Phases 00, 01, and 02 are complete and verified against real Miami data on `jaDeFireLoom1`. The tile manifest has 108 entries with fully hydrated EPSG:4326 bboxes.
+Phases 00, 01, and 02 are complete and verified against real Miami data on `jaDeFireLoom1`. The tile manifest at `/mnt/e/miami/data_processed/tile_manifest.json` has 108 entries with fully hydrated EPSG:4326 bboxes. Phase 03 has been proven end-to-end over five representative tiles in R12.
 
-**Phase 03 — point-cloud validation (spec §5.6):**
-> Files exist/readable; bounds intersect bbox; CRS known or transformable; Z plausible. Empty batches are WARN, not fatal. Global failure only if all meaningful batches fail.
+### Goal
 
-Phase 03 validates each LAZ tile's spatial integrity against the city bbox. It reads from the tile manifest produced by Phase 02. Run via `pdal_env` (requires PDAL and pyproj).
+Run the full 108-tile Phase 03 extraction using local SSD storage to avoid USB-drive I/O bottlenecks. All 108 LAZ tiles are copied to local SSD first; Phase 03 executes against those local copies; `/mnt/e` is not written to.
 
-Before starting, read:
-- `docs/GLYTCHOS_SPEC.md` §5.6 (Phase 03 definition)
-- `scripts/phases/phase_03_validate_laz.py` (or the analogous script)
-- `/mnt/e/miami/data_processed/tile_manifest.json` — Phase 02 output, 108 tiles with bboxes
-- `scripts/phases/phase_common.py` — `validate_city_config()`, `CityRuntime`
+### Planned roots
 
-Run dry-run first; confirm all 108 tiles intersect the city bbox before executing.
+- LAZ source: `~/glitchos_local/miami/data_raw/laz`
+- Output: `~/glitchos_local/miami/data_processed`
+
+### Steps (do not begin without approval)
+
+1. Confirm available local space (108 tiles ≈ 14 GB in + ≈ 40–50 GB out — need approximately 65 GB free).
+2. Copy all 108 LAZ files from `/mnt/e/miami/data_raw/laz` to `~/glitchos_local/miami/data_raw/laz`.
+3. Back up `paths.local.json`.
+4. Point `paths.local.json` at the local roots.
+5. Validate schema.
+6. Run Phase 00 dry-run.
+7. Run Phase 01 execute (inventory 108 tiles from local copy).
+8. Run Phase 02 execute + hydrate-bbox.
+9. Run Phase 03 dry-run (confirm 108 tiles recognized).
+10. Run Phase 03 execute (432 PDAL jobs; use `--resume` to support interruption).
+11. Verify: 108 tile dirs, 432 PLY files, point counts, coordinate ranges.
+12. Check vegetation PLY status across all 108 tiles (canary showed 0 pts in 5/5 — confirm or find exceptions).
+13. Restore `paths.local.json` to `/mnt/e` roots.
+14. Record results in R13 section; commit and push.
 
 Do not start without approval.
 
