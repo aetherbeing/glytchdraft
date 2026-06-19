@@ -1,5 +1,5 @@
 /**
- * TEAL_WIRE — GlytchOS Miami viewer preset
+ * TEAL_WIRE — GlytchOS viewer preset
  * Captured: 2026-05-25
  *
  * Dark neon cyberpunk palette. Cyan wireframe buildings, purple→cyan floor

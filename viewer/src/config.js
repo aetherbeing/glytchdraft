@@ -1,6 +1,6 @@
 // Scene coordinate extents (from GLB accessor bounds)
 export const SCENE = {
-  // Full City of Miami extents in GLB Y-up space
+  // Scene extents in GLB Y-up space (meters)
   xMin: 0,     xMax: 15235,
   yMin: -21,   yMax: 313,
   zMin: -18282, zMax: 0,
@@ -8,8 +8,6 @@ export const SCENE = {
   cx: 7617, cy: 60, cz: -9141,
 }
 
-// GLB URL — served from public/models symlink
-export const GLB_URL = '/models/miami.glb'
 export const TILE_MANIFEST_URL = '/models/tile_manifest.json'
 export const MAX_STREAMED_TILES = 10
 

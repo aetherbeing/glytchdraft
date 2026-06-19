@@ -93,7 +93,6 @@ export function HUD({
         <div style={{ fontWeight: 700, fontSize: 13, letterSpacing: '0.12em' }}>
           GlitchOS.io
         </div>
-        <div style={{ ...DIM, marginTop: 2 }}>CITY OF MIAMI · FULL GLB</div>
         <div style={DIM}>buildings · terrain · vegetation</div>
       </div>
 
