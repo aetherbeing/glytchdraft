@@ -319,6 +319,27 @@ def load_city(city: str) -> CityRuntime:
         config_path = CITY_CONFIG_DIR / f"{city.lower()}.json"
     if config_path.exists():
         data = json.loads(config_path.read_text(encoding="utf-8"))
+        if "source_ids" in data:
+            # New-format config: schema-valid, no embedded machine paths.
+            # Load paths.local, resolve source IDs, construct runtime via agnostic builder.
+            _pl, _pl_errors, _ = load_paths_local(REPO_ROOT)
+            if _pl_errors:
+                raise SystemExit(
+                    "paths.local.json errors (fix before running pipeline):\n  "
+                    + "\n  ".join(_pl_errors)
+                )
+            _resolved, _res_errors, _ = resolve_source_ids(data, _pl)
+            if _res_errors:
+                raise SystemExit(
+                    "Source ID resolution failed:\n  "
+                    + "\n  ".join(_res_errors)
+                )
+            return build_runtime_from_agnostic_config(
+                city_config=data,
+                paths_local=_pl or {},
+                resolved_sources=_resolved,
+                requested_city=city,
+            )
         output_root = resolve_cross_platform_path(Path(data.get("output_root") or Path(data["tiles_root"]).parent))
         metadata_dir = output_root / "metadata"
         audit_dir = resolve_cross_platform_path(Path(data.get("audit_dir") or output_root / "audit"))
@@ -869,3 +890,124 @@ def resolve_source_ids(
             resolved[key] = concrete
 
     return resolved, errors, warnings
+
+
+# ── R9: agnostic runtime constructor ─────────────────────────────────────────
+
+def build_runtime_from_agnostic_config(
+    city_config: dict,
+    paths_local: dict,
+    resolved_sources: dict[str, str | None],
+    requested_city: str = "",
+) -> CityRuntime:
+    """Construct CityRuntime from a schema-valid new-format city config.
+
+    All artifact paths are derived deterministically from paths_local['output_root'].
+    Hard-fails when required runtime inputs (output_root, laz source) are absent.
+    Does not embed any city-specific names or paths in shared code.
+    """
+    city_id: str = city_config["city_id"]
+    city_name: str = city_config["city_name"]
+    tunables: dict[str, Any] = city_config.get("pipeline_tunables") or {}
+
+    # output_root is required — all artifact paths derive from it.
+    output_root_str = paths_local.get("output_root")
+    if not output_root_str:
+        raise SystemExit(
+            f"paths.local.json is missing 'output_root'; required to construct "
+            f"runtime paths for city '{city_id}'. Add output_root to paths.local.json."
+        )
+    output_root = resolve_cross_platform_path(Path(output_root_str))
+
+    # laz_dir from resolved source — required.
+    laz_dir_str = resolved_sources.get("laz")
+    if not laz_dir_str:
+        raise SystemExit(
+            f"Required 'laz' source resolved to None for city '{city_id}'. "
+            "Ensure paths.local.json source_roots contains an entry for the laz source_id."
+        )
+    laz_dir = resolve_cross_platform_path(Path(laz_dir_str))
+
+    # All artifact paths derived deterministically from output_root.
+    tiles_root = output_root / "tiles"
+    metadata_dir = output_root / "metadata"
+    audit_dir = output_root / "audit"
+    tile_manifest = output_root / "tile_manifest.json"
+    city_manifest = output_root / "city_manifest.json"
+    address_points = metadata_dir / "address_points.geojson"
+    structures_enriched = metadata_dir / "structures_enriched.geojson"
+
+    # Parse integer EPSG from canonical output_crs ("EPSG:32617" → 32617).
+    output_crs = city_config.get("output_crs", "")
+    out_epsg: int | None = None
+    if ":" in output_crs:
+        try:
+            out_epsg = int(output_crs.rsplit(":", 1)[1])
+        except (ValueError, IndexError):
+            pass
+    if out_epsg is None:
+        epsg_val = tunables.get("output_epsg")
+        if epsg_val is not None:
+            try:
+                out_epsg = int(epsg_val)
+            except (TypeError, ValueError):
+                pass
+
+    # address_source — constructed from resolved path + pipeline_tunables metadata.
+    addr_path_str = resolved_sources.get("addresses")
+    addr_detail: dict[str, Any] = tunables.get("address_source_detail") or {}
+    address_source: dict[str, Any] | None = None
+    if addr_path_str:
+        address_source = {
+            "path": addr_path_str,
+            "source_name": addr_detail.get("source_name", ""),
+            "input_crs": addr_detail.get("input_crs", ""),
+            "field_map": addr_detail.get("field_map") or {},
+        }
+
+    # raw_config SimpleNamespace from pipeline_tunables — mirrors load_city Path A.
+    raw = SimpleNamespace(
+        DBSCAN_EPS=tunables.get("dbscan_eps", 3.0),
+        DBSCAN_MIN_SAMPLES=tunables.get("dbscan_min_samples", 10),
+        HAG_MIN_M=tunables.get("hag_min_m", 2.5),
+        HAG_MAX_M=tunables.get("hag_max_m", 300.0),
+        BUILDING_SOURCE_CLASS=tunables.get("building_source_class", 1),
+        GROUND_CLASS=tunables.get("ground_class", 2),
+        VEGETATION_ENABLED=bool(tunables.get("vegetation_enabled", True)),
+        VEGETATION_CLASSES=tuple(tunables.get("vegetation_classes", [3, 4, 5])),
+        require_addresses=bool(tunables.get("require_addresses", False)),
+        OUTLIER_MEAN_K=tunables.get("outlier_mean_k", 12),
+        OUTLIER_MULTIPLIER=tunables.get("outlier_multiplier", 2.2),
+        RING_BUFFER_M=tunables.get("ring_buffer_m", 5.0),
+        MIN_POINTS_GOOD=tunables.get("min_points_good", 8),
+        DEFAULT_FALLBACK_HEIGHT=tunables.get("default_fallback_height", 6.0),
+        COUNTY_FP_PATH=resolve_cross_platform_path(Path(tunables["county_footprints_path"])) if tunables.get("county_footprints_path") else None,
+        BOUNDARY_GEOJSON=resolve_cross_platform_path(Path(tunables["boundary_geojson"])) if tunables.get("boundary_geojson") else None,
+        FOOTPRINT_SOURCE=tunables.get("footprint_source_detail") or None,
+        LIDAR_FALLBACK_ON_EMPTY_TILE=bool(tunables.get("lidar_fallback_on_empty_tile", False)),
+    )
+
+    return CityRuntime(
+        requested_city=requested_city,
+        city_key=city_id,
+        city_id=city_id,
+        display_name=city_name,
+        output_root=output_root,
+        tiles_root=tiles_root,
+        metadata_dir=metadata_dir,
+        audit_dir=audit_dir,
+        tile_manifest=tile_manifest,
+        city_manifest=city_manifest,
+        address_points=address_points,
+        structures_enriched=structures_enriched,
+        laz_dir=laz_dir,
+        catalog_path=None,
+        address_source=address_source,
+        address_join_radius_m=float(tunables.get("address_join_radius_m", 100.0)),
+        require_addresses=bool(tunables.get("require_addresses", False)),
+        preserve_raw_laz=bool(tunables.get("keep_raw_laz", True)),
+        pipeline_version=str(tunables.get("pipeline_version", "1.0")),
+        out_epsg=out_epsg,
+        bbox_4326=dict(city_config.get("bbox_4326") or {}),
+        raw_config=raw,
+    )
