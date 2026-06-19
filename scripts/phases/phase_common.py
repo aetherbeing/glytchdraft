@@ -718,3 +718,154 @@ def laz_files(city: CityRuntime) -> list[Path]:
 
 def load_json(path: Path) -> dict[str, Any]:
     return json.loads(path.read_text(encoding="utf-8"))
+
+
+# ── R8: city config schema validation + paths.local resolution ────────────────
+
+_REQUIRED_SOURCE_IDS: frozenset[str] = frozenset({"laz"})
+_NULL_SKIP_SOURCE_IDS: frozenset[str] = frozenset({"terrain", "streets"})
+
+
+def validate_city_config_against_schema(
+    config_path: Path,
+    schema_dir: Path | None = None,
+) -> tuple[list[str], list[str]]:
+    """Load raw city config JSON and validate against city_config.schema.json.
+
+    Returns (errors, warnings). Errors = schema violations. Hard-fails the phase.
+    """
+    from jsonschema import Draft7Validator
+
+    schema_dir = schema_dir or (REPO_ROOT / "schemas")
+    errors: list[str] = []
+    warnings: list[str] = []
+
+    try:
+        data = json.loads(config_path.read_text(encoding="utf-8"))
+    except Exception as exc:
+        errors.append(f"Failed to read city config {config_path}: {exc}")
+        return errors, warnings
+
+    try:
+        schema = json.loads((schema_dir / "city_config.schema.json").read_text(encoding="utf-8"))
+    except Exception as exc:
+        errors.append(f"Failed to read city_config schema: {exc}")
+        return errors, warnings
+
+    validator = Draft7Validator(schema)
+    for err in sorted(validator.iter_errors(data), key=lambda e: list(e.path)):
+        path_str = " > ".join(str(p) for p in err.path) if err.path else "root"
+        errors.append(f"Schema violation at {path_str}: {err.message}")
+
+    return errors, warnings
+
+
+def load_paths_local(
+    repo_root: Path,
+    schema_dir: Path | None = None,
+) -> tuple[dict | None, list[str], list[str]]:
+    """Find and load paths.local.json from repo_root, validate against paths_local.schema.json.
+
+    Returns (payload_or_None, errors, warnings).
+    Absence of paths.local.json is a warning (file is intentionally gitignored).
+    Schema violations are errors.
+    """
+    from jsonschema import Draft7Validator
+
+    schema_dir = schema_dir or (REPO_ROOT / "schemas")
+    paths_local_path = repo_root / "paths.local.json"
+    errors: list[str] = []
+    warnings: list[str] = []
+
+    if not paths_local_path.exists():
+        warnings.append(
+            f"paths.local.json not found at {paths_local_path}; "
+            "source resolution will be skipped"
+        )
+        return None, errors, warnings
+
+    try:
+        data = json.loads(paths_local_path.read_text(encoding="utf-8"))
+    except Exception as exc:
+        errors.append(f"Failed to read paths.local.json: {exc}")
+        return None, errors, warnings
+
+    try:
+        schema = json.loads((schema_dir / "paths_local.schema.json").read_text(encoding="utf-8"))
+    except Exception as exc:
+        errors.append(f"Failed to read paths_local schema: {exc}")
+        return None, errors, warnings
+
+    validator = Draft7Validator(schema)
+    for err in sorted(validator.iter_errors(data), key=lambda e: list(e.path)):
+        path_str = " > ".join(str(p) for p in err.path) if err.path else "root"
+        errors.append(f"paths.local.json schema violation at {path_str}: {err.message}")
+
+    if errors:
+        return None, errors, warnings
+
+    return data, errors, warnings
+
+
+def resolve_source_ids(
+    city_config: dict,
+    paths_local: dict | None,
+) -> tuple[dict[str, str | None], list[str], list[str]]:
+    """Map each source_id in city_config['source_ids'] to a concrete path via paths_local.
+
+    Returns (resolved, errors, warnings).
+    'laz' is required — unresolved laz is a hard-fail error.
+    'footprints' and 'addresses' are optional — unresolved produces warnings.
+    'terrain' and 'streets' with null values are silently skipped.
+    """
+    errors: list[str] = []
+    warnings: list[str] = []
+    resolved: dict[str, str | None] = {}
+
+    source_ids: dict[str, str | None] = city_config.get("source_ids") or {}
+    source_roots: dict[str, str] = (paths_local or {}).get("source_roots") or {}
+
+    for key, source_id in source_ids.items():
+        if key in _NULL_SKIP_SOURCE_IDS and source_id is None:
+            resolved[key] = None
+            continue
+
+        if source_id is None:
+            if key in _REQUIRED_SOURCE_IDS:
+                errors.append(f"Required source '{key}' has null source_id in city config")
+            else:
+                warnings.append(f"Optional source '{key}' has null source_id; will be skipped")
+            resolved[key] = None
+            continue
+
+        if paths_local is None:
+            if key in _REQUIRED_SOURCE_IDS:
+                errors.append(
+                    f"Required source '{key}' (id={source_id!r}) cannot be resolved: "
+                    "paths.local.json not found"
+                )
+            else:
+                warnings.append(
+                    f"Optional source '{key}' (id={source_id!r}) cannot be resolved: "
+                    "paths.local.json not found"
+                )
+            resolved[key] = None
+            continue
+
+        concrete = source_roots.get(source_id)
+        if concrete is None:
+            if key in _REQUIRED_SOURCE_IDS:
+                errors.append(
+                    f"Required source '{key}' (id={source_id!r}) not found in "
+                    "paths.local.json source_roots"
+                )
+            else:
+                warnings.append(
+                    f"Optional source '{key}' (id={source_id!r}) not found in "
+                    "paths.local.json source_roots"
+                )
+            resolved[key] = None
+        else:
+            resolved[key] = concrete
+
+    return resolved, errors, warnings
