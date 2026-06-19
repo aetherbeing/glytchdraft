@@ -1,12 +1,12 @@
-# Handoff — R9 complete, next milestone planned
+# Handoff — R10 complete, next milestone planned
 
-**Current HEAD:** 451edc8 (pushed to origin/master)
+**Current HEAD:** (see git log — updated after R10 commit)
 **Date:** 2026-06-19
 **Source of truth:** docs/GLYTCHOS_SPEC.md
 
 ---
 
-## What's done (R1–R9)
+## What's done (R1–R10)
 
 - R1: All 7 JSON schemas in schemas/ (validate as Draft-07)
 - R2: scripts/preflight.sh, save.sh, agnostic_gate.sh (executable)
@@ -19,6 +19,7 @@
   - DEFERRED: HUD subtitle UI copy. When the viewer becomes manifest-driven, the city name should be read from the manifest and rendered dynamically. Track in glytchOS repo when that work begins.
 - R8: Phase 01 schema validation + paths.local resolution wired. Three new functions in phase_common.py; new-format detection in phase_00; 6 new tests. Commit da79ae0. Details in R8 section below.
 - R9: Agnostic runtime constructor — `build_runtime_from_agnostic_config()` + new-format branch in `load_city()`. All 20 CityRuntime fields traced and mapped. paths_local schema sufficient — no schema change. 6 new tests. Commit 451edc8. Details in R9 section below.
+- R10: Real-machine Phase 00 and Phase 01 proof against Miami data on `jaDeFireLoom1`. No code changes. Details in R10 section below.
 
 ---
 
@@ -122,6 +123,102 @@ Every field was traced across phases 01–10, phase_tile_common, audit_city_pipe
 
 ---
 
+## R10 — complete (real-machine Phase 00 and Phase 01 proof)
+
+### Machine-local configuration — `jaDeFireLoom1`
+
+`paths.local.json` is gitignored and not committed. Contents for this machine:
+
+```json
+{
+  "machine": "jaDeFireLoom1",
+  "source_roots": {
+    "miami_lidar":      "/mnt/e/miami/data_raw/laz",
+    "miami_footprints": "/mnt/e/miami/data_raw/geojson/miami_footprints_4326.geojson",
+    "miami_addresses":  "/mnt/e/miami/data_raw/addresses/miami_addresses.geojson"
+  },
+  "output_root": "/mnt/e/miami/data_processed"
+}
+```
+
+- `terrain` and `streets` remain null by design (per miami.json `source_ids`).
+- No `_comment` key — see diagnostic note below.
+
+### Local configuration issue encountered and resolved
+
+`paths_local.schema.json` uses `additionalProperties: false`. An initial `_comment` key in `paths.local.json` caused:
+
+```
+ERROR: paths.local.json schema violation at root: Additional properties are not allowed ('_comment' was unexpected)
+```
+
+When `load_paths_local()` returns `(None, errors, [])` on schema failure, `resolve_source_ids` receives `paths_local=None` and reports all sources as "paths.local.json not found" — a misleading message since the file was present. **No schema or shared-code change was required.** Removing `_comment` from the local file resolved the issue entirely.
+
+_Diagnostic quality note (future):_ the "not found" message in the resolver should distinguish between "file absent" and "file schema-invalid" to reduce confusion. Not a current blocker.
+
+### Phase 00 result
+
+```
+python phase_00_validate_config.py --city miami --dry-run
+```
+
+- New-format config (`source_ids` present) recognized correctly.
+- All required and optional configured source IDs resolved:
+  - `laz` → `/mnt/e/miami/data_raw/laz`
+  - `footprints` → `/mnt/e/miami/data_raw/geojson/miami_footprints_4326.geojson`
+  - `addresses` → `/mnt/e/miami/data_raw/addresses/miami_addresses.geojson`
+  - `terrain` → null (by design)
+  - `streets` → null (by design)
+- No warnings. No errors.
+- Exit code: **0**
+
+### Phase 01 dry-run result
+
+```
+python phase_01_laz_inventory.py --city miami --dry-run
+```
+
+- Agnostic `CityRuntime` constructed successfully via `build_runtime_from_agnostic_config()`.
+- `laz_dir`: `/mnt/e/miami/data_raw/laz`
+- `output_root`: `/mnt/e/miami/data_processed`
+- LAZ files discovered: **108**
+- Total size: **14,970,863,482 bytes / 13.943 GB**
+- Expected output: `/mnt/e/miami/data_processed/metadata/laz_inventory.json`
+- No warnings. No errors.
+- Exit code: **0**
+
+### Phase 01 execute result
+
+```
+python phase_01_laz_inventory.py --city miami --execute
+```
+
+- First inventory write; no prior file existed.
+- Output: `/mnt/e/miami/data_processed/metadata/laz_inventory.json` (33,557 bytes)
+- Records written: **108**
+- `schema_version`: `"1.0"`
+- `city_id`: `"miami"`
+- `preserve_raw_laz`: `true`
+- `generated_at`: `"2026-06-19T20:31:51Z"`
+- Phase status written: `/mnt/e/miami/data_processed/status/phase_01.json`
+- No warnings. No errors.
+- Exit code: **0**
+
+### Architectural proof
+
+- R8 schema/path resolution works against real machine-local sources.
+- R9 agnostic runtime construction works against real Miami data.
+- Phase 01 inventory output derives deterministically from `output_root` — no hardcoded city path in shared code.
+- No committed absolute machine paths were introduced.
+- Legacy loaders (old-format Path A/B/C) were not used.
+- No later phases were run.
+
+### Files changed in R10
+
+None — this milestone was proof-only. No source files were modified.
+
+---
+
 ## Known untouched local modifications (DO NOT TOUCH)
 
 - .claude/settings.local.json (pre-existing)
@@ -143,27 +240,22 @@ Every field was traced across phases 01–10, phase_tile_common, audit_city_pipe
 
 ---
 
-## Next milestone — Phase 01 end-to-end with a new-format config
+## Next milestone — Phase 02 source catalog for Miami
 
-**Status: PLANNED, NOT STARTED.**
+**Status: PLANNED — NOT STARTED.**
 
-The R8+R9 foundation is now complete:
-- R8 gates: config validates against schema, paths.local validates, source IDs resolve, laz hard-fails if absent.
-- R9 runtime: `load_city("miami")` now constructs a complete CityRuntime from fixture paths — no committed machine paths required.
+Phase 01 is complete and verified against real Miami data. Phase 00 and Phase 01 prove the agnostic foundation end-to-end on `jaDeFireLoom1`.
 
-**What still can't run:** Phases 01–10 exit after construction because the actual data (LAZ files, footprint GeoJSONs, address GeoJSONs) still lives on external drives that phases try to access via `city.laz_dir`, `city.address_source["path"]`, etc. `validate_city_config()` also still checks whether `city.laz_dir` exists on disk, which fails on a fresh clone without the drive.
+**Phase 02 — source catalog (spec §5.6):**
+> Catalog LAZ/LAS: path, size, point count, bounds, CRS, source notes.
 
-**The logical next milestone (not yet scoped in detail) is one of:**
-
-1. **Phase 01 (LAZ inventory) dry-run with a new-format config** — Confirm that phase_01 can be invoked with `--city miami --dry-run` after creating a `paths.local.json`, and that it reports correctly even if the LAZ dir is absent (spec §5.6: "empty batches are WARN, not fatal"). This requires `validate_city_config()` to treat absent-but-declared paths as warnings, not errors, for new-format configs in dry-run mode — or a minimal paths.local.json on the machine with the external drive mounted.
-
-2. **Migrate `validate_city_config()` to work with new-format CityRuntime** — The current `validate_city_config()` checks `city.laz_dir` for existence, `city.address_source` for a valid path, etc. These checks assume the old-format layout. For new-format configs, some of these checks are pre-validated by R8 (source IDs), but the runtime existence checks still apply. Decide whether to add a new-format aware validate path or relax the existing one.
+The inventory written by Phase 01 (`laz_inventory.json`) lists 108 files with basic stat metadata (path, size, modified_at). Phase 02 deepens this into a spatial catalog: per-file point counts, bounds, CRS, and source notes needed by Phase 03 (point-cloud validation) and Phase 06 (tile grid).
 
 Before starting, read:
-- `docs/GLYTCHOS_SPEC.md` §5.6 (phase behaviour rules)
-- `scripts/phases/phase_common.py` — `validate_city_config()` (current lines ~478–571)
-- `scripts/phases/phase_01_laz_inventory.py`
-- `scripts/phases/phase_tile_common.py` — `validate_or_fail()`
+- `docs/GLYTCHOS_SPEC.md` §5.6 (Phase 02 definition)
+- `scripts/phases/phase_02_source_catalog.py` (if it exists) or the analogous phase script
+- `scripts/phases/phase_common.py` — `laz_files()`, `CityRuntime`
+- `/mnt/e/miami/data_processed/metadata/laz_inventory.json` — current Phase 01 output
 
 Do not start implementation without approval.
 
