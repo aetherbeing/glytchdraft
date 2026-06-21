@@ -1,0 +1,87 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "glytchos.facade_evidence.v1",
+  "title": "Normalized facade evidence collection",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "building_id_namespace", "evidence"],
+  "properties": {
+    "schema_version": {"const": "glytchos.facade_evidence.v1"},
+    "building_id_namespace": {"const": "glytchdraft.phase06_building.v1"},
+    "evidence": {
+      "type": "array",
+      "items": {"$ref": "#/definitions/evidenceRecord"}
+    }
+  },
+  "definitions": {
+    "evidenceRecord": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "evidence_id", "building_id", "building_id_namespace", "evidence_type",
+        "value", "source_type", "source_reference", "license",
+        "source_timestamp", "attribution_requirements", "confidence",
+        "provenance_status", "quality_flags"
+      ],
+      "properties": {
+        "evidence_id": {"type": "string", "minLength": 1},
+        "building_id": {"type": "string", "minLength": 1},
+        "building_id_namespace": {"const": "glytchdraft.phase06_building.v1"},
+        "facade_edge_id": {"type": ["string", "null"]},
+        "evidence_type": {
+          "enum": [
+            "building_use", "construction_year", "construction_era",
+            "floor_count", "frontage_length", "frontage_orientation",
+            "street_facing_edge", "podium", "building_part", "glazing_ratio",
+            "glazing_class", "opening_rhythm", "entrance", "balcony",
+            "parking_opening", "explicit_facade_record",
+            "historic_inventory_attribute", "zoning", "land_use"
+          ]
+        },
+        "value": {
+          "type": ["string", "number", "integer", "boolean", "object", "array", "null"]
+        },
+        "unit": {"type": ["string", "null"]},
+        "source_type": {
+          "enum": [
+            "municipal_record", "zoning", "land_use_record",
+            "historic_inventory", "street_scan", "aerial_imagery",
+            "building_inventory", "user_contribution", "derived_geometry",
+            "other_open_data"
+          ]
+        },
+        "source_reference": {"type": "string", "minLength": 1},
+        "license": {"type": "string", "minLength": 1},
+        "source_timestamp": {"type": ["string", "null"], "format": "date-time"},
+        "attribution_requirements": {"type": "string"},
+        "confidence": {"type": "number", "minimum": 0, "maximum": 1},
+        "provenance_status": {
+          "enum": ["observed", "record_derived", "inferred", "unknown"]
+        },
+        "quality_flags": {
+          "type": "array",
+          "items": {"type": "string", "minLength": 1},
+          "uniqueItems": true
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {"provenance_status": {"const": "inferred"}}
+          },
+          "then": {
+            "properties": {"confidence": {"exclusiveMaximum": 1}}
+          }
+        },
+        {
+          "if": {
+            "properties": {"provenance_status": {"const": "unknown"}}
+          },
+          "then": {
+            "properties": {"confidence": {"const": 0}}
+          }
+        }
+      ]
+    }
+  }
+}

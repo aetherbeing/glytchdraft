@@ -1,0 +1,115 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "glytchos.building_synthesis_profile.v1",
+  "title": "Normalized building synthesis profile collection",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "building_id_namespace", "profiles"],
+  "properties": {
+    "schema_version": {"const": "glytchos.building_synthesis_profile.v1"},
+    "building_id_namespace": {"const": "glytchdraft.phase06_building.v1"},
+    "profiles": {
+      "type": "array",
+      "items": {"$ref": "#/definitions/profile"}
+    }
+  },
+  "definitions": {
+    "sourceRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status", "schema_version", "source_digest", "building_id",
+        "building_id_namespace"
+      ],
+      "properties": {
+        "status": {"enum": ["available", "missing"]},
+        "schema_version": {"type": ["string", "null"]},
+        "source_digest": {"type": ["string", "null"], "pattern": "^[a-f0-9]{64}$"},
+        "building_id": {"type": ["string", "null"]},
+        "building_id_namespace": {
+          "anyOf": [
+            {"const": "glytchdraft.phase06_building.v1"},
+            {"type": "null"}
+          ]
+        }
+      }
+    },
+    "profile": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version", "building_id", "building_id_namespace", "tile_id",
+        "named_building_node", "source_pipeline_commit", "source_metadata_digest",
+        "source_facade_evidence_digest",
+        "generated_at", "source_ids", "building_facts", "facade_evidence",
+        "material_profile", "roof_evidence", "uncertainty_notes"
+      ],
+      "properties": {
+        "schema_version": {"const": "glytchos.building_synthesis_profile.v1"},
+        "building_id": {"type": "string", "minLength": 1},
+        "building_id_namespace": {"const": "glytchdraft.phase06_building.v1"},
+        "tile_id": {"type": "string", "minLength": 1},
+        "named_building_node": {"type": ["string", "null"]},
+        "source_pipeline_commit": {"type": "string", "minLength": 1},
+        "source_metadata_digest": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+        "source_facade_evidence_digest": {
+          "type": "string", "pattern": "^[a-f0-9]{64}$"
+        },
+        "generated_at": {"type": "string", "format": "date-time"},
+        "source_ids": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["footprint_id", "source_footprint_id"],
+          "properties": {
+            "footprint_id": {"type": ["string", "null"]},
+            "source_footprint_id": {"type": ["string", "null"]}
+          }
+        },
+        "building_facts": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "building_use": {"type": ["string", "null"]},
+            "construction_year": {"type": ["integer", "null"]},
+            "construction_era": {"type": ["string", "null"]},
+            "height_m": {"type": ["number", "null"], "minimum": 0},
+            "floor_count": {"type": ["number", "null"], "minimum": 0},
+            "footprint_area_m2": {"type": ["number", "null"], "minimum": 0},
+            "frontage_length_m": {"type": ["number", "null"], "minimum": 0},
+            "frontage_orientation_degrees": {
+              "type": ["number", "null"], "minimum": 0, "exclusiveMaximum": 360
+            },
+            "street_facing_edges": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["facade_edge_id", "frontage_length_m"],
+                "properties": {
+                  "facade_edge_id": {"type": "string", "minLength": 1},
+                  "frontage_length_m": {"type": "number", "exclusiveMinimum": 0},
+                  "orientation_degrees": {
+                    "type": ["number", "null"], "minimum": 0, "exclusiveMaximum": 360
+                  }
+                }
+              }
+            },
+            "podium_levels": {"type": ["integer", "null"], "minimum": 0},
+            "setback_levels": {
+              "type": "array", "items": {"type": "integer", "minimum": 0}
+            }
+          }
+        },
+        "facade_evidence": {
+          "type": "array",
+          "items": {"$ref": "facade_evidence.schema.json#/definitions/evidenceRecord"}
+        },
+        "material_profile": {"$ref": "#/definitions/sourceRef"},
+        "roof_evidence": {"$ref": "#/definitions/sourceRef"},
+        "uncertainty_notes": {
+          "type": "array", "items": {"type": "string", "minLength": 1}
+        }
+      }
+    }
+  }
+}

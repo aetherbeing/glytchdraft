@@ -1,0 +1,257 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "glytchdraft.facade_diagnostic_geometry.v1",
+  "title": "Noncanonical single-facade diagnostic geometry",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "artifact_status",
+    "building_id",
+    "building_id_namespace",
+    "facade_edge_id",
+    "tile_id",
+    "recipe_digest",
+    "metadata_digest",
+    "source_artifacts",
+    "pipeline_commit",
+    "grammar_provider",
+    "grammar_provider_version",
+    "deterministic_seed",
+    "coordinate_frame",
+    "bounds",
+    "recess_depth_m",
+    "elements",
+    "rejection_reasons",
+    "diagnostic_only",
+    "canonical",
+    "production_allowed",
+    "viewer_ready",
+    "replaces_pipeline_geometry"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "glytchdraft.facade_diagnostic_geometry.v1"
+    },
+    "artifact_status": {
+      "enum": ["generated", "rejected"]
+    },
+    "building_id": {
+      "type": ["string", "null"],
+      "minLength": 1
+    },
+    "building_id_namespace": {
+      "const": "glytchdraft.phase06_building.v1"
+    },
+    "facade_edge_id": {
+      "type": ["string", "null"],
+      "minLength": 1
+    },
+    "tile_id": {
+      "type": ["string", "null"],
+      "minLength": 1
+    },
+    "recipe_digest": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "metadata_digest": {
+      "type": ["string", "null"],
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "source_artifacts": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "pipeline_commit": {
+      "type": ["string", "null"]
+    },
+    "grammar_provider": {
+      "type": "string",
+      "minLength": 1
+    },
+    "grammar_provider_version": {
+      "type": "string",
+      "minLength": 1
+    },
+    "deterministic_seed": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 4294967295
+    },
+    "coordinate_frame": {
+      "anyOf": [
+        {"$ref": "#/definitions/coordinateFrame"},
+        {"type": "null"}
+      ]
+    },
+    "bounds": {
+      "anyOf": [
+        {"$ref": "#/definitions/bounds"},
+        {"type": "null"}
+      ]
+    },
+    "recess_depth_m": {
+      "type": "number",
+      "minimum": 0
+    },
+    "elements": {
+      "type": "array",
+      "items": {"$ref": "#/definitions/element"}
+    },
+    "rejection_reasons": {
+      "type": "array",
+      "items": {"type": "string", "minLength": 1}
+    },
+    "diagnostic_only": {"const": true},
+    "canonical": {"const": false},
+    "production_allowed": {"const": false},
+    "viewer_ready": {"const": false},
+    "replaces_pipeline_geometry": {"const": false}
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {"artifact_status": {"const": "generated"}}
+      },
+      "then": {
+        "properties": {
+          "building_id": {"type": "string"},
+          "facade_edge_id": {"type": "string"},
+          "coordinate_frame": {"$ref": "#/definitions/coordinateFrame"},
+          "bounds": {"$ref": "#/definitions/bounds"},
+          "elements": {"minItems": 1},
+          "rejection_reasons": {"maxItems": 0}
+        }
+      },
+      "else": {
+        "properties": {
+          "elements": {"maxItems": 0},
+          "rejection_reasons": {"minItems": 1}
+        }
+      }
+    }
+  ],
+  "definitions": {
+    "vector3": {
+      "type": "array",
+      "items": {"type": "number"},
+      "minItems": 3,
+      "maxItems": 3
+    },
+    "coordinateFrame": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["origin", "u_axis", "z_axis", "n_axis", "units"],
+      "properties": {
+        "origin": {"$ref": "#/definitions/vector3"},
+        "u_axis": {"$ref": "#/definitions/vector3"},
+        "z_axis": {"$ref": "#/definitions/vector3"},
+        "n_axis": {"$ref": "#/definitions/vector3"},
+        "units": {"const": "meters"}
+      }
+    },
+    "bounds": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["edge_length_m", "ground_z", "building_top_z"],
+      "properties": {
+        "edge_length_m": {"type": "number", "exclusiveMinimum": 0},
+        "ground_z": {"type": "number"},
+        "building_top_z": {"type": "number"}
+      }
+    },
+    "point": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["u", "z", "n"],
+      "properties": {
+        "u": {"type": "number"},
+        "z": {"type": "number"},
+        "n": {"type": "number"}
+      }
+    },
+    "coordinates": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "points"],
+      "properties": {
+        "kind": {"enum": ["line", "polygon"]},
+        "points": {
+          "type": "array",
+          "items": {"$ref": "#/definitions/point"},
+          "minItems": 2,
+          "maxItems": 4
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {"kind": {"const": "line"}}
+          },
+          "then": {
+            "properties": {
+              "points": {"minItems": 2, "maxItems": 2}
+            }
+          },
+          "else": {
+            "properties": {
+              "points": {"minItems": 4, "maxItems": 4}
+            }
+          }
+        }
+      ]
+    },
+    "element": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "element_id",
+        "element_type",
+        "status",
+        "source_rule",
+        "applicability_score",
+        "coordinates",
+        "uncertainty_note"
+      ],
+      "properties": {
+        "element_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "element_type": {
+          "enum": [
+            "facade_boundary",
+            "floor_band",
+            "bay_boundary",
+            "bay_center",
+            "opening",
+            "entrance_zone",
+            "podium_division",
+            "recess_plane"
+          ]
+        },
+        "status": {"const": "procedural"},
+        "source_rule": {
+          "type": "string",
+          "minLength": 1
+        },
+        "applicability_score": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "coordinates": {
+          "$ref": "#/definitions/coordinates"
+        },
+        "uncertainty_note": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    }
+  }
+}

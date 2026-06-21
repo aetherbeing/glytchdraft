@@ -1,0 +1,207 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "glytchos.material_external_evidence.v1",
+  "title": "Normalized external building evidence for material adapters",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "evidence_id",
+    "building_id",
+    "building_id_namespace",
+    "source_artifact_reference",
+    "source_record_id",
+    "source_digest",
+    "source_type",
+    "source_license",
+    "observed_at",
+    "provenance_status",
+    "confidence",
+    "evidence"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {"const": "glytchos.material_external_evidence.v1"},
+    "evidence_id": {"type": "string", "pattern": ".*\\S.*"},
+    "building_id": {"type": "string", "pattern": ".*\\S.*"},
+    "building_id_namespace": {
+      "type": "string",
+      "pattern": "^[A-Za-z][A-Za-z0-9._-]*:[A-Za-z0-9][A-Za-z0-9._:-]*$",
+      "not": {
+        "pattern": "^(cluster_id|cid|array_position|row_number|filename_integer):"
+      }
+    },
+    "source_artifact_reference": {"type": "string", "pattern": ".*\\S.*"},
+    "source_record_id": {"type": "string", "pattern": ".*\\S.*"},
+    "source_digest": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "source_type": {
+      "enum": [
+        "osm_tags",
+        "municipal_record",
+        "historic_inventory",
+        "licensed_imagery",
+        "generic"
+      ]
+    },
+    "source_license": {"type": "string", "pattern": ".*\\S.*"},
+    "observed_at": {"type": "string", "format": "date-time"},
+    "provenance_status": {
+      "enum": ["observed", "record_derived", "inferred", "unknown"]
+    },
+    "confidence": {"type": "number", "minimum": 0, "maximum": 1},
+    "evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "minProperties": 1,
+      "properties": {
+        "tags": {
+          "type": "object",
+          "minProperties": 1,
+          "additionalProperties": {
+            "type": ["string", "number", "integer", "boolean", "null"]
+          }
+        },
+        "documented_construction_material": {"type": ["string", "null"]},
+        "documented_roof_material": {"type": ["string", "null"]},
+        "documented_facade_material": {"type": ["string", "null"]},
+        "building_levels": {"type": ["number", "null"], "minimum": 0},
+        "construction_year": {
+          "type": ["integer", "null"],
+          "minimum": 1000,
+          "maximum": 3000
+        },
+        "construction_era": {"type": ["string", "null"]},
+        "permit_description": {"type": ["string", "null"]},
+        "building_use": {"type": ["string", "null"]},
+        "zoning_class": {"type": ["string", "null"]},
+        "land_use_class": {"type": ["string", "null"]},
+        "architectural_description": {"type": ["string", "null"]},
+        "landmark_or_inventory_record": {"type": ["string", "boolean", "null"]},
+        "glazing_ratio": {"type": ["number", "null"], "minimum": 0, "maximum": 1},
+        "facade_segmentation_statistics": {"type": ["object", "null"]},
+        "roof_color_statistics": {"type": ["object", "null"]},
+        "surface_texture_statistics": {"type": ["object", "null"]},
+        "material_probabilities": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["surface_type", "material", "probability"],
+            "additionalProperties": false,
+            "properties": {
+              "surface_type": {"enum": ["envelope", "roof", "glazing"]},
+              "material": {"type": "string", "minLength": 1},
+              "probability": {"type": "number", "minimum": 0, "maximum": 1}
+            }
+          }
+        },
+        "model_metadata": {
+          "type": ["object", "null"],
+          "required": ["model_name", "model_version"],
+          "additionalProperties": false,
+          "properties": {
+            "model_name": {"type": "string", "minLength": 1},
+            "model_version": {"type": "string", "minLength": 1},
+            "configuration_digest": {"type": ["string", "null"]},
+            "human_verified": {"type": "boolean"}
+          }
+        },
+        "generic_clues": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "required": [
+              "surface_type",
+              "observation_type",
+              "value",
+              "clue_source_type",
+              "provenance_status",
+              "confidence"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "surface_type": {
+                "enum": ["envelope", "roof", "glazing", "ground_contact"]
+              },
+              "observation_type": {"type": "string", "minLength": 1},
+              "value": {
+                "type": ["string", "number", "integer", "boolean", "object", "array", "null"]
+              },
+              "unit": {"type": ["string", "null"]},
+              "clue_source_type": {
+                "enum": [
+                  "lidar",
+                  "aerial_imagery",
+                  "municipal_record",
+                  "zoning",
+                  "building_inventory",
+                  "street_scan",
+                  "user_contribution",
+                  "derived_geometry"
+                ]
+              },
+              "provenance_status": {
+                "enum": ["observed", "record_derived", "inferred", "unknown"]
+              },
+              "confidence": {"type": "number", "minimum": 0, "maximum": 1},
+              "quality_flags": {
+                "type": "array",
+                "items": {"type": "string", "minLength": 1},
+                "uniqueItems": true
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "source_type": {
+            "enum": ["osm_tags", "municipal_record", "historic_inventory"]
+          }
+        },
+        "required": ["source_type"]
+      },
+      "then": {
+        "properties": {
+          "provenance_status": {
+            "enum": ["record_derived", "inferred", "unknown"]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {"source_type": {"const": "licensed_imagery"}},
+        "required": ["source_type"]
+      },
+      "then": {
+        "properties": {
+          "provenance_status": {"enum": ["inferred", "unknown"]},
+          "evidence": {
+            "required": ["model_metadata"],
+            "properties": {
+              "model_metadata": {"type": "object"}
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {"source_type": {"const": "generic"}},
+        "required": ["source_type"]
+      },
+      "then": {
+        "properties": {
+          "evidence": {"required": ["generic_clues"]}
+        }
+      }
+    }
+  ]
+}
