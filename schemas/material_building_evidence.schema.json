@@ -1,0 +1,134 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "glytchos.material_building_evidence.v1",
+  "title": "Building evidence accepted by the material inference prototype",
+  "type": "object",
+  "required": ["building_id"],
+  "additionalProperties": false,
+  "properties": {
+    "building_id": {"type": "string", "minLength": 1},
+    "building_use": {"type": ["string", "null"]},
+    "construction_year": {"type": ["integer", "null"], "minimum": 1000, "maximum": 3000},
+    "height_m": {"type": ["number", "null"], "minimum": 0},
+    "floors_est": {"type": ["number", "null"], "minimum": 0},
+    "footprint_area_m2": {"type": ["number", "null"], "minimum": 0},
+    "zoning_class": {"type": ["string", "null"]},
+    "land_use_class": {"type": ["string", "null"]},
+    "roof_geometry_class": {
+      "type": ["string", "null"],
+      "enum": ["flat", "pitched", "complex", "unknown", null]
+    },
+    "lidar_intensity_mean": {"type": ["number", "null"]},
+    "lidar_intensity_stddev": {"type": ["number", "null"], "minimum": 0},
+    "aerial_color_mean_rgb": {
+      "type": ["array", "null"],
+      "items": {"type": "number", "minimum": 0, "maximum": 255},
+      "minItems": 3,
+      "maxItems": 3
+    },
+    "municipal_construction_type": {"type": ["string", "null"]},
+    "municipal_roof_type": {"type": ["string", "null"]},
+    "metadata_provenance": {
+      "type": "object",
+      "required": [
+        "source_type",
+        "source_reference",
+        "license",
+        "confidence",
+        "provenance_status"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "source_type": {
+          "enum": [
+            "lidar",
+            "aerial_imagery",
+            "municipal_record",
+            "zoning",
+            "building_inventory",
+            "street_scan",
+            "user_contribution",
+            "derived_geometry"
+          ]
+        },
+        "source_reference": {"type": "string", "minLength": 1},
+        "license": {"type": "string", "minLength": 1},
+        "confidence": {"type": "number", "minimum": 0.0, "maximum": 1.0},
+        "provenance_status": {
+          "enum": ["observed", "record_derived", "inferred", "unknown"]
+        }
+      }
+    },
+    "source_references": {
+      "type": "array",
+      "items": {"type": "string", "minLength": 1},
+      "uniqueItems": true
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "anyOf": [
+          {"required": ["building_use"], "properties": {"building_use": {"type": "string"}}},
+          {"required": ["construction_year"], "properties": {"construction_year": {"type": "integer"}}},
+          {"required": ["height_m"], "properties": {"height_m": {"type": "number"}}},
+          {"required": ["floors_est"], "properties": {"floors_est": {"type": "number"}}},
+          {"required": ["footprint_area_m2"], "properties": {"footprint_area_m2": {"type": "number"}}},
+          {"required": ["zoning_class"], "properties": {"zoning_class": {"type": "string"}}},
+          {"required": ["land_use_class"], "properties": {"land_use_class": {"type": "string"}}},
+          {"required": ["roof_geometry_class"], "properties": {"roof_geometry_class": {"type": "string"}}},
+          {"required": ["lidar_intensity_mean"], "properties": {"lidar_intensity_mean": {"type": "number"}}},
+          {"required": ["lidar_intensity_stddev"], "properties": {"lidar_intensity_stddev": {"type": "number"}}},
+          {"required": ["aerial_color_mean_rgb"], "properties": {"aerial_color_mean_rgb": {"type": "array"}}},
+          {"required": ["municipal_construction_type"], "properties": {"municipal_construction_type": {"type": "string"}}},
+          {"required": ["municipal_roof_type"], "properties": {"municipal_roof_type": {"type": "string"}}}
+        ]
+      },
+      "then": {"required": ["metadata_provenance"]}
+    },
+    {
+      "if": {
+        "required": ["metadata_provenance"],
+        "properties": {
+          "metadata_provenance": {
+            "properties": {
+              "source_type": {
+                "enum": ["municipal_record", "zoning", "building_inventory"]
+              }
+            }
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "metadata_provenance": {
+            "properties": {
+              "provenance_status": {
+                "enum": ["record_derived", "inferred", "unknown"]
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "required": ["metadata_provenance"],
+        "properties": {
+          "metadata_provenance": {
+            "properties": {"source_type": {"const": "derived_geometry"}}
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "metadata_provenance": {
+            "properties": {
+              "provenance_status": {"enum": ["inferred", "unknown"]}
+            }
+          }
+        }
+      }
+    }
+  ]
+}
