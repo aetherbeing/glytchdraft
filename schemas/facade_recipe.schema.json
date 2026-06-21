@@ -1,0 +1,211 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "glytchos.facade_recipe.v1",
+  "title": "Deterministic procedural facade recipe collection",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "building_id_namespace", "provider", "recipes"],
+  "properties": {
+    "schema_version": {"const": "glytchos.facade_recipe.v1"},
+    "building_id_namespace": {"const": "glytchdraft.phase06_building.v1"},
+    "provider": {"type": "string", "minLength": 1},
+    "recipes": {"type": "array", "items": {"$ref": "#/definitions/recipe"}}
+  },
+  "definitions": {
+    "claim": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["value", "provenance_status", "evidence_references"],
+      "properties": {
+        "value": {},
+        "provenance_status": {
+          "enum": ["observed", "record_derived", "inferred", "unknown"]
+        },
+        "confidence": {"type": ["number", "null"], "minimum": 0, "exclusiveMaximum": 1},
+        "evidence_references": {
+          "type": "array", "items": {"type": "string", "minLength": 1},
+          "uniqueItems": true
+        }
+      }
+    },
+    "procedural": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["value", "provenance_status", "applicability_score"],
+      "properties": {
+        "value": {},
+        "provenance_status": {"const": "procedural"},
+        "applicability_score": {"type": "number", "minimum": 0, "maximum": 1}
+      }
+    },
+    "sidecarRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status", "schema_version", "source_digest", "building_id",
+        "building_id_namespace"
+      ],
+      "properties": {
+        "status": {"enum": ["available", "missing"]},
+        "schema_version": {"type": ["string", "null"]},
+        "source_digest": {"type": ["string", "null"], "pattern": "^[a-f0-9]{64}$"},
+        "building_id": {"type": ["string", "null"]},
+        "building_id_namespace": {
+          "anyOf": [
+            {"const": "glytchdraft.phase06_building.v1"},
+            {"type": "null"}
+          ]
+        }
+      }
+    },
+    "recipe": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version", "building_id", "building_id_namespace", "tile_id",
+        "named_building_node", "source_ids", "deterministic_seed", "source_pipeline_commit",
+        "source_metadata_digest", "source_facade_evidence_digest",
+        "generated_at", "typology",
+        "evidence_catalog", "vertical_organization", "horizontal_organization", "openings",
+        "materials", "roof", "procedural_parameters", "safeguards"
+      ],
+      "properties": {
+        "schema_version": {"const": "glytchos.facade_recipe.v1"},
+        "building_id": {"type": "string", "minLength": 1},
+        "building_id_namespace": {"const": "glytchdraft.phase06_building.v1"},
+        "tile_id": {"type": "string", "minLength": 1},
+        "named_building_node": {"type": ["string", "null"]},
+        "source_ids": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["footprint_id", "source_footprint_id"],
+          "properties": {
+            "footprint_id": {"type": ["string", "null"]},
+            "source_footprint_id": {"type": ["string", "null"]}
+          }
+        },
+        "deterministic_seed": {"type": "integer", "minimum": 0, "maximum": 4294967295},
+        "source_pipeline_commit": {"type": "string", "minLength": 1},
+        "source_metadata_digest": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+        "source_facade_evidence_digest": {
+          "type": "string", "pattern": "^[a-f0-9]{64}$"
+        },
+        "generated_at": {"type": "string", "format": "date-time"},
+        "typology": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "candidate", "provenance_status", "applicability_score",
+            "evidence_references",
+            "alternatives", "uncertainty_notes"
+          ],
+          "properties": {
+            "candidate": {
+              "enum": [
+                "unknown", "generic_lowrise", "repetitive_residential_bays",
+                "hotel_bay_rhythm", "office_grid", "curtain_wall_candidate",
+                "warehouse_bays", "parking_structure_openings", "retail_podium",
+                "civic_monumental", "industrial_panelized",
+                "mixed_use_podium_tower"
+              ]
+            },
+            "provenance_status": {"const": "procedural"},
+            "applicability_score": {"type": "number", "minimum": 0, "maximum": 1},
+            "evidence_references": {
+              "type": "array", "items": {"type": "string"}, "uniqueItems": true
+            },
+            "alternatives": {
+              "type": "array", "items": {"type": "string"}, "uniqueItems": true
+            },
+            "uncertainty_notes": {"type": "array", "items": {"type": "string"}}
+          }
+        },
+        "evidence_catalog": {
+          "type": "array",
+          "items": {"$ref": "facade_evidence.schema.json#/definitions/evidenceRecord"}
+        },
+        "vertical_organization": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "estimated_floor_count", "floor_height_m", "podium_levels",
+            "setback_levels", "ground_floor_zone", "parapet_zone"
+          ],
+          "properties": {
+            "estimated_floor_count": {"$ref": "#/definitions/claim"},
+            "floor_height_m": {"$ref": "#/definitions/procedural"},
+            "podium_levels": {"$ref": "#/definitions/claim"},
+            "setback_levels": {"$ref": "#/definitions/claim"},
+            "ground_floor_zone": {"$ref": "#/definitions/procedural"},
+            "parapet_zone": {"$ref": "#/definitions/procedural"}
+          }
+        },
+        "horizontal_organization": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "facade_edge_id", "frontage_length_m", "bay_count", "bay_width_m",
+              "corner_treatment", "repetition_mode"
+            ],
+            "properties": {
+              "facade_edge_id": {"type": "string"},
+              "frontage_length_m": {"$ref": "#/definitions/claim"},
+              "bay_count": {"$ref": "#/definitions/procedural"},
+              "bay_width_m": {"$ref": "#/definitions/procedural"},
+              "corner_treatment": {"$ref": "#/definitions/procedural"},
+              "repetition_mode": {"$ref": "#/definitions/procedural"}
+            }
+          }
+        },
+        "openings": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "window_to_wall_ratio", "opening_rhythm", "glazing_class",
+            "entrance_frequency", "balcony_frequency", "parking_opening_frequency"
+          ],
+          "properties": {
+            "window_to_wall_ratio": {"$ref": "#/definitions/procedural"},
+            "opening_rhythm": {"$ref": "#/definitions/procedural"},
+            "glazing_class": {"$ref": "#/definitions/claim"},
+            "entrance_frequency": {"$ref": "#/definitions/procedural"},
+            "balcony_frequency": {"$ref": "#/definitions/procedural"},
+            "parking_opening_frequency": {"$ref": "#/definitions/procedural"}
+          }
+        },
+        "materials": {"$ref": "#/definitions/sidecarRef"},
+        "roof": {"$ref": "#/definitions/sidecarRef"},
+        "procedural_parameters": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "pattern_scale", "depth_m", "recess_amount_m", "frame_width_m",
+            "sill_height_m", "spandrel_height_m", "balcony_projection_m",
+            "variation_seed"
+          ],
+          "properties": {
+            "pattern_scale": {"$ref": "#/definitions/procedural"},
+            "depth_m": {"$ref": "#/definitions/procedural"},
+            "recess_amount_m": {"$ref": "#/definitions/procedural"},
+            "frame_width_m": {"$ref": "#/definitions/procedural"},
+            "sill_height_m": {"$ref": "#/definitions/procedural"},
+            "spandrel_height_m": {"$ref": "#/definitions/procedural"},
+            "balcony_projection_m": {"$ref": "#/definitions/procedural"},
+            "variation_seed": {"$ref": "#/definitions/procedural"}
+          }
+        },
+        "safeguards": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["simulacrum_not_survey", "viewer_must_not_synthesize"],
+          "properties": {
+            "simulacrum_not_survey": {"const": true},
+            "viewer_must_not_synthesize": {"const": true}
+          }
+        }
+      }
+    }
+  }
+}
