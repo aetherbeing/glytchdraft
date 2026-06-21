@@ -75,6 +75,7 @@ def read_polys(path):
         if isinstance(geom, Polygon) and not geom.is_empty:
             if not geom.is_valid:
                 geom = geom.buffer(0)
+            geom = geom.simplify(0.05, preserve_topology=True)
             polys.append(geom)
             props.append(dict(feat.get("properties") or {}))
     return polys, props
@@ -85,6 +86,17 @@ def estimate(polys, b_xyz, g_xyz, city):
     ring_m = float(cfg_value(city, "RING_BUFFER_M", 5.0))
     min_good = int(cfg_value(city, "MIN_POINTS_GOOD", 8))
     fallback = float(cfg_value(city, "DEFAULT_FALLBACK_HEIGHT", 6.0))
+    # Rooftop-structure detection thresholds — override via pipeline_tunables in city config.
+    # A building is flagged as a rooftop candidate when ALL three conditions hold:
+    #   (1) the minimum LiDAR elevation inside its footprint is more than ROOFTOP_GAP_MIN_M
+    #       above the nearby ground scan median — indicating the footprint's points sit on an
+    #       elevated surface rather than starting at grade;
+    #   (2) the footprint area is below ROOFTOP_AREA_MAX_M2 — rooftop structures are small;
+    #   (3) the estimated height exceeds ROOFTOP_EST_H_MIN_M — filters out tiny flat pads.
+    # The flag is advisory only: it does not alter ground_z, estimated_height, or geometry.
+    rooftop_gap_min  = float(cfg_value(city, "ROOFTOP_GAP_MIN_M",   8.0))
+    rooftop_area_max = float(cfg_value(city, "ROOFTOP_AREA_MAX_M2", 400.0))
+    rooftop_h_min    = float(cfg_value(city, "ROOFTOP_EST_H_MIN_M", 10.0))
     out = []
     for poly in polys:
         minx, miny, maxx, maxy = poly.bounds
@@ -112,7 +124,26 @@ def estimate(polys, b_xyz, g_xyz, city):
             h90 = None
             quality = "fallback"
             est_h = fallback
-        out.append({"ground_z": ground_z, "height_p90": h90, "estimated_height": est_h, "source_quality": quality, "point_count_inside": int(len(inside))})
+        footprint_area_m2 = poly.area
+        min_z_inside = float(inside[:, 2].min()) if len(inside) else None
+        rooftop_gap_m = round(min_z_inside - ground_z, 3) if min_z_inside is not None else None
+        rooftop_candidate = (
+            rooftop_gap_m is not None
+            and rooftop_gap_m > rooftop_gap_min
+            and footprint_area_m2 < rooftop_area_max
+            and est_h > rooftop_h_min
+        )
+        out.append({
+            "ground_z": ground_z,
+            "height_p90": h90,
+            "estimated_height": est_h,
+            "source_quality": quality,
+            "point_count_inside": int(len(inside)),
+            "footprint_area_m2": round(footprint_area_m2, 2),
+            "min_z_inside": min_z_inside,
+            "rooftop_gap_m": rooftop_gap_m,
+            "rooftop_candidate": rooftop_candidate,
+        })
     return out
 
 
