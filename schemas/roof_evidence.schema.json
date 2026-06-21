@@ -1,0 +1,365 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "glytchdraft.roof_evidence.v1",
+  "title": "Read-only roof reconstruction feasibility evidence",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version", "tool_version", "timestamp", "hostname", "units",
+    "repository", "inputs", "provenance", "building", "footprint", "points",
+    "geometry_evidence", "contamination", "classification", "decision",
+    "diagnostics"
+  ],
+  "properties": {
+    "schema_version": {"const": "glytchdraft.roof_evidence.v1"},
+    "tool_version": {"type": "string", "minLength": 1},
+    "timestamp": {"type": "string", "format": "date-time"},
+    "hostname": {"type": "string", "minLength": 1},
+    "units": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["horizontal", "vertical", "area", "angles"],
+      "properties": {
+        "horizontal": {"const": "meters"},
+        "vertical": {"const": "meters"},
+        "area": {"const": "square_meters"},
+        "angles": {"const": "degrees"}
+      }
+    },
+    "repository": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["root", "branch", "commit"],
+      "properties": {
+        "root": {"type": "string"},
+        "branch": {"type": "string"},
+        "commit": {"type": "string"}
+      }
+    },
+    "inputs": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["building_points", "footprint", "metadata", "diagnostic_dir"],
+      "properties": {
+        "building_points": {"type": "string"},
+        "footprint": {"type": "string"},
+        "metadata": {"type": "string"},
+        "diagnostic_dir": {"type": ["string", "null"]}
+      }
+    },
+    "provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "analysis_method", "point_source", "footprint_source_fields",
+        "metadata_source_fields", "thresholds"
+      ],
+      "properties": {
+        "analysis_method": {"type": "string"},
+        "point_source": {"enum": ["ply", "npz", "csv", "txt"]},
+        "footprint_source_fields": {"type": "object"},
+        "metadata_source_fields": {"type": "object"},
+        "thresholds": {
+          "type": "object",
+          "additionalProperties": {"type": ["number", "integer"]}
+        }
+      }
+    },
+    "building": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["building_id", "tile_id"],
+      "properties": {
+        "building_id": {"type": "string", "minLength": 1},
+        "tile_id": {"type": "string", "minLength": 1}
+      }
+    },
+    "footprint": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["area_m2", "perimeter_m", "valid", "validity_notes", "coverage"],
+      "properties": {
+        "area_m2": {"type": "number", "exclusiveMinimum": 0},
+        "perimeter_m": {"type": "number", "exclusiveMinimum": 0},
+        "valid": {"const": true},
+        "validity_notes": {"type": "array", "items": {"type": "string"}},
+        "coverage": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "covered_fraction", "interior_cell_count", "covered_cell_count",
+            "grid_size_m"
+          ],
+          "properties": {
+            "covered_fraction": {"type": "number", "minimum": 0, "maximum": 1},
+            "interior_cell_count": {"type": "integer", "minimum": 0},
+            "covered_cell_count": {"type": "integer", "minimum": 0},
+            "grid_size_m": {"type": "number", "exclusiveMinimum": 0}
+          }
+        }
+      }
+    },
+    "points": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "source_point_count", "total_point_count_within_footprint",
+        "initial_roof_candidate_count", "usable_roof_point_count",
+        "point_density_per_m2", "roof_selection_threshold_z_m", "elevation",
+        "noise_estimate_robust_sigma_m", "outlier_count", "outlier_fraction"
+      ],
+      "properties": {
+        "source_point_count": {"type": "integer", "minimum": 0},
+        "total_point_count_within_footprint": {"type": "integer", "minimum": 0},
+        "initial_roof_candidate_count": {"type": "integer", "minimum": 0},
+        "usable_roof_point_count": {"type": "integer", "minimum": 0},
+        "point_density_per_m2": {"type": "number", "minimum": 0},
+        "roof_selection_threshold_z_m": {"type": ["number", "null"]},
+        "elevation": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "minimum_m", "maximum_m", "median_m", "p90_m",
+            "robust_spread_iqr_m"
+          ],
+          "properties": {
+            "minimum_m": {"type": ["number", "null"]},
+            "maximum_m": {"type": ["number", "null"]},
+            "median_m": {"type": ["number", "null"]},
+            "p90_m": {"type": ["number", "null"]},
+            "robust_spread_iqr_m": {"type": ["number", "null"], "minimum": 0}
+          }
+        },
+        "noise_estimate_robust_sigma_m": {"type": "number", "minimum": 0},
+        "outlier_count": {"type": "integer", "minimum": 0},
+        "outlier_fraction": {"type": "number", "minimum": 0, "maximum": 1}
+      }
+    },
+    "geometry_evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "dominant_plane_count", "planes", "percent_points_explained",
+        "spatial_coherence", "ridge_line_evidence", "eave_height_evidence",
+        "flat_p90_cap_error"
+      ],
+      "properties": {
+        "dominant_plane_count": {"type": "integer", "minimum": 0},
+        "planes": {
+          "type": "array",
+          "items": {"$ref": "#/definitions/plane"}
+        },
+        "percent_points_explained": {"type": "number", "minimum": 0, "maximum": 100},
+        "spatial_coherence": {
+          "type": "array",
+          "items": {"type": "number", "minimum": 0, "maximum": 1}
+        },
+        "ridge_line_evidence": {"$ref": "#/definitions/ridge"},
+        "eave_height_evidence": {"$ref": "#/definitions/eave"},
+        "flat_p90_cap_error": {
+          "anyOf": [{"$ref": "#/definitions/flatCapError"}, {"type": "null"}]
+        }
+      }
+    },
+    "contamination": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "possible", "possible_vegetation_or_neighboring_structure",
+        "unexplained_point_fraction", "notes"
+      ],
+      "properties": {
+        "possible": {"type": "boolean"},
+        "possible_vegetation_or_neighboring_structure": {"type": "boolean"},
+        "unexplained_point_fraction": {"type": "number", "minimum": 0, "maximum": 1},
+        "notes": {"type": "array", "items": {"type": "string"}}
+      }
+    },
+    "classification": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "roof_class", "confidence", "supporting_evidence",
+        "contradictory_evidence", "rejected_alternatives", "uncertainty_notes"
+      ],
+      "properties": {
+        "roof_class": {
+          "enum": [
+            "flat_roof", "single_sloped_plane",
+            "coherent_two_plane_ridge_candidate", "multi_plane_candidate",
+            "complex_roof", "contaminated_data", "insufficient_evidence",
+            "indeterminate"
+          ]
+        },
+        "confidence": {"type": "number", "minimum": 0, "exclusiveMaximum": 1},
+        "supporting_evidence": {"type": "array", "items": {"type": "string"}},
+        "contradictory_evidence": {"type": "array", "items": {"type": "string"}},
+        "rejected_alternatives": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["alternative", "reason"],
+            "properties": {
+              "alternative": {"type": "string"},
+              "reason": {"type": "string"}
+            }
+          }
+        },
+        "uncertainty_notes": {"type": "array", "items": {"type": "string"}}
+      }
+    },
+    "decision": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["outcome", "reason"],
+      "properties": {
+        "outcome": {
+          "enum": [
+            "reconstruction_supported", "classification_only",
+            "flat_fallback_recommended", "manual_review_required",
+            "insufficient_data"
+          ]
+        },
+        "reason": {"type": "string"}
+      }
+    },
+    "diagnostics": {"type": "array", "items": {"type": "string"}}
+  },
+  "definitions": {
+    "plane": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "plane_id", "coefficients", "slope_degrees", "aspect_degrees",
+        "point_count", "explained_fraction", "residual_error_m",
+        "spatial_coherence"
+      ],
+      "properties": {
+        "plane_id": {"type": "integer", "minimum": 0},
+        "coefficients": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["a", "b", "c", "d"],
+          "properties": {
+            "a": {"type": "number"}, "b": {"type": "number"},
+            "c": {"type": "number"}, "d": {"type": "number"}
+          }
+        },
+        "slope_degrees": {"type": "number", "minimum": 0, "maximum": 90},
+        "aspect_degrees": {"type": "number", "minimum": 0, "exclusiveMaximum": 360},
+        "point_count": {"type": "integer", "minimum": 0},
+        "explained_fraction": {"type": "number", "minimum": 0, "maximum": 1},
+        "residual_error_m": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["median_absolute", "rmse", "p90_absolute"],
+          "properties": {
+            "median_absolute": {"type": "number", "minimum": 0},
+            "rmse": {"type": "number", "minimum": 0},
+            "p90_absolute": {"type": "number", "minimum": 0}
+          }
+        },
+        "spatial_coherence": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["largest_connected_fraction", "xy_extent_m"],
+          "properties": {
+            "largest_connected_fraction": {
+              "type": "number", "minimum": 0, "maximum": 1
+            },
+            "xy_extent_m": {
+              "type": "array", "items": {"type": "number", "minimum": 0},
+              "minItems": 2, "maxItems": 2
+            }
+          }
+        }
+      }
+    },
+    "ridge": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "candidate_found", "confidence", "intersection_line",
+        "opposing_aspects", "plane_regions_on_opposite_sides",
+        "plausible_plane_slopes", "side_purity",
+        "adjacent_cell_count", "intersection_crosses_footprint", "notes"
+      ],
+      "properties": {
+        "candidate_found": {"type": "boolean"},
+        "confidence": {"type": "number", "minimum": 0, "exclusiveMaximum": 1},
+        "intersection_line": {
+          "anyOf": [{"$ref": "#/definitions/intersectionLine"}, {"type": "null"}]
+        },
+        "opposing_aspects": {"type": "boolean"},
+        "plane_regions_on_opposite_sides": {"type": "boolean"},
+        "plausible_plane_slopes": {"type": "boolean"},
+        "side_purity": {"$ref": "#/definitions/planeFractions"},
+        "adjacent_cell_count": {"type": "integer", "minimum": 0},
+        "adjacent_fraction": {"$ref": "#/definitions/planeFractions"},
+        "intersection_crosses_footprint": {"type": "boolean"},
+        "notes": {"type": "array", "items": {"type": "string"}}
+      }
+    },
+    "intersectionLine": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["point", "endpoints"],
+      "properties": {
+        "point": {
+          "type": "array", "items": {"type": "number"},
+          "minItems": 3, "maxItems": 3
+        },
+        "endpoints": {
+          "type": "array", "minItems": 2, "maxItems": 2,
+          "items": {
+            "type": "array", "items": {"type": "number"},
+            "minItems": 3, "maxItems": 3
+          }
+        }
+      }
+    },
+    "planeFractions": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["plane_0", "plane_1"],
+      "properties": {
+        "plane_0": {"type": "number", "minimum": 0, "maximum": 1},
+        "plane_1": {"type": "number", "minimum": 0, "maximum": 1}
+      }
+    },
+    "eave": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status", "boundary_point_count", "candidate_height_m",
+        "height_spread_m", "coherence"
+      ],
+      "properties": {
+        "status": {"enum": ["candidate", "insufficient"]},
+        "boundary_point_count": {"type": "integer", "minimum": 0},
+        "candidate_height_m": {"type": ["number", "null"]},
+        "height_spread_m": {"type": ["number", "null"], "minimum": 0},
+        "coherence": {"type": "number", "minimum": 0, "maximum": 1}
+      }
+    },
+    "flatCapError": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "cap_elevation_m", "median_vertical_error_m", "mean_absolute_error_m",
+        "rmse_m", "p90_absolute_error_m", "maximum_underrepresentation_m",
+        "maximum_overrepresentation_m"
+      ],
+      "properties": {
+        "cap_elevation_m": {"type": "number"},
+        "median_vertical_error_m": {"type": "number"},
+        "mean_absolute_error_m": {"type": "number", "minimum": 0},
+        "rmse_m": {"type": "number", "minimum": 0},
+        "p90_absolute_error_m": {"type": "number", "minimum": 0},
+        "maximum_underrepresentation_m": {"type": "number", "minimum": 0},
+        "maximum_overrepresentation_m": {"type": "number", "minimum": 0}
+      }
+    }
+  }
+}

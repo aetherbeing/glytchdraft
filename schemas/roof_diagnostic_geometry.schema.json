@@ -1,0 +1,216 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "glytchdraft.roof_diagnostic_geometry.v1",
+  "title": "Noncanonical diagnostic two-plane roof geometry",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version", "tool_version", "units", "flags", "identity",
+    "provenance", "eligibility", "support_metrics", "geometry",
+    "uncertainty_notes", "artifacts"
+  ],
+  "properties": {
+    "schema_version": {"const": "glytchdraft.roof_diagnostic_geometry.v1"},
+    "tool_version": {"type": "string", "minLength": 1},
+    "units": {"const": "meters"},
+    "flags": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "diagnostic_only", "canonical", "viewer_ready", "production_allowed"
+      ],
+      "properties": {
+        "diagnostic_only": {"const": true},
+        "canonical": {"const": false},
+        "viewer_ready": {"const": false},
+        "production_allowed": {"const": false}
+      }
+    },
+    "identity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["building_id", "building_id_namespace"],
+      "properties": {
+        "building_id": {"type": "string", "minLength": 1},
+        "building_id_namespace": {"type": "string", "minLength": 1}
+      }
+    },
+    "provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "evidence_schema", "evidence_path", "footprint_path",
+        "source_artifact", "source_digest", "pipeline_commit",
+        "footprint_provenance"
+      ],
+      "properties": {
+        "evidence_schema": {"const": "glytchdraft.roof_evidence.v1"},
+        "evidence_path": {"type": "string", "minLength": 1},
+        "footprint_path": {"type": "string", "minLength": 1},
+        "source_artifact": {"type": "string", "minLength": 1},
+        "source_digest": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9:._+-]*$"
+        },
+        "pipeline_commit": {"type": ["string", "null"]},
+        "footprint_provenance": {"type": ["string", "null"]}
+      }
+    },
+    "eligibility": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["eligible", "rejection_reasons", "gates"],
+      "properties": {
+        "eligible": {"type": "boolean"},
+        "rejection_reasons": {
+          "type": "array",
+          "items": {"type": "string"}
+        },
+        "gates": {
+          "type": "object",
+          "additionalProperties": {"type": "boolean"}
+        }
+      }
+    },
+    "support_metrics": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "classification_confidence", "dominant_plane_count",
+        "plane_point_counts", "plane_explained_fractions",
+        "plane_spatial_coherence", "percent_points_explained",
+        "ridge_confidence", "ridge_side_purity",
+        "eave_boundary_point_count", "eave_coherence",
+        "contamination_possible", "unexplained_point_fraction"
+      ],
+      "properties": {
+        "classification_confidence": {
+          "type": "number", "minimum": 0, "exclusiveMaximum": 1
+        },
+        "dominant_plane_count": {"type": "integer", "minimum": 0},
+        "plane_point_counts": {
+          "type": "array", "items": {"type": "integer", "minimum": 0}
+        },
+        "plane_explained_fractions": {
+          "type": "array",
+          "items": {"type": "number", "minimum": 0, "maximum": 1}
+        },
+        "plane_spatial_coherence": {
+          "type": "array",
+          "items": {"type": "number", "minimum": 0, "maximum": 1}
+        },
+        "percent_points_explained": {
+          "type": "number", "minimum": 0, "maximum": 100
+        },
+        "ridge_confidence": {
+          "type": "number", "minimum": 0, "exclusiveMaximum": 1
+        },
+        "ridge_side_purity": {
+          "type": "array",
+          "items": {"type": "number", "minimum": 0, "maximum": 1},
+          "minItems": 2,
+          "maxItems": 2
+        },
+        "eave_boundary_point_count": {"type": "integer", "minimum": 0},
+        "eave_coherence": {"type": "number", "minimum": 0, "maximum": 1},
+        "contamination_possible": {"type": "boolean"},
+        "unexplained_point_fraction": {
+          "type": "number", "minimum": 0, "maximum": 1
+        }
+      }
+    },
+    "geometry": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "required": [
+        "roof_plane_polygons", "ridge_segment", "footprint_boundary",
+        "eave_segments", "source_plane_equations"
+      ],
+      "properties": {
+        "roof_plane_polygons": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 2,
+          "items": {"$ref": "#/definitions/roofPolygon"}
+        },
+        "ridge_segment": {"$ref": "#/definitions/segment3d"},
+        "footprint_boundary": {"$ref": "#/definitions/ring2d"},
+        "eave_segments": {
+          "type": "array",
+          "items": {"$ref": "#/definitions/eaveSegment"}
+        },
+        "source_plane_equations": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 2,
+          "items": {"$ref": "#/definitions/planeEquation"}
+        }
+      }
+    },
+    "uncertainty_notes": {
+      "type": "array", "items": {"type": "string"}
+    },
+    "artifacts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["json", "svg", "obj"],
+      "properties": {
+        "json": {"type": ["string", "null"]},
+        "svg": {"type": ["string", "null"]},
+        "obj": {"type": ["string", "null"]}
+      }
+    }
+  },
+  "definitions": {
+    "point2d": {
+      "type": "array", "items": {"type": "number"},
+      "minItems": 2, "maxItems": 2
+    },
+    "point3d": {
+      "type": "array", "items": {"type": "number"},
+      "minItems": 3, "maxItems": 3
+    },
+    "ring2d": {
+      "type": "array", "minItems": 4,
+      "items": {"$ref": "#/definitions/point2d"}
+    },
+    "segment3d": {
+      "type": "array", "minItems": 2, "maxItems": 2,
+      "items": {"$ref": "#/definitions/point3d"}
+    },
+    "planeEquation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["plane_id", "a", "b", "c", "d"],
+      "properties": {
+        "plane_id": {"type": "integer", "minimum": 0},
+        "a": {"type": "number"},
+        "b": {"type": "number"},
+        "c": {"type": "number"},
+        "d": {"type": "number"}
+      }
+    },
+    "roofPolygon": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["diagnostic_plane_id", "source_plane_id", "vertices"],
+      "properties": {
+        "diagnostic_plane_id": {"type": "integer", "minimum": 0, "maximum": 1},
+        "source_plane_id": {"type": "integer", "minimum": 0},
+        "vertices": {
+          "type": "array", "minItems": 4,
+          "items": {"$ref": "#/definitions/point3d"}
+        }
+      }
+    },
+    "eaveSegment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["diagnostic_plane_id", "endpoints"],
+      "properties": {
+        "diagnostic_plane_id": {"type": "integer", "minimum": 0, "maximum": 1},
+        "endpoints": {"$ref": "#/definitions/segment3d"}
+      }
+    }
+  }
+}
