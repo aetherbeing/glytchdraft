@@ -1,8 +1,8 @@
 # Miami Four-Tile Source Preflight — Lane 1 Diagnostic
 
-**Date:** 2026-06-27  
-**Tiles:** 318455 · 318454 · 318155 · 318154  
-**Pipeline repo:** `/mnt/c/Users/Glytc/glytchdraft` · branch `master` · HEAD `b319b91`  
+**Date:** 2026-06-27
+**Tiles:** 318455 · 318454 · 318155 · 318154
+**Pipeline repo:** `/mnt/c/Users/Glytc/glytchdraft` · branch `master` · HEAD `b319b91`
 **Viewer repo:** `/mnt/c/Users/Glytc/glytchOS-gcloud` · branch `main` · HEAD `a027e05` (clean)
 
 ---
@@ -78,7 +78,7 @@ Coordinate frame: EPSG:32617 (UTM Zone 17N). Shift: X=586473.875, Y=2851091.25, 
 buildings, not against the raw LAZ tile extents. The true tile boundaries may extend
 further; these distances are upper bounds on actual proximity to the tile edge.
 
-`sb_318455_490` is not anomalous and requires no further investigation.  
+`sb_318455_490` is not anomalous and requires no further investigation.
 `sb_318455_42` is below the 80 m outlier threshold but is within 3 m of the Y-min boundary
 and warrants inclusion in the boundary-associated category for completeness.
 
@@ -430,7 +430,7 @@ configuration, manifests, or GLBs until the cross-boundary evidence is in hand.
 
 ## T7 Cross-Boundary Verification Results
 
-**Session date:** 2026-06-27  
+**Session date:** 2026-06-27
 **Method:** read-only discovery only; no files modified.
 
 ### Step 1 — Report File Validation
@@ -441,10 +441,10 @@ git diff --check -- docs/diagnostics/MIAMI_FOUR_TILE_PREFLIGHT.md
 git status --short docs/diagnostics/MIAMI_FOUR_TILE_PREFLIGHT.md
 ```
 
-**Result:**  
-Header intact. All tile IDs, commit SHAs, repo paths, and dates verified correct.  
+**Result:**
+Header intact. All tile IDs, commit SHAs, repo paths, and dates verified correct.
 `git diff --check` on the new file exits 0 (no whitespace errors). Pre-existing trailing
-whitespace warnings in the modified `.gitignore` are unrelated to this file.  
+whitespace warnings in the modified `.gitignore` are unrelated to this file.
 File is untracked (`??`) — not yet committed, as required.
 
 **Status: VERIFIED**
@@ -543,9 +543,9 @@ configuration should be touched until that verification is complete.
 
 ## T7 Cross-Boundary Verification Results (Executed)
 
-**Session date:** 2026-06-27  
+**Session date:** 2026-06-27
 **T7 mount:** `/mnt/t7` via bind-mount from `/mnt/e` (Samsung T7 Shield, exFAT, read-only
-investigation; drive confirmed present in Windows `Get-Volume`).  
+investigation; drive confirmed present in Windows `Get-Volume`).
 **Method:** read-only throughout; no files modified.
 
 ---
@@ -646,7 +646,7 @@ as US survey feet for all source LAZ coordinates and BIKINI processed height val
 # Full dataset extent: lon −80.2029 to −80.1256,  lat 25.7561 to 25.8007
 ```
 
-**Result:**  
+**Result:**
 Zero footprint polygons found within 300 m of sb_318455_739's approximate WGS84
 location (lon ≈ −80.122, lat ≈ 25.777). The file's **eastern boundary stops at
 lon = −80.1256**, which is approximately the Washington Ave / Collins Ave line. The
@@ -673,12 +673,12 @@ footprint download; that original file is no longer present on T7 in its origina
 
 Two sources checked.
 
-**Source 1 — raw `miami_footprints_4326.geojson`:**  
+**Source 1 — raw `miami_footprints_4326.geojson`:**
 55 polygons cross the approximate tile boundary lat = 25.7774. All 55 are west of
 lon = −80.131. The easternmost crossing polygon reaches only to lon = −80.131. None
 are near sb_318455_739 at lon ≈ −80.122.
 
-**Source 2 — BIKINI processed `bikini_footprints_county_32617.geojson` (UTM 17N):**  
+**Source 2 — BIKINI processed `bikini_footprints_county_32617.geojson` (UTM 17N):**
 The polygon assigned to cluster 4994:
 ```
 county_object_id: 695013
@@ -808,7 +808,7 @@ BIKINI merged run captured the full cross-boundary building extent**
 
 > **TWO VERIFIED DEFECTS — CROSS-TILE COMPLETENESS DOES NOT IMPLY PRODUCTION-READY**
 >
-> **PRIMARY DEFECT — VERIFIED:**  
+> **PRIMARY DEFECT — VERIFIED:**
 > The per-tile South Beach export path loses cross-boundary context during extraction and
 > clustering. `s01_extract.py` and `s03_cluster.py` truncated the building at 1601 Collins
 > Ave at the exact tile boundary Y = 530 000 (source-CRS units). The per-tile cluster
@@ -823,7 +823,7 @@ BIKINI merged run captured the full cross-boundary building extent**
 > (s04, s05, s06) propagated the truncated cluster faithfully; they are suspected
 > propagation stages and **cannot be cleared as innocent without a controlled rebuild**.
 >
-> **SECONDARY DEFECT — IDENTIFIED, NOT FULLY INSPECTED:**  
+> **SECONDARY DEFECT — IDENTIFIED, NOT FULLY INSPECTED:**
 > Even the BIKINI merged cluster 4994 contains anomalously high returns:
 > `height_max = 271.46` src-units (US survey feet; ≈ 82.7 m), `height_p95 = 209.02`
 > src-units (≈ 63.7 m), sampled PLY Z up to 235.2 src-units (≈ 71.7 m) on the 318155
@@ -1098,9 +1098,9 @@ terrain slope errors, and water plane depth errors in place.
 
 ### Two-tile fixture evidence
 
-Branch: `codex/miami-two-tile-unit-fixture`  
-Versions: PDAL 2.10.2 · Python-PDAL 3.5.3  
-Tiles: `318455` + `318155`  
+Branch: `codex/miami-two-tile-unit-fixture`
+Versions: PDAL 2.10.2 · Python-PDAL 3.5.3
+Tiles: `318455` + `318155`
 Audit scope: this diagnostic document only — normal Miami pipeline behavior is unchanged
 unless the fixture feature flag is explicitly enabled.
 
