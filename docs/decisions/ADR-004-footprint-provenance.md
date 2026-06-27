@@ -1,8 +1,12 @@
 # ADR-004 — Mandatory footprint_provenance on Every Building Output
 
-**Date:** 2026-05-28 (established during NOLA audit hardening)  
-**Status:** ACTIVE  
-**Decider:** Founder  
+> **STATUS: PROVISIONAL DRAFT — NOT YET CANONICAL**
+> Constructed from committed baseline `b319b91` on 2026-06-27. This baseline does not include newer remote commits or uncommitted work in the primary worktree. Founder review and repository reconciliation are required before merge.
+
+**Decision date:** UNKNOWN  
+**Evidence existed by:** CERTIFICATION_REPORT.md (2026-05-31) and AUDIT_FINDINGS.md (2026-05-28)  
+**Status:** RECONSTRUCTED — FOUNDER CONFIRMATION REQUIRED  
+**Decider:** UNKNOWN  
 **Evidence:** `docs/CERTIFICATION_REPORT.md §Audit Hardening`, `AGENTS.md`, `CLAUDE.md`
 
 ## Context

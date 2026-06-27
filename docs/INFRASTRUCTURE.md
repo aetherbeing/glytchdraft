@@ -2,19 +2,23 @@
 **Authority:** `docs/CANONICAL_TRUTH_AUDIT.md §10`, `docs/GLYTCHOS_SPEC.md §7`.  
 **Last verified:** 2026-06-27.
 
+> **STATUS: PROVISIONAL DRAFT — NOT YET CANONICAL**
+> Constructed from committed baseline `b319b91` on 2026-06-27. This baseline does not include newer remote commits or uncommitted work in the primary worktree. Founder review and repository reconciliation are required before merge.
+
 ---
 
-## Hosting Split (VERIFIED per spec §7.1)
+## Hosting Split (SPECIFIED per spec §7.1 — deployment status UNKNOWN)
 
-**Two separate hosting targets. Never merge them.**
+The spec describes two separate hosting targets:
 
-| Component | Target | Reason |
-|-----------|--------|--------|
+| Component | Specified Target | Reason |
+|-----------|-----------------|--------|
 | Viewer shell (React app) | Vercel | Fast CDN delivery of the JS/HTML shell |
 | GLB geometry tiles | Cloudflare R2 + CDN | Cheap/zero egress — Vercel bills bandwidth hard; R2 does not |
 
-Serving three cities' geometry tiles through Vercel = 3× the bill.
+Per the spec, serving three cities' geometry tiles through Vercel = 3× the bill.
 Geometry on R2 + manifest-driven fetch = cost ≈ storage + near-zero egress.
+Whether this split is currently deployed requires founder confirmation (FC-6).
 
 **Vercel deployment:** `vercel.json` committed at root. Status: INFERRED present but
 deployment state (whether it is live) is UNKNOWN.

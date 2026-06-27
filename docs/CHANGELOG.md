@@ -6,6 +6,9 @@ This document records major pipeline milestones and city certifications.
 It is derived from git history and session handoff documents. Full commit history
 is in `git log`.
 
+> **STATUS: PROVISIONAL DRAFT — NOT YET CANONICAL**
+> Constructed from committed baseline `b319b91` on 2026-06-27. This baseline does not include newer remote commits or uncommitted work in the primary worktree. Founder review and repository reconciliation are required before merge.
+
 ---
 
 ## Phase 1 Milestones

@@ -1,8 +1,12 @@
 # ADR-008 — docs/GLYTCHOS_SPEC.md is the Single Authoritative Spec
 
-**Date:** 2026-06-19 (stated in docs/HANDOFF.md)  
-**Status:** ACTIVE (INFERRED — FOUNDER-CONFIRMATION-REQUIRED to fully resolve)  
-**Decider:** Founder (inferred from docs/HANDOFF.md statement)  
+> **STATUS: PROVISIONAL DRAFT — NOT YET CANONICAL**
+> Constructed from committed baseline `b319b91` on 2026-06-27. This baseline does not include newer remote commits or uncommitted work in the primary worktree. Founder review and repository reconciliation are required before merge.
+
+**Decision date:** UNKNOWN  
+**Evidence existed by:** docs/HANDOFF.md (in baseline) — "Source of truth: docs/GLYTCHOS_SPEC.md"  
+**Status:** PROPOSED — FOUNDER CONFIRMATION REQUIRED  
+**Decider:** UNKNOWN (inferred from docs/HANDOFF.md, not a direct founder statement)  
 **Evidence:** `docs/HANDOFF.md` — "Source of truth: docs/GLYTCHOS_SPEC.md"
 
 ## Context
@@ -20,8 +24,7 @@ The filename discrepancy (GlytchOS vs GlitchOS) mirrors the broader naming drift
 
 `docs/GLYTCHOS_SPEC.md` is the single authoritative specification document.
 
-`docs/GLITCHOS_AGNOSTIC_PIPELINE_VIEWER_SPEC.md` is SUPERSEDED. It is a byte-for-byte
-duplicate and should be either:
+`docs/GLITCHOS_AGNOSTIC_PIPELINE_VIEWER_SPEC.md` is a byte-for-byte duplicate. If this ADR is confirmed, it should be treated as SUPERSEDED and either:
 1. Deleted and replaced by a one-line redirect file pointing to GLYTCHOS_SPEC.md, OR
 2. Deleted entirely with GLYTCHOS_SPEC.md as the sole copy
 

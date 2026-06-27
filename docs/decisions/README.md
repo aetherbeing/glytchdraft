@@ -6,20 +6,23 @@ This directory records architectural decisions and their rationale. Decisions ar
 immutable once recorded. When a decision is superseded, a new ADR is added that
 references the one it replaces.
 
+> **STATUS: PROVISIONAL DRAFT — NOT YET CANONICAL**
+> Constructed from committed baseline `b319b91` on 2026-06-27. This baseline does not include newer remote commits or uncommitted work in the primary worktree. Founder review and repository reconciliation are required before merge.
+
 ---
 
 ## Index
 
-| ADR | Date | Decision | Status |
-|-----|------|----------|--------|
-| [ADR-001](ADR-001-two-repo-split.md) | Pre-2026-05 | Two-repo split: glytchdraft (pipeline) + glytchOS (viewer) | ACTIVE |
-| [ADR-002](ADR-002-agnostic-pipeline.md) | Pre-2026-05 | City-agnostic pipeline via JSON config + paths.local.json | ACTIVE |
-| [ADR-003](ADR-003-nola-reference-city.md) | 2026-05-31 | New Orleans as Phase 1 reference city | ACTIVE |
-| [ADR-004](ADR-004-footprint-provenance.md) | 2026-05-28 | Mandatory footprint_provenance field on every building output | ACTIVE |
-| [ADR-005](ADR-005-schema-driven-contracts.md) | 2026-06-18 | JSON Schema Draft-07 as the contract enforcement layer | ACTIVE |
-| [ADR-006](ADR-006-emergence-cost-control.md) | Pre-2026-06 | Fog far-plane bound to reveal_radius_m as cost control | ACTIVE |
-| [ADR-007](ADR-007-r2-geometry-hosting.md) | Pre-2026-06 | GLB geometry on Cloudflare R2; viewer shell on Vercel | ACTIVE |
-| [ADR-008](ADR-008-glytchos-spec-authoritative.md) | 2026-06-19 | docs/GLYTCHOS_SPEC.md is the single authoritative spec | ACTIVE |
+| ADR | Evidence existed by | Decision | Status |
+|-----|--------------------|----------|--------|
+| [ADR-001](ADR-001-two-repo-split.md) | AUDIT_FINDINGS.md (2026-05-28) | Two-repo split: glytchdraft (pipeline) + glytchOS (viewer) | RECONSTRUCTED — FC REQUIRED |
+| [ADR-002](ADR-002-agnostic-pipeline.md) | commit 468e706 (2026-06-18) | City-agnostic pipeline via JSON config + paths.local.json | RECONSTRUCTED — FC REQUIRED |
+| [ADR-003](ADR-003-nola-reference-city.md) | CERTIFICATION_REPORT.md (2026-05-31) | New Orleans as Phase 1 reference city | RECONSTRUCTED — FC REQUIRED |
+| [ADR-004](ADR-004-footprint-provenance.md) | CERTIFICATION_REPORT.md (2026-05-31) | Mandatory footprint_provenance field on every building output | RECONSTRUCTED — FC REQUIRED |
+| [ADR-005](ADR-005-schema-driven-contracts.md) | commit 468e706 (2026-06-18) | JSON Schema Draft-07 as the contract enforcement layer | RECONSTRUCTED — FC REQUIRED |
+| [ADR-006](ADR-006-emergence-cost-control.md) | docs/GLYTCHOS_SPEC.md §6.7 | Fog far-plane bound to reveal_radius_m as cost control | RECONSTRUCTED — FC REQUIRED |
+| [ADR-007](ADR-007-r2-geometry-hosting.md) | docs/GLYTCHOS_SPEC.md §7.1 | GLB geometry on Cloudflare R2; viewer shell on Vercel | RECONSTRUCTED — FC REQUIRED; deployment UNKNOWN |
+| [ADR-008](ADR-008-glytchos-spec-authoritative.md) | docs/HANDOFF.md (in baseline) | docs/GLYTCHOS_SPEC.md is the single authoritative spec | PROPOSED — FC REQUIRED |
 
 ---
 
@@ -50,9 +53,10 @@ confirms a decision, record it here as a new ADR.
 ```markdown
 # ADR-NNN — Title
 
-**Date:** YYYY-MM-DD  
-**Status:** ACTIVE | SUPERSEDED by ADR-XXX  
-**Decider:** Founder | Team  
+**Decision date:** YYYY-MM-DD (or UNKNOWN)  
+**Evidence existed by:** [commit / document / date]  
+**Status:** PROPOSED | ACTIVE | RECONSTRUCTED — FOUNDER CONFIRMATION REQUIRED | SUPERSEDED by ADR-XXX  
+**Decider:** [founder / team / UNKNOWN]  
 
 ## Context
 

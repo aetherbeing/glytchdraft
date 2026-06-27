@@ -1,8 +1,12 @@
 # ADR-003 — New Orleans as Phase 1 Reference City
 
-**Date:** 2026-05-31 (certification date)  
-**Status:** ACTIVE  
-**Decider:** Founder  
+> **STATUS: PROVISIONAL DRAFT — NOT YET CANONICAL**
+> Constructed from committed baseline `b319b91` on 2026-06-27. This baseline does not include newer remote commits or uncommitted work in the primary worktree. Founder review and repository reconciliation are required before merge.
+
+**Decision date:** UNKNOWN  
+**Evidence existed by:** CERTIFICATION_REPORT.md (2026-05-31), AGENTS.md, CLAUDE.md  
+**Status:** RECONSTRUCTED — FOUNDER CONFIRMATION REQUIRED  
+**Decider:** UNKNOWN  
 **Evidence:** `docs/CERTIFICATION_REPORT.md`, `AGENTS.md`, `CLAUDE.md`
 
 ## Context
@@ -17,7 +21,7 @@ Miami was the viewer pilot but had an unconfirmed footprint license, preventing
 
 ## Decision
 
-**New Orleans** is the Phase 1 reference city and pipeline proof.
+Per committed documents (AGENTS.md, CLAUDE.md), **New Orleans** is described as the Phase 1 reference city and pipeline proof. Whether this remains the active designation requires founder confirmation.
 
 Miami remains the Phase 1 **viewer pilot** (BIKINI export). NOLA is the
 **pipeline proof** — the city that demonstrates the complete Phase 1 certification
@@ -35,6 +39,6 @@ Selection criteria met by NOLA:
 
 ## Consequences
 
-- NOLA is the test case for all pipeline hardening decisions.
-- Any new pipeline audit feature must be validated against NOLA first.
+- As of baseline b319b91, NOLA is described as the test case for pipeline hardening decisions.
+- Whether this designation is current requires founder confirmation.
 - Miami will become a second certified city once Miami-Dade license is confirmed.

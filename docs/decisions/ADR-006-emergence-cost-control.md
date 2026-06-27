@@ -1,8 +1,12 @@
 # ADR-006 — Fog Far-Plane Bound to reveal_radius_m for Cost Control
 
-**Date:** Pre-2026-06 (in spec §6.7)  
-**Status:** ACTIVE  
-**Decider:** Founder  
+> **STATUS: PROVISIONAL DRAFT — NOT YET CANONICAL**
+> Constructed from committed baseline `b319b91` on 2026-06-27. This baseline does not include newer remote commits or uncommitted work in the primary worktree. Founder review and repository reconciliation are required before merge.
+
+**Decision date:** UNKNOWN  
+**Evidence existed by:** docs/GLYTCHOS_SPEC.md §6.7 (present in baseline)  
+**Status:** RECONSTRUCTED — FOUNDER CONFIRMATION REQUIRED  
+**Decider:** UNKNOWN  
 **Evidence:** `docs/GLYTCHOS_SPEC.md §6.7`, `schemas/viewer_manifest.schema.json`
 
 ## Context

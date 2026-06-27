@@ -2,6 +2,9 @@
 **Authority:** `docs/GLYTCHOS_SPEC.md §0–§1`, `docs/CANONICAL_TRUTH_AUDIT.md §5`.  
 **Last verified:** 2026-06-27.
 
+> **STATUS: PROVISIONAL DRAFT — NOT YET CANONICAL**
+> Constructed from committed baseline `b319b91` on 2026-06-27. This baseline does not include newer remote commits or uncommitted work in the primary worktree. Founder review and repository reconciliation are required before merge.
+
 ---
 
 ## Core Thesis (VERIFIED)

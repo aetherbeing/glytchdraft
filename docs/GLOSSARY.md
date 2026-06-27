@@ -5,6 +5,9 @@
 This glossary defines terms used across all canonical documentation. When a term is
 disputed or requires founder confirmation, it is labeled `FOUNDER-CONFIRMATION-REQUIRED`.
 
+> **STATUS: PROVISIONAL DRAFT — NOT YET CANONICAL**
+> Constructed from committed baseline `b319b91` on 2026-06-27. This baseline does not include newer remote commits or uncommitted work in the primary worktree. Founder review and repository reconciliation are required before merge.
+
 ---
 
 ## Product and Repo Names

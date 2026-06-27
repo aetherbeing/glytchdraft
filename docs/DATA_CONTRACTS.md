@@ -3,6 +3,9 @@
 **Spec source:** `docs/GLYTCHOS_SPEC.md §5.5`: "Contracts are schema files, not prose."  
 **Last verified:** 2026-06-27 against commit `b319b91`.
 
+> **STATUS: PROVISIONAL DRAFT — NOT YET CANONICAL**
+> Constructed from committed baseline `b319b91` on 2026-06-27. This baseline does not include newer remote commits or uncommitted work in the primary worktree. Founder review and repository reconciliation are required before merge.
+
 ---
 
 ## Principle

@@ -7,6 +7,9 @@ Machine-specific paths are intentionally not committed in city configs — they
 live in `paths.local.json` per machine. This document is the human-readable
 record of what is believed to exist where, based on documentation evidence.
 
+> **STATUS: PROVISIONAL DRAFT — NOT YET CANONICAL**
+> Constructed from committed baseline `b319b91` on 2026-06-27. This baseline does not include newer remote commits or uncommitted work in the primary worktree. Founder review and repository reconciliation are required before merge.
+
 ---
 
 ## Code Repositories

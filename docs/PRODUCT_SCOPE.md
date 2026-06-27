@@ -5,6 +5,9 @@
 This document governs the current boundaries and explicit exclusions of `glytchdraft`.
 When in doubt, read `PROJECT_CONSTITUTION.md §2` first.
 
+> **STATUS: PROVISIONAL DRAFT — NOT YET CANONICAL**
+> Constructed from committed baseline `b319b91` on 2026-06-27. This baseline does not include newer remote commits or uncommitted work in the primary worktree. Founder review and repository reconciliation are required before merge.
+
 ---
 
 ## What Is in Scope (Phase 1)

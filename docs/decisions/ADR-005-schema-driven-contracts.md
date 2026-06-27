@@ -1,8 +1,12 @@
 # ADR-005 — JSON Schema Draft-07 as the Contract Enforcement Layer
 
-**Date:** 2026-06-18 (R1 work, commit `468e706`)  
-**Status:** ACTIVE  
-**Decider:** Founder  
+> **STATUS: PROVISIONAL DRAFT — NOT YET CANONICAL**
+> Constructed from committed baseline `b319b91` on 2026-06-27. This baseline does not include newer remote commits or uncommitted work in the primary worktree. Founder review and repository reconciliation are required before merge.
+
+**Decision date:** UNKNOWN  
+**Evidence existed by:** commit 468e706 (2026-06-18) — schemas created in R1  
+**Status:** RECONSTRUCTED — FOUNDER CONFIRMATION REQUIRED  
+**Decider:** UNKNOWN  
 **Evidence:** `docs/GLYTCHOS_SPEC.md §5.5`, `schemas/`, commit `468e706`
 
 ## Context

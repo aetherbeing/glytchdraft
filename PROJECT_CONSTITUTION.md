@@ -3,6 +3,9 @@
 **Authority:** Founder (charleshopeart@gmail.com / GitHub: aetherbeing).  
 **Last verified:** 2026-06-27 against commit `b319b91`.
 
+> **STATUS: PROVISIONAL DRAFT — NOT YET CANONICAL**
+> Constructed from committed baseline `b319b91` on 2026-06-27. This baseline does not include newer remote commits or uncommitted work in the primary worktree. Founder review and repository reconciliation are required before merge.
+
 ---
 
 ## 1. Repository Identity
@@ -92,14 +95,16 @@ appears most convenient. The conflict record belongs in `docs/CANONICAL_TRUTH_AU
 
 ---
 
-## 5. Canonical Spec Document
+## 5. Canonical Spec Document (INFERRED — FC-2 REQUIRED)
 
-`docs/GLYTCHOS_SPEC.md` is the authoritative specification.
+Per `docs/HANDOFF.md`: "Source of truth: docs/GLYTCHOS_SPEC.md"
 
-> Source: `docs/HANDOFF.md` — "Source of truth: docs/GLYTCHOS_SPEC.md"
+`docs/GLYTCHOS_SPEC.md` is treated as the authoritative specification until
+the founder confirms or corrects this designation (FC-2).
 
 `docs/GLITCHOS_AGNOSTIC_PIPELINE_VIEWER_SPEC.md` is a byte-for-byte duplicate
-and is SUPERSEDED. It must not be treated as a separate document.
+(794 lines, identical content, confirmed 2026-06-27). Its disposition requires
+explicit founder instruction (FC-2). Do not delete it without confirmation.
 
 ---
 
