@@ -5,6 +5,7 @@
 **Audit date**: 2026-06-27
 **Auditor**: Claude Sonnet 4.6 (claude-sonnet-4-6), read-only sprint
 **Correction**: 2026-06-27 — backup claim retracted; landmark identity downgraded; PM gate table disambiguated
+**Correction**: 2026-06-27 — PM gate numbering aligned to `MIAMI_TRUTH_RECONCILIATION.md`; water-plane defect separated from PM-8
 
 ---
 
@@ -165,6 +166,8 @@ The useful finding is independent of building identity: the BIKINI metadata CSV 
 
 Building identity for cluster 4994 is not confirmed. The observed h90 height (182.10 ftUS = 55.5m) is plausible for a South Beach mid-rise hotel but is not matched to a specific named building with spatial, address, and height confirmation. The height maximum (80m actual) raises doubt about whether the cluster is an individual building.
 
+**PM-8 (known-height landmark validation): NO-GO** — EA3 directly addresses PM-8. Landmark validation has not been completed. The building identity attempted here is unresolved; the required conditions (spatial intersection with authoritative footprint, confirmed address, verified authoritative height, reproducible comparison) are not met.
+
 ---
 
 ## Evidence Area 4 — Footprint Provenance and Completeness
@@ -271,6 +274,8 @@ No independent backup of the LAZ source tiles has been confirmed. The only known
 
 **STATUS: FAILED** — No independent backup verified. The previous "partially verified" classification was based on a false comparison (same device via two mount aliases). EA6 provides no backup assurance. A true independent copy (separate drive, remote storage, or cloud) has not been identified and remains unverified.
 
+**PM-1 (T7 redundant backup): NO-GO** — EA6 directly addresses PM-1. The T7 drive (Windows `E:`) has no confirmed independent redundant copy. `/mnt/e` and `/mnt/t7` are aliases for the same device; matching hashes between these paths prove only path consistency on that single device, not redundancy.
+
 ---
 
 ## PM Gate Status (Updated)
@@ -281,16 +286,18 @@ No independent backup of the LAZ source tiles has been confirmed. The only known
 > - **Gate satisfied**: the specific condition required for production approval is met
 > - **Production authorized**: a corrected pipeline run has been reviewed and cleared for use
 
-| Gate | Description | Evidence gathered | Gate satisfied? | Notes |
-|------|-------------|------------------|-----------------|-------|
-| PM-1 | Z unit declaration correct in all outputs | Viewer manifest `"units": "meters"` is false (geometry in ftUS). Cluster 4994 h90=55.5m consistent with Z in ftUS. Tile header CRS confirmed ftUS (EA1). | **NO** | Unit declaration error confirmed analytically. Landmark building identity unresolved (EA3). |
-| PM-2 | HAG computation in correct units | Prior reconciliation confirmed `NORMALIZE_SOURCE_Z_TO_METERS=False` in production. | **NO** | No new test performed. |
-| PM-3 | Footprint coverage complete | East coverage gap confirmed: footprint ends at lon=−80.12557; BIKINI bbox extends to −80.118. ~640–730m strip uncovered. | **NO** | Gap is confirmed, not disputed. |
-| PM-4 | `footprint_provenance` field present in all outputs | Field absent from all 7,618 BIKINI metadata records. Schema confirmed via CSV field list. | **NO** | Schema gap; requires code change and pipeline rerun. |
-| PM-5 | Tall buildings above 91.44m retained | 2,114 sampled points from tile 318750 have corrected HAG between 91.44m and 192.37m — proven lost by old pipeline (capped at 91.44m), retained by corrected one. Sampled, not full-tile. | **NO** | Evidence gathered; production pipeline not corrected. Gate requires corrected production run and output validation. |
-| PM-6 | Double-conversion guard in production pipeline | Guard implemented in `scripts/diagnostics/`; 29 tests pass. Guard is isolated and not wired into `s01_extract.py`. | **NO** | Design and tests complete. Gate requires production integration, not just standalone guard. |
-| PM-7 | Embedded unit constants corrected | `DEFAULT_FALLBACK_HEIGHT = 6.0` (bikini_config.py) is 1.83m not 6m. `ztop = max(ztop, zbot + 1.5)` in s05_masses.py:153 is 0.46m not 1.5m. | **NO** | Constants identified; code not changed. |
-| PM-8 | Water plane elevation correct | `wy = np.float32(-1.0)` at s06_export.py:214 → water at −0.305m in ftUS, not −1.0m as intended. | **NO** | Code location confirmed; not changed. |
+Gate descriptions are canonical from `MIAMI_TRUTH_RECONCILIATION.md`.
+
+| Gate | Canonical description | Evidence gathered this audit | Gate satisfied? | Notes |
+|------|-----------------------|------------------------------|-----------------|-------|
+| PM-1 | No confirmed redundant backup of raw LAZ tiles | `/mnt/e` and `/mnt/t7` confirmed same device (`E:`, device ID 84). SHA256 matches are path-consistency only. No independent backup found. (EA6) | **NO** | EA6 STATUS: FAILED. T7 is the only known copy. |
+| PM-2 | NOLA source LAZ CRS unverified | Not in scope for this audit. | **NO** | No new evidence. |
+| PM-3 | Miami-Dade county footprint dataset missing oceanfront coverage | East gap confirmed: footprint ends at lon=−80.12557; BIKINI bbox to −80.118. ~640–730m oceanfront strip uncovered. (EA4b) | **NO** | Gap confirmed, not disputed. |
+| PM-4 | `footprint_provenance` field absent from all building records | Field absent from all 7,618 BIKINI metadata records. Schema confirmed via CSV field list. (EA4a) | **NO** | Schema gap; requires code change and pipeline rerun. |
+| PM-5 | Tall-tower HAG retention on real data unverified (> 91.44m actual) | 2,114 sampled points from tile 318750 (SHA256 `1ee28720…`) have corrected HAG in [91.44m, 192.37m] — lost by old pipeline, retained by corrected. maxHAG old=91.44m, corrected=192.37m. Sampled at 8m radius; counts are NOT full-tile. (EA2) | **NO** | Real-data evidence gathered and verified. Production pipeline has not been corrected; gate requires corrected production run. |
+| PM-6 | s05 compatibility fix double-conversion guard not implemented | Guard implemented in `scripts/diagnostics/check_miami_vertical_units.py`; 29 tests pass. Guard is isolated — not imported by `s01_extract.py` or any production script. (EA5) | **NO** | Design and tests complete. Gate requires integration into the production extraction pipeline. |
+| PM-7 | Key Biscayne vertical unit not confirmed | Not in scope for this audit. | **NO** | No evidence gathered. |
+| PM-8 | Known-height landmark validation not performed | Cluster 4994 examined; building identity UNRESOLVED. Centroid at (25.789°N, −80.129°W) is spatially suggestive but unconfirmed. `county_height_m=None`; `cx/cy=0.0`; max HAG 80.0m inconsistent with ~55m expected; no address linkage; county ID unresolvable without GIS. (EA3) | **NO** | Landmark validation not completed. No building has been matched with defensible spatial + address + height confirmation. |
 
 **Summary**: No PM gate is satisfied. All remain NO-GO.
 
@@ -312,9 +319,9 @@ No independent backup of the LAZ source tiles has been confirmed. The only known
 
 6. **Viewer manifest unit claim false**: `tile_manifest.json` declares `"units": "meters"` but geometry is in US survey feet.
 
-7. **Water plane**: s06_export.py:214 `wy = np.float32(-1.0)` confirmed — in ftUS = −0.305m actual, not −1.0m (PM-8 open).
+7. **Water-plane unit-semantics defect (WD-1)**: `s06_export.py:214` uses `wy = np.float32(-1.0)` as a hardcoded numeric water-plane elevation. Under the affected mixed-unit pipeline, Z values are in US survey feet; the numeric value `-1.0` is therefore interpreted as −1 ftUS (≈ −0.305m actual), not −1 metre as intended. This is a downstream unit-semantics defect requiring correction during production migration. It is not assigned to any PM gate; it is an implementation defect to address alongside the Z-unit fix.
 
-8. **Embedded constants**: `DEFAULT_FALLBACK_HEIGHT = 6.0` (ftUS) and `ztop = max(ztop, zbot + 1.5)` (ftUS) confirmed in source (PM-7 open).
+8. **Embedded numeric constants**: `DEFAULT_FALLBACK_HEIGHT = 6.0` (bikini_config.py) is in ftUS = 1.83m actual. `ztop = max(ztop, zbot + 1.5)` (s05_masses.py:153) is in ftUS = 0.46m actual. These are unit-semantics defects in the same class as WD-1.
 
 ### Retracted from prior version
 
@@ -325,9 +332,10 @@ No independent backup of the LAZ source tiles has been confirmed. The only known
 ### Not resolved in this audit
 
 - Full SHA256 comparison of all 108 LAZ tiles (not meaningful until an independent storage copy is identified)
-- Known-height landmark validation with confirmed building identity (EA3 UNRESOLVED)
-- PM-6 production integration
-- PM-7 / PM-8 code corrections
+- PM-1: No independent backup found; T7 remains single point of failure
+- PM-8: Known-height landmark validation not completed; cluster 4994 identity UNRESOLVED
+- PM-6: Production integration of double-conversion guard not performed
+- WD-1 and embedded-constant defects: identified, not corrected
 
 ---
 
