@@ -7,16 +7,18 @@ by the Bikini processing pipeline (Downtown Miami + South Beach).
 All other Bikini scripts import from here — change a path once, it propagates.
 """
 
+import os
 import sys
 from pathlib import Path
 
 # ── project root ───────────────────────────────────────────────────────────────
 
-ROOT = (
-    Path(r"C:\Users\Glytc\glytchdraft")
-    if sys.platform == "win32"
-    else Path("/mnt/c/Users/Glytc/glytchdraft")
-)
+ROOT = Path(os.environ.get(
+    "MIAMI_BIKINI_REPO_ROOT",
+    r"C:\Users\Glytc\glytchdraft" if sys.platform == "win32" else "/mnt/c/Users/Glytc/glytchdraft",
+))
+
+TWO_TILE_UNIT_FIXTURE = os.environ.get("MIAMI_TWO_TILE_UNIT_FIXTURE") == "1"
 
 # ── LAZ input — 16 tiles from FL_MiamiDade_D23 (2024), on T7 ─────────────────
 # Windows CMD: T:\miami\data_raw\laz
@@ -50,6 +52,12 @@ LAZ_TILES = [
     "USGS_LPC_FL_MiamiDade_D23_LID2024_319055_0901.laz",
 ]
 
+if TWO_TILE_UNIT_FIXTURE:
+    LAZ_TILES = [
+        "USGS_LPC_FL_MiamiDade_D23_LID2024_318455_0901.laz",
+        "USGS_LPC_FL_MiamiDade_D23_LID2024_318155_0901.laz",
+    ]
+
 # ── raw data roots (T7) ───────────────────────────────────────────────────────
 
 _T7 = (
@@ -63,8 +71,15 @@ COUNTY_FP_PATH  = GEOJSON_RAW_DIR / "miami_footprints_4326.geojson"
 
 # ── output roots ───────────────────────────────────────────────────────────────
 
-OUT_ROOT    = _T7 / "data_processed" / "miami" / "bikini"
-EXPORT_ROOT = _T7 / "exports" / "MIAMI_BIKINI"
+if TWO_TILE_UNIT_FIXTURE:
+    OUT_ROOT = Path(os.environ.get(
+        "MIAMI_TWO_TILE_UNIT_FIXTURE_OUT_ROOT",
+        "/mnt/c/Users/Glytc/miami_two_tile_unit_fixture/corrected",
+    ))
+    EXPORT_ROOT = OUT_ROOT / "exports" / "MIAMI_TWO_TILE_UNIT_FIXTURE"
+else:
+    OUT_ROOT    = _T7 / "data_processed" / "miami" / "bikini"
+    EXPORT_ROOT = _T7 / "exports" / "MIAMI_BIKINI"
 
 PC_DIR      = OUT_ROOT / "pointcloud"
 CLUSTER_DIR = OUT_ROOT / "clusters"
@@ -132,6 +147,21 @@ BUILDING_SOURCE_CLASS = 1     # unclassified — contains building points
 GROUND_CLASS          = 2
 HAG_MIN_M             = 2.5   # exclude ground clutter, cars, low vegetation
 HAG_MAX_M             = 300.0 # cap noise; Miami tallest ~264m
+
+# Fixture-only switch: source Miami LAZ files are horizontal + vertical US
+# survey feet. Reprojection converts X/Y to meters, but PDAL does not convert Z
+# unless explicitly instructed. Production defaults remain unchanged unless the
+# two-tile fixture environment variable is set.
+NORMALIZE_SOURCE_Z_TO_METERS = (
+    TWO_TILE_UNIT_FIXTURE
+    and os.environ.get("MIAMI_TWO_TILE_UNIT_FIXTURE_NORMALIZE_Z", "1") != "0"
+)
+SOURCE_Z_TO_METERS_FACTOR: float | None = None
+FIXTURE_CROP_BOUNDS_32617 = (
+    os.environ.get("MIAMI_TWO_TILE_UNIT_FIXTURE_CROP_BOUNDS_32617")
+    if TWO_TILE_UNIT_FIXTURE
+    else None
+)
 
 # ── DBSCAN parameters (same as hero tile — Miami building density) ─────────────
 

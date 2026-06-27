@@ -32,6 +32,7 @@ Usage:
 from __future__ import annotations
 
 import json
+import subprocess
 import sys
 import time
 from pathlib import Path
@@ -78,6 +79,9 @@ _PLY_TYPES: dict[str, tuple[str, str]] = {
     "Classification":    ("uint8",  "u1"),
 }
 
+_US_SURVEY_FOOT_TO_M = 0.3048006096012192
+_UNIT_PROFILE: dict | None = None
+
 
 # ── tile helpers ───────────────────────────────────────────────────────────────
 
@@ -100,12 +104,97 @@ def check_tiles() -> list[Path]:
     return found
 
 
+def _pdal_metadata(tile_path: Path) -> dict:
+    proc = subprocess.run(
+        ["pdal", "info", "--metadata", str(tile_path)],
+        check=True,
+        text=True,
+        encoding="utf-8",
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    return json.loads(proc.stdout)["metadata"]
+
+
+def inspect_source_units(tile_paths: list[Path]) -> dict:
+    """Inspect LAZ CRS/units and return the vertical Z conversion profile."""
+    sources = []
+    vertical_units: set[str] = set()
+    horizontal_units: set[str] = set()
+    for tile_path in tile_paths:
+        meta = _pdal_metadata(tile_path)
+        srs = meta.get("srs", {})
+        units = srs.get("units", {})
+        h_unit = units.get("horizontal", "unknown")
+        v_unit = units.get("vertical", "unknown")
+        horizontal_units.add(h_unit)
+        vertical_units.add(v_unit)
+        sources.append({
+            "path": str(tile_path),
+            "compound_crs": srs.get("compoundwkt") or meta.get("comp_spatialreference"),
+            "horizontal_crs": srs.get("horizontal"),
+            "horizontal_unit": h_unit,
+            "vertical_crs": srs.get("vertical"),
+            "vertical_unit": v_unit,
+            "point_format": meta.get("dataformat_id"),
+            "point_count": meta.get("count"),
+            "bounds": {
+                "minx": meta.get("minx"), "miny": meta.get("miny"), "minz": meta.get("minz"),
+                "maxx": meta.get("maxx"), "maxy": meta.get("maxy"), "maxz": meta.get("maxz"),
+            },
+        })
+
+    if len(vertical_units) != 1:
+        raise RuntimeError(f"mixed source vertical units are not supported: {sorted(vertical_units)}")
+
+    vertical_unit = next(iter(vertical_units))
+    if vertical_unit == "US survey foot":
+        factor = _US_SURVEY_FOOT_TO_M
+    elif vertical_unit.lower() in {"metre", "meter", "metres", "meters"}:
+        factor = 1.0
+    else:
+        raise RuntimeError(
+            f"unknown source vertical unit {vertical_unit!r}; refusing to compute metric HAG"
+        )
+
+    return {
+        "sources": sources,
+        "source_horizontal_units": sorted(horizontal_units),
+        "source_vertical_unit": vertical_unit,
+        "target_horizontal_unit": "metre",
+        "target_vertical_unit": "metre",
+        "z_to_meters_factor": factor,
+        "normalize_z_to_meters": bool(CFG.NORMALIZE_SOURCE_Z_TO_METERS),
+        "pdal_assign_syntax": f"Z = Z * {factor}",
+    }
+
+
+def _metric_normalization_step() -> list[dict]:
+    if not CFG.NORMALIZE_SOURCE_Z_TO_METERS:
+        return []
+    if _UNIT_PROFILE is None:
+        raise RuntimeError("unit profile was not initialized before building PDAL steps")
+    factor = float(_UNIT_PROFILE["z_to_meters_factor"])
+    if factor == 1.0:
+        return []
+    return [{"type": "filters.assign", "value": f"Z = Z * {factor}"}]
+
+
+def _fixture_crop_step() -> list[dict]:
+    bounds = getattr(CFG, "FIXTURE_CROP_BOUNDS_32617", None)
+    if not bounds:
+        return []
+    return [{"type": "filters.crop", "bounds": bounds, "a_srs": f"EPSG:{CFG.OUT_EPSG}"}]
+
+
 # ── single-tile PDAL pipelines (no writer — returns numpy array) ───────────────
 
 def _building_steps(tile_path: Path, spacing_m: float) -> list[dict]:
     return [
         {"type": "readers.las", "filename": str(tile_path)},
         {"type": "filters.reprojection", "out_srs": f"EPSG:{CFG.OUT_EPSG}"},
+        *_metric_normalization_step(),
+        *_fixture_crop_step(),
         {"type": "filters.hag_nn"},
         {
             "type":   "filters.range",
@@ -122,6 +211,8 @@ def _ground_steps(tile_path: Path, spacing_m: float) -> list[dict]:
     return [
         {"type": "readers.las", "filename": str(tile_path)},
         {"type": "filters.reprojection", "out_srs": f"EPSG:{CFG.OUT_EPSG}"},
+        *_metric_normalization_step(),
+        *_fixture_crop_step(),
         {"type": "filters.range", "limits": f"Classification[{CFG.GROUND_CLASS}:{CFG.GROUND_CLASS}]"},
         {"type": "filters.sample", "radius": spacing_m},
     ]
@@ -221,7 +312,20 @@ def run_extraction(key: str, cfg: dict, tile_paths: list[Path]) -> int:
 # ── main ───────────────────────────────────────────────────────────────────────
 
 def main() -> int:
+    global _UNIT_PROFILE
     tile_paths = check_tiles()
+    if CFG.NORMALIZE_SOURCE_Z_TO_METERS:
+        try:
+            _UNIT_PROFILE = inspect_source_units(tile_paths)
+        except Exception as exc:
+            print(f"ERROR: source unit inspection failed: {exc}")
+            return 1
+        CFG.SOURCE_Z_TO_METERS_FACTOR = float(_UNIT_PROFILE["z_to_meters_factor"])
+        print("source units:")
+        print(f"  horizontal: {_UNIT_PROFILE['source_horizontal_units']} -> metre via EPSG:{CFG.OUT_EPSG}")
+        print(f"  vertical:   {_UNIT_PROFILE['source_vertical_unit']} -> metre")
+        print(f"  z factor:   {_UNIT_PROFILE['z_to_meters_factor']}")
+        print(f"  assign:     {_UNIT_PROFILE['pdal_assign_syntax']}")
 
     CFG.PC_DIR.mkdir(parents=True, exist_ok=True)
     CFG.META_DIR.mkdir(parents=True, exist_ok=True)
@@ -243,7 +347,21 @@ def main() -> int:
         f"# strategy: class {CFG.BUILDING_SOURCE_CLASS} + HAG [{CFG.HAG_MIN_M}–{CFG.HAG_MAX_M}m]",
         f"# ground class: {CFG.GROUND_CLASS}",
         f"# laz_dir: {CFG.LAZ_DIR}",
+        f"# normalize_z_to_meters: {CFG.NORMALIZE_SOURCE_Z_TO_METERS}",
+        f"# fixture_crop_bounds_32617: {getattr(CFG, 'FIXTURE_CROP_BOUNDS_32617', None)}",
     ]
+    if _UNIT_PROFILE is not None:
+        log_lines.extend([
+            f"# source_horizontal_units: {_UNIT_PROFILE['source_horizontal_units']}",
+            f"# source_vertical_unit: {_UNIT_PROFILE['source_vertical_unit']}",
+            f"# target_horizontal_unit: {_UNIT_PROFILE['target_horizontal_unit']}",
+            f"# target_vertical_unit: {_UNIT_PROFILE['target_vertical_unit']}",
+            f"# z_to_meters_factor: {_UNIT_PROFILE['z_to_meters_factor']}",
+            f"# pdal_assign_syntax: {_UNIT_PROFILE['pdal_assign_syntax']}",
+        ])
+        unit_path = CFG.META_DIR / "source_unit_profile.json"
+        unit_path.write_text(json.dumps(_UNIT_PROFILE, indent=2), encoding="utf-8")
+        log_lines.append(f"# source_unit_profile: {unit_path}")
     total_t0 = time.time()
 
     for key in targets:
