@@ -1,9 +1,31 @@
 # Miami Metric Migration Design
 
-**Branch:** `audit/miami-metric-migration-design`  
-**Status:** Architecture proposal — no production Python files modified  
-**Date:** 2026-06-27  
-**Author:** aetherbeing  
+**Branch:** `audit/miami-metric-migration-design`
+**Status:** Architecture proposal — documentation only — no production Python files modified
+**Date amended:** 2026-06-27
+**Author:** aetherbeing
+**Reconciled against:** MIAMI_FOUR_TILE_PREFLIGHT.md · MIAMI_TWO_TILE_UNIT_FIXTURE.md · MIAMI_TRUTH_ADVERSARIAL_REVIEW.md · integration/miami-truth-and-fixture
+
+---
+
+## AUTHORIZATION BOUNDARIES
+
+**This document is architecture documentation only.**
+
+It does not authorize and must not be used to justify:
+
+- Activating `METRIC_NORMALIZATION_V1` or `MIAMI_TWO_TILE_UNIT_FIXTURE=1` in the production pipeline
+- Four-tile regeneration of 318455 / 318454 / 318155 / 318154
+- District or full BIKINI regeneration
+- Replacement of any viewer GLB assets in `glytchOS`
+- Any claim that 1601 Collins Avenue has been repaired or that its height is now correct
+- Any claim that fixture cluster 6 is the specific building at 1601 Collins Avenue
+  (cluster 6 has a footprint of ~35,069 m², consistent with a DBSCAN parcel aggregate
+  spanning multiple structures, not a single identified building)
+- Treating Key Biscayne as a clean fallback (its source vertical unit is LIKELY but not
+  VERIFIED to be affected by the same defect)
+
+All production activation is gated on the PM and FT conditions in §16.
 
 ---
 
@@ -11,7 +33,7 @@
 
 1. [Context and Scope](#1-context-and-scope)
 2. [Target Invariant](#2-target-invariant)
-3. [Source Unit Verified Invariant](#3-source-unit-verified-invariant)
+3. [Source Unit — Verified Evidence](#3-source-unit--verified-evidence)
 4. [Authoritative Unit Discovery](#4-authoritative-unit-discovery)
 5. [Current Pipeline Trace](#5-current-pipeline-trace)
 6. [Defects Identified](#6-defects-identified)
@@ -23,10 +45,11 @@
 12. [Regression Test Matrix](#12-regression-test-matrix)
 13. [Controlled Validation Progression](#13-controlled-validation-progression)
 14. [Rollback and Failure Containment](#14-rollback-and-failure-containment)
-15. [Explicit Exclusions and Unsupported Claims](#15-explicit-exclusions-and-unsupported-claims)
-16. [Production Branch Name](#16-production-branch-name)
-17. [Commit-by-Commit Implementation Sequence](#17-commit-by-commit-implementation-sequence)
-18. [Unanswered Questions Requiring Evidence](#18-unanswered-questions-requiring-evidence)
+15. [Adversarial Review — Blocker Reconciliation](#15-adversarial-review--blocker-reconciliation)
+16. [Explicit Exclusions and Unsupported Claims](#16-explicit-exclusions-and-unsupported-claims)
+17. [Production Branch Name](#17-production-branch-name)
+18. [Commit-by-Commit Implementation Sequence](#18-commit-by-commit-implementation-sequence)
+19. [Unanswered Questions Requiring Evidence](#19-unanswered-questions-requiring-evidence)
 
 ---
 
@@ -34,58 +57,54 @@
 
 ### 1.1 Problem Statement
 
-The Miami pipeline (Project Bikini and the full city pipeline) processes USGS 3DEP LiDAR data
-from the FL_MiamiDade_D23 2024 collection. The source data is delivered in US survey feet for
-both horizontal and vertical coordinates. The pipeline reprojects horizontal coordinates (X, Y)
-from the source CRS to EPSG:32617 (UTM Zone 17N, meters) via PDAL's `filters.reprojection`.
+The Miami pipeline (Project Bikini and the full city pipeline) processes USGS 3DEP LiDAR
+from the FL_MiamiDade_D23 2024 collection. The source data is in US survey feet for all
+axes — horizontal and vertical. The pipeline reprojects horizontal coordinates (X, Y) from
+the source CRS to EPSG:32617 (UTM Zone 17N, meters) via PDAL's `filters.reprojection`.
 
-No explicit Z-unit normalization stage exists anywhere in the pipeline. The vertical coordinate
-(Z) passes through `filters.reprojection` and reaches `filters.hag_nn` in an unverified unit
-state that depends entirely on what CRS PDAL reads from each individual LAZ file header.
+Because EPSG:32617 is a 2D horizontal CRS with no vertical component, PDAL passes Z through
+unchanged. Z reaches `filters.hag_nn` and all downstream operations in US survey feet. The
+HAG thresholds, height estimates, metadata fields, OBJ vertices, GLB Y axis, and manifest
+unit declaration are all affected. No stage in the production pipeline converts Z to meters.
 
 This document:
-- Traces every Z-dependent and HAG-dependent operation in the current code
-- Identifies the exact normalization gap and associated defects
+- Traces every Z-dependent and HAG-dependent operation across the current code
+- Identifies the exact normalization gap and all associated defects, grounded in evidence
 - Specifies the required PDAL stage change and its placement
-- Defines all downstream field corrections
-- Provides a regression test matrix and controlled validation sequence
-- Specifies output versioning that distinguishes corrected from uncorrected outputs
+- Defines all downstream field corrections, output versioning, regression tests, and
+  controlled validation gates
+- Reconciles explicitly against the adversarial review blockers in §15
 
-### 1.2 Repositories in Scope
+### 1.2 Evidence Base
 
-- `glytchdraft` — city pipeline machine room (this repo)
-- Scripts: `scripts/miami/`, `scripts/phases/`, `scripts/generate_viewer_manifest.py`
-- Configs: `configs/cities/miami.json`
+The following documents from committed branches are the primary evidence:
 
-Out of scope: `glytchOS` viewer, Phase 2+, all non-Miami cities.
+| Document | Branch | Key contribution |
+|----------|--------|-----------------|
+| `MIAMI_FOUR_TILE_PREFLIGHT.md` | `audit/miami-four-tile-preflight` | LAZ header CRS confirmed (Stage B); empirical Z-in-feet proof; complete stage-by-stage unit trace; artifact inventory |
+| `MIAMI_TWO_TILE_UNIT_FIXTURE.md` | `codex/miami-two-tile-unit-fixture` | PDAL 2.10.2 + Python-PDAL 3.5.3 verified; `filters.assign` stage verified; HAG threshold semantics verified; 4 regression tests passing |
+| `MIAMI_TRUTH_ADVERSARIAL_REVIEW.md` | `audit/miami-truth-review` | Blockers B1–B5 (PM-1 through PM-8); contradiction table; evidence-vs-claims audit |
 
 ### 1.3 Files Inspected
 
-The following files were read and traced for this design:
-
 | File | Role |
 |------|------|
-| `configs/cities/miami.json` | City config including declared source_crs |
-| `scripts/miami/bikini_config.py` | Bikini pipeline constants and CRS settings |
+| `configs/cities/miami.json` | City config including misidentified source_crs |
+| `scripts/miami/bikini_config.py` | Bikini pipeline constants (HAG_MIN_M, HAG_MAX_M, DEFAULT_FALLBACK_HEIGHT, SHIFT_X/Y/Z) |
 | `scripts/miami/miami_city_config.py` | Full-city pipeline constants |
-| `scripts/miami/s01_extract.py` | PDAL ingestion and HAG extraction |
+| `scripts/miami/s01_extract.py` | PDAL ingestion and HAG extraction — root cause location |
 | `scripts/miami/s05_masses.py` | Height estimation and OBJ writing |
-| `scripts/miami/s06_export.py` | OBJ shift, GLB export, terrain mesh |
+| `scripts/miami/s06_export.py` | OBJ shift, GLB export, terrain mesh, shift_z computation |
 | `scripts/miami/s07_metadata.py` | Manifest and buildings.json generation |
 | `scripts/miami/s08_enrich.py` | Address enrichment, height_m field |
-| `scripts/miami/s03_county_footprints.py` | County footprint height ingestion |
-| `scripts/phases/phase_03_extract.py` | Shared-phase extract (mirrors s01) |
-| `scripts/phases/phase_04_clean.py` | PLY cleaning (reads Z passively) |
-| `scripts/phases/phase_05_cluster.py` | DBSCAN clustering (reads Z) |
-| `scripts/phases/phase_06_footprints.py` | Footprint derivation |
-| `scripts/phases/phase_07_masses.py` | Shared-phase height estimation |
-| `scripts/phases/phase_08_export.py` | Shared-phase GLB export |
-| `scripts/phases/phase_09_enrich.py` | Shared-phase enrichment |
+| `scripts/miami/s03_county_footprints.py` | County footprint height ingestion (county_height_m) |
+| `scripts/miami/run_tile_miami.py` | Per-tile pipeline runner — same PDAL stages as s01 |
+| `scripts/phases/phase_03_extract.py` | Shared-phase extract — same defect |
+| `scripts/phases/phase_04_clean.py` through `phase_09_enrich.py` | Downstream Z propagation |
 | `scripts/phases/phase_tile_common.py` | GLB coordinate transform |
 | `scripts/phases/phase_common.py` | CityRuntime dataclass |
 | `scripts/generate_viewer_manifest.py` | Viewer manifest generation |
 | `scripts/miami/merge_city_assets.py` | City-level PLY/GLB merge |
-| `scripts/miami/run_tile_miami.py` | Per-tile pipeline runner |
 
 ---
 
@@ -97,47 +116,76 @@ The normalization boundary is:
 
 ```
 readers.las
-  → filters.reprojection          (horizontal: source_ftUS → EPSG:32617 meters)
-  → [Z normalization gate]        ← NEW REQUIRED STAGE
+  → filters.reprojection          (horizontal: EPSG:6438 ftUS → EPSG:32617 meters)
+  → [Z normalization]             ← THE REQUIRED NEW STAGE: filters.assign
   → filters.hag_nn                (HAG computed in meters)
   → filters.range(HAG)            (thresholds applied in meters)
   → all later processing          (PLY, OBJ, GLB, metadata, manifest)
 ```
 
-No Z-dependent computation — height estimation, ground_z, shift_z, terrain mesh, OBJ
-vertices, GLB vertices, water plane, bounding boxes, metadata height fields, or manifest
-unit declarations — may execute before this boundary is crossed.
-
-Corollary: `estimated_height`, `ground_z`, `height_p90`, `height_p95`, `height_max`,
-`height_m`, `county_height_m`, and all OBJ/GLB vertex Z coordinates must be in meters
-or be explicitly labelled otherwise. Fields implicitly labelled `_m` must actually be meters.
+No Z-dependent computation may execute before this boundary is crossed. Every field named
+with a `_m` suffix must actually carry meters. The manifest `viewer_hints.units: "meters"`
+must be truthful. The GLB Y axis (elevation) and the terrain mesh vertical scale must be
+in meters and consistent with the horizontal (X, Z) axes.
 
 ---
 
-## 3. Source Unit Verified Invariant
+## 3. Source Unit — Verified Evidence
 
-These values are treated as verified and authoritative for this design:
+### 3.1 LAZ Header Evidence (Stage B, MIAMI_FOUR_TILE_PREFLIGHT.md)
+
+Both inspected tiles (`318455_0901.laz` and `318155_0901.laz`) carry an identical WKT VLR
+(LASF_Projection, record_id 2112), read directly from the LAS 1.4 header:
+
+```
+COMPD_CS["NAD83(2011) / Florida East (ftUS) + NAVD88 height - Geoid18 (ftUS)",
+  PROJCS["NAD83(2011) / Florida East (ftUS)", ...,
+    UNIT["US survey foot", 0.3048006096012192, AUTHORITY["EPSG","9003"]],
+    AUTHORITY["EPSG","6438"]],
+  VERT_CS["NAVD88 height - Geoid18 (ftUS)", ...,
+    UNIT["US survey foot", 0.3048006096012192, AUTHORITY["EPSG","9003"]],
+    AUTHORITY["EPSG","6360"]]]
+```
+
+**Source CRS facts confirmed from LAZ headers:**
+
+| Property | Value | Source |
+|----------|-------|--------|
+| Horizontal CRS | NAD83(2011) / Florida East | EPSG:6438 |
+| Vertical CRS | NAVD88 height — Geoid18 | EPSG:6360 |
+| Both axes unit | US survey foot | `UNIT["US survey foot", 0.3048006096012192]` |
+| Compound CRS type | 3D (`COMPD_CS`) | Both tiles identical |
+| Exact conversion | 1 US survey foot | = 0.3048006096012192 m |
+
+### 3.2 Empirical Z-in-Feet Confirmation (Stage B, MIAMI_FOUR_TILE_PREFLIGHT.md)
+
+Per-tile 318455 processed `ground_z` values range 1.51–8.36 in processed output units.
+If these were meters, the median (~3.29 m) would represent 10.8 feet of elevation for
+South Beach — implausibly high for a sea-level peninsula. As US survey feet: 3.29 ft
+= 1.00 m — consistent with South Beach NAVD88 ground elevation. Z is in feet.
+
+### 3.3 The `source_crs: "EPSG:3857"` Error
+
+`configs/cities/miami.json` line 4 states `"source_crs": "EPSG:3857"` (Web Mercator).
+This is a documentation error. The actual source CRS is EPSG:6438+6360 (compound,
+confirmed by Stage B). EPSG:3857 is the CRS of the Miami-Dade GeoAddress file used for
+address enrichment — not the LiDAR source CRS. The json's own `provenance.lidar_source`
+field acknowledges this as unverified. `bikini_config.py` line 79 explicitly states:
+"Source CRS is read from LAZ file headers by PDAL (auto-detect)" — confirming
+`miami.json`'s `source_crs` field is not used by the PDAL pipeline.
+
+### 3.4 Verified Invariant Table
 
 | Property | Value |
 |----------|-------|
-| Source horizontal unit | US survey foot (ftUS) |
-| Source vertical unit | US survey foot (ftUS) |
+| Source horizontal CRS | EPSG:6438 (NAD83(2011)/Florida East, ftUS) |
+| Source vertical CRS | EPSG:6360 (NAVD88 height — Geoid18, ftUS) |
+| Both axes unit | US survey foot |
 | Exact conversion | 1 ftUS = 0.3048006096012192 m |
-| Dataset | USGS LPC FL_MiamiDade_D23 LID2024 |
-| Nominal NAVD88 ground Z range (Miami) | 0–165 ftUS ≈ 0–50 m |
-| Miami tallest building | ~866 ftUS ≈ 264 m |
-
-The USGS LPC delivery standard for FL_MiamiDade_D23 uses Florida State Plane coordinates
-in US survey feet. The vertical coordinate stored in the LAZ `Z` field is NAVD88 height in
-US survey feet, not meters.
-
-**The `source_crs: "EPSG:3857"` in `configs/cities/miami.json` is a documentation error.**
-EPSG:3857 is Web Mercator; it is the CRS of the Miami-Dade GeoAddress file used for address
-enrichment, not the CRS of the LiDAR source. The json's own `provenance.lidar_source` field
-acknowledges this: *"Source CRS EPSG:3857 per hero-tile manifest; verify against full
-collection metadata."* The field is unverified and must not be treated as authoritative.
-The actual LiDAR source CRS is the Florida State Plane East zone in ftUS
-(EPSG:2236 or EPSG:6439 — exact EPSG requires LAZ header inspection; see §18).
+| LAZ tile bounds (318455) | X=[940000,943264] Y=[525000,529999] Z=[−6.30,198.79] in ftUS |
+| LAZ tile bounds (318155) | X=[940000,944622] Y=[530000,534999] Z=[−4.45,400.91] in ftUS |
+| 318455 Z-max in meters | 198.79 ftUS ≈ 60.6 m (consistent with mid-rise South Beach) |
+| 318155 Z-max in meters | 400.91 ftUS ≈ 122.2 m (consistent with taller residential tower) |
 
 ---
 
@@ -145,285 +193,262 @@ The actual LiDAR source CRS is the Florida State Plane East zone in ftUS
 
 ### 4.1 Where Source CRS Metadata Is Read
 
-PDAL reads the CRS from the LAS/LAZ file header. Specifically:
+PDAL reads the CRS from the LAS 1.4 WKT VLR (`LASF_Projection`, record ID 2112) in
+`readers.las`. For both FL_MiamiDade_D23 tiles, this VLR encodes the compound CRS
+EPSG:6438+6360. PDAL correctly reads this and uses EPSG:6438 for horizontal reprojection
+when `filters.reprojection` specifies `out_srs: EPSG:32617`.
 
-- **LAS 1.0–1.3**: CRS from GeoKeyDirectory and GeoAsciiParams VLRs (GeoTIFF keys)
-- **LAS 1.4**: CRS from WKT record (VLR user ID `LASF_Projection`, record ID 2112)
+**There is no misdetection of the source horizontal CRS.** PDAL auto-detection works
+correctly for these tiles. The horizontal reprojection of X/Y from ftUS to UTM meters is
+performed correctly.
 
-`readers.las` in PDAL extracts this metadata and uses it as the source projection for
-`filters.reprojection` when no `in_srs` is explicitly provided.
+### 4.2 Why Z Is Not Converted: The 2D Target CRS
 
-Current code in both pipelines:
+When `filters.reprojection` specifies `out_srs: EPSG:32617` (a 2D horizontal-only CRS),
+PDAL has no vertical datum target to project to. Z is passed through unchanged in source
+units (US survey feet). This is PDAL's documented behavior with a 2D target CRS: X/Y are
+reprojected; Z is a passthrough.
+
+The MIAMI_FOUR_TILE_PREFLIGHT documents this explicitly:
+
+> "PDAL `filters.reprojection` with a 2D target CRS (EPSG:32617) reprojects X/Y from
+> state-plane feet to UTM meters but has no vertical transform target specified. Z passes
+> through unchanged in the source unit."
+
+### 4.3 No Explicit `in_srs` in Any Pipeline Script
+
+Across all reviewed pipeline scripts, `filters.reprojection` is always called with
+only `out_srs`, never with `in_srs`:
 
 ```python
-# scripts/miami/bikini_config.py line 79:
-# Source CRS is read from LAZ file headers by PDAL (auto-detect).
-
-# scripts/miami/s01_extract.py lines 107-108:
-{"type": "readers.las", "filename": str(tile_path)},
-{"type": "filters.reprojection", "out_srs": f"EPSG:{CFG.OUT_EPSG}"},
+# s01_extract.py:108, run_tile_miami.py:88, phase_03_extract.py:29:
+{"type": "filters.reprojection", "out_srs": f"EPSG:{CFG.OUT_EPSG}"}
 ```
 
-No `in_srs` is provided anywhere in the Bikini pipeline or the shared phase pipeline.
-
-### 4.2 How Horizontal Units Are Identified
-
-When PDAL reads a Florida State Plane CRS (EPSG:2236 or EPSG:6439), the CRS WKT contains
-the linear unit `US_Survey_Foot`. PDAL's internal PROJ integration reads this and applies
-the correct scale factor when transforming X,Y to the target CRS (EPSG:32617, meters).
-Horizontal unit conversion is handled implicitly and correctly by PDAL for these CRS values.
-
-### 4.3 How Vertical Units Are Identified — The Gap
-
-PDAL's `filters.reprojection` handles Z conversion **only** when the source CRS includes a
-vertical component (i.e., a 3D or compound CRS). The behavior depends on the LAZ header:
-
-| LAZ header CRS type | PDAL behavior for Z |
-|---------------------|---------------------|
-| 2D CRS (no vertical component) | Z passed through **unchanged** (still in ftUS) |
-| 3D compound CRS with vertical in meters | Z transformed to ellipsoidal meters |
-| 3D compound CRS with vertical in feet | Z transformed to ellipsoidal meters after feet→m |
-| Custom vertical datum not in PROJ DB | PDAL may silently pass Z through or error |
-
-The FL_MiamiDade_D23 dataset has inconsistent CRS metadata across tiles. From
-`scripts/miami/s06_export.py` lines 86–88 (inline code comment):
-
-> "A small fraction of points (~0.4%) have ellipsoidal WGS84 Z values (~-27 m for Miami
-> sea level) because PDAL applied a vertical datum transform on some tiles whose LAZ
-> headers carry a 3-D CRS. The bulk of points are in NAVD88 orthometric heights (0-50 m
-> for Miami)."
-
-This confirms **two distinct post-reprojection Z states exist across tiles**:
-
-1. **Majority of tiles**: Z in NAVD88 orthometric heights — the comment says "0–50 m" range.
-   Whether this is meters (correctly converted) or feet (0–165 ftUS, misread as meters by
-   the developer) is the unresolved core question (see §18.1).
-2. **~0.4% of tiles**: Z in ellipsoidal WGS84 meters (~−27 m at Miami sea level).
-   These tiles have 3D CRS headers that triggered a full datum transform.
+PDAL auto-detects the source CRS from the LAZ header, which works correctly for
+horizontal. The gap is the absence of a vertical conversion — not a horizontal CRS
+detection error.
 
 ### 4.4 Behavior When Vertical-Unit Metadata Is Missing
 
-Currently: **silent pass-through**. If a LAZ header has a 2D CRS (no vertical component),
-PDAL passes Z unchanged without warning. The pipeline receives Z in source units (ftUS)
-and proceeds as if Z were in meters. There is no assertion, gate, log statement, or error
-that fires in this case.
+Current behavior: **silent Z passthrough** with no warning when the target CRS has no
+vertical component.
 
-The `filters.hag_nn` stage then computes HeightAboveGround as the Z difference between
-building points and ground points. This difference is self-consistent per tile (both
-building and ground Z are in the same units within each tile), so HAG is produced in
-whatever unit Z is in — ftUS or meters — with no label distinguishing them.
+Required behavior per this design: **explicit unit validation** with a pre-flight gate
+that reads PDAL metadata after `readers.las` and confirms the source vertical unit is
+US survey feet before any conversion is applied.
 
-### 4.5 Explicit Failure vs. Explicit Configuration
+### 4.5 Prohibition on Silent Assumption
 
-The required design mandates **explicit configuration with failure on ambiguity**:
+The pipeline must never silently proceed when the vertical unit of source data is unknown
+or ambiguous. Any tile whose CRS cannot be confirmed as EPSG:6438+6360 must halt the
+pipeline with an explicit error naming the tile and the found CRS. This failure must
+surface to the operator before point cloud data is accumulated.
 
-- **Preferred path**: Provide explicit `in_srs` to `filters.reprojection` that specifies
-  the exact source CRS with its vertical datum. This removes dependence on per-tile
-  header quality.
-- **Fallback path**: Read and validate the LAZ header CRS before pipeline execution;
-  fail hard if the vertical unit cannot be determined to be ftUS or meters.
-- **Prohibition**: The pipeline must never silently proceed when the vertical unit of
-  source data is unknown or ambiguous.
+### 4.6 Alternative 3D Reprojection Path (Unverified)
 
-A pre-flight unit gate function must be added that:
-1. Opens the LAZ header (no full read required)
-2. Extracts the linear unit for Z (or vertical CRS component)
-3. Compares against the expected source unit from config
-4. Raises an explicit error with the LAZ filename and found unit if they do not match
+An alternative to `filters.assign` is a compound target CRS:
+
+```json
+{"type": "filters.reprojection", "out_srs": "EPSG:32617+5703"}
+```
+
+This would reproject X/Y to UTM 17N meters and Z to NAVD88 orthometric meters (EPSG:5703)
+in a single stage, provided the PROJ vertical datum grid (`us_noaa_g2018u0.tif`) is
+present in the PROJ data path. This path is documented in MIAMI_FOUR_TILE_PREFLIGHT as
+"not tested; treat as an alternative requiring separate verification." The `filters.assign`
+approach is the verified path (see §7).
 
 ---
 
 ## 5. Current Pipeline Trace
 
-### 5.1 Bikini Pipeline (scripts/miami/)
-
-Complete Z-dependency chain:
+### 5.1 Complete Z-Dependency Chain — Bikini Pipeline
 
 ```
-LAZ on disk (Z in ftUS NAVD88)
+LAZ on disk (X, Y, Z all in US survey feet — EPSG:6438+6360)
   ↓
-readers.las                     [s01_extract.py:107, run_tile_miami.py:87,103,113]
-  — reads CRS from LAZ header
+readers.las                         [s01_extract.py:107]
+  auto-detects EPSG:6438+6360 from VLR WKT
   ↓
-filters.reprojection            [s01_extract.py:108, run_tile_miami.py:88,104,114]
-  out_srs = EPSG:32617
-  NO in_srs — PDAL auto-detects source CRS
-  RESULT: X,Y in meters; Z in UNKNOWN unit (ftUS or ellipsoidal depending on tile)
+filters.reprojection                [s01_extract.py:108]
+  out_srs = EPSG:32617 (2D, no vertical component)
+  RESULT: X,Y in UTM meters; Z in US survey feet (passthrough — VERIFIED)
   ↓
-filters.hag_nn                  [s01_extract.py:109, run_tile_miami.py:89]
-  computes HeightAboveGround = building_Z - ground_Z (per-tile, self-consistent)
-  RESULT: HAG in the same unknown unit as Z
+filters.hag_nn                      [s01_extract.py:109]
+  computes HeightAboveGround from class-2 ground neighbors
+  input Z is in source feet; HAG is therefore in source feet
   ↓
-filters.range                   [s01_extract.py:111-116, run_tile_miami.py:92-95]
-  limits: HeightAboveGround[HAG_MIN_M:HAG_MAX_M]
-  HAG_MIN_M = 2.5  (named "meters" — actually ftUS if Z not converted)
-  HAG_MAX_M = 300.0 (named "meters" — actually ftUS if Z not converted)
-  DEFECT: if Z is in ftUS, 300 ftUS ≈ 91.4 m cap excludes buildings above 91.4 m
+filters.range                       [s01_extract.py:111-115]
+  limits: HeightAboveGround[HAG_MIN_M:HAG_MAX_M] = [2.5:300.0]
+  HAG_MIN_M named "meters" — applied in source feet = 0.76m effective minimum
+  HAG_MAX_M named "meters" — applied in source feet = 91.44m effective cap
+  VERIFIED: points above 91.44m actual height are irreversibly excluded from PLY
   ↓
-PLY output: X,Y,Z,Intensity,HeightAboveGround  [s01_extract.py:52,59]
-  Z in unknown unit; HeightAboveGround in unknown unit
+PLY output: X(m), Y(m), Z(ftUS), HeightAboveGround(ftUS)
+  [bikini_building_32617_0p25m.ply, bikini_building_32617_1m.ply,
+   bikini_ground_32617_1m.ply]
   ↓
-s02_clean.py (filters.outlier, filters.range class!=7)
-  reads Z passively from PLY; outlier filter operates on Z in unknown unit
+s02_clean.py: filters.outlier 3D distance
+  operates in anisotropic space: X/Y in meters, Z in feet
+  Z axis 3.28× more dispersed than X/Y; outlier neighborhoods are distorted
   ↓
-s03_cluster.py
-  z_range = pts[:,2].max() - pts[:,2].min()  — in unknown unit
-  z_p90   = np.percentile(pts[:,2], 90)      — in unknown unit
+s03_cluster.py:
+  DBSCAN fit on XY only (correct); Z stats in source feet
+  z_range, z_p90 in cluster_summary.csv are in source feet (mislabeled)
   ↓
-s04_footprints.py
-  X,Y only (footprint geometry); Z not used directly
+s05_masses.py:estimate_heights()    [lines 119, 122, 126-127]
+  ground_z = np.median(g_inside[:,2])    — source feet
+  h90      = np.percentile(zs, 90)       — source feet
+  est_h    = max(0.0, h90 - ground_z)    — source feet
+  DEFAULT_FALLBACK_HEIGHT = 6.0          — 6.0 ftUS = 1.83m (not 6m)
+  minimum height: ztop = max(ztop, zbot + 1.5) — 1.5 ftUS = 0.46m (not 1.5m)
+  stored: ground_z, height_p90, height_p95, height_max, estimated_height (all ftUS)
   ↓
-s05_masses.py:estimate_heights()
-  ground_z = np.median(g_inside[:,2])        — in unknown unit [line 119]
-  h90      = np.percentile(zs, 90)           — in unknown unit [line 126]
-  est_h    = max(0.0, h90 - ground_z)        — difference; self-consistent but in unknown unit
-  DEFAULT_FALLBACK_HEIGHT = 6.0              — CLAIMED meters; if Z is ftUS, ≈ 1.83 m actual
-  min height: ztop = max(ztop, zbot + 1.5)   — 1.5 claimed meters; if Z is ftUS ≈ 0.46 m
-  stored: ground_z, height_p90, height_p95, height_max, estimated_height in CSV/GeoJSON
-  ↓
-s05_masses.py:write_lod_obj()
-  ztop = height_p90 (absolute Z, unknown unit)
-  gnd  = ground_z   (absolute Z, unknown unit)
-  OBJ comment: "CRS: EPSG:32617 (UTM 17N, meters, NO shift applied)"  ← CLAIMS meters
-  vertex: f"v {x:.3f} {y:.3f} {ztop:.3f}"   — Z in unknown unit
-  ↓
-s06_export.py:_ply_min_z()
-  IQR rejection of ellipsoidal outliers (~-27 m)
-  robust_min used as shift_z                  — in unknown unit
+s05_masses.py:write_lod_obj()       [lines 155-157]
+  ztop = height_p90 (absolute Z in ftUS)
+  gnd  = ground_z   (absolute Z in ftUS)
+  OBJ vertex: f"v {x:.3f} {y:.3f} {ztop:.3f}"
+  OBJ comment: "# CRS: EPSG:32617 (UTM 17N, meters, NO shift applied)"
+  ← THIS COMMENT IS INCORRECT: vertex Z is in ftUS, not meters
   ↓
 s06_export.py:_mass_floor_z()
-  1st percentile of OBJ Z values             — in unknown unit
-  used as shift_z for GLB origin
+  1st percentile of OBJ Z values (ftUS) → shift_z (ftUS)
+  log prints "shift_z={shift_z:.4f} m" ← INCORRECT label
   ↓
-s06_export.py:shift_obj()
-  applies X -= SHIFT_X, Y -= SHIFT_Y
-  Z UNCHANGED (passes through as-is)         — Z still in unknown unit
+s06_export.py:shift_obj()           [lines 234-236]
+  x = float(parts[1]) - SHIFT_X  (UTM meters, correct)
+  y = float(parts[2]) - SHIFT_Y  (UTM meters, correct)
+  z = float(parts[3])            (ftUS, unchanged)
   ↓
 s06_export.py:_build_terrain_mesh()
-  land_mask = lz_full >= shift_z             — shift_z in unknown unit
-  water plane placed at GLB Y = -1.0        — hardcoded, unit-agnostic
-  lx = land_data["X"] - SHIFT_X (meters, correct)
-  ly = land_data["Y"] - SHIFT_Y (meters, correct)
-  lz = land_data["Z"]           (unknown unit — critical: used in vertex)
+  land_mask = lz_full >= shift_z   — shift_z in ftUS; filter correct relative to Z
+  lz = land_data["Z"]              — ftUS
+  land_verts = np.column_stack([lx, lz - shift_z, -ly])
+  GLB Y = lz - shift_z            — ftUS values; SCENE VERTICAL AXIS IS IN FEET
+  terrain Delaunay triangle slopes: ΔZ/ΔXY = ftUS/meters → 3.28× too steep
+  water plane: GLB Y = -1.0 (1 glTF unit = 1 source foot = 0.305m depth, not 1m)
   ↓
-s06_export.py:write_glb()
-  Z-up → Y-up: verts[:,0], verts[:,2] - shift_z, -verts[:,1]  [line 420]
-  If Z is ftUS:  GLB Y = ftUS_Z - ftUS_shift_z  → still in feet vertically
-  GLB X,Y (easting/northing) are in meters; GLB Y (elevation) is in ftUS
-  SCENE IS ANISOTROPIC: horizontal scale ≈ meters, vertical scale ≈ feet
+s06_export.py:write_glb()           [line 420]
+  verts = np.stack([verts[:,0], verts[:,2] - shift_z, -verts[:,1]], axis=1)
+  GLB X: local easting (meters) ✓
+  GLB Y: local_Z - shift_z (ftUS) ← INCORRECT — should be meters
+  GLB Z: -local_northing (meters) ✓
+  SCENE IS ANISOTROPIC: horizontal meters, vertical feet
   ↓
-s07_metadata.py:build_buildings_json()
-  "h": round(height, 2)                     — height in unknown unit
-  viewer_hints: "units": "meters"           — CLAIMED meters; may be ftUS
+s07_metadata.py
+  "h": round(estimated_height, 2)  — ftUS labeled as height
+  "units": "meters"                ← INCORRECT: geometry is in feet
   ↓
-s08_enrich.py
-  "height_m": round(ms.get("height_m") or fp.get("county_height_m") or 6.0, 1)
-  county_height_m sourced from s03_county_footprints.py:
-    "county_height_m": props_raw.get("HEIGHT")
-    HEIGHT field from Miami-Dade County GIS — unit of HEIGHT is UNKNOWN
-    (county attribute may be in feet or meters — undocumented in code)
+s08_enrich.py                       [line 141]
+  "height_m": estimated_height or county_height_m or 6.0
+  — all potentially in ftUS; field name claims meters
+  — Claude enrichment prompt receives height in ftUS labeled as "m"
 ```
 
-### 5.2 Shared Phase Pipeline (scripts/phases/)
+### 5.2 Verified Defect Measurements (MIAMI_FOUR_TILE_PREFLIGHT.md)
 
-`phase_03_extract.py` mirrors `s01_extract.py` exactly:
-- `readers.las → filters.reprojection(out_srs=epsg) → filters.hag_nn → filters.range(HAG)`
-- No `in_srs`, no Z normalization
-- Same defect
+| Metric | Observed value | Unit | Metric equivalent |
+|--------|---------------|------|------------------|
+| BIKINI cluster 4994 estimated_height | 182.1 | ftUS | 55.5 m (Loews Miami Beach, ~12-13 floors) |
+| Viewer display | "182.1 m" | displayed | 3.28× overstated |
+| HAG_MIN_M effective bound | 2.5 | ftUS | 0.76 m (includes cars, low vegetation) |
+| HAG_MAX_M effective bound | 300.0 | ftUS | 91.44 m (~30 floors; clips Brickell towers) |
+| Minimum slab `zbot + 1.5` | 1.5 | ftUS | 0.46 m |
+| Fallback height | 6.0 | ftUS | 1.83 m |
+| Water plane depth | 1.0 | glTF unit = ftUS | 0.305 m |
 
-`phase_07_masses.py` mirrors `s05_masses.py`:
-- `h90 = np.percentile(inside[:,2], 90)` — Z in unknown unit
-- `est_h = max(1.5, h90 - ground_z)` — minimum height 1.5 (claimed meters)
+### 5.3 LA Pipeline Comparison
 
-`phase_08_export.py`:
-- GLB offset JSON: `shift_x`, `shift_y`, `shift_z` — Z shift in unknown unit
+`scripts/la/s04_masses.py` applies `xyz[:, 2] *= FTUS_TO_M` before height arithmetic.
+This is the correct pattern. It is absent from the Bikini pipeline. The LA pipeline is
+VERIFIED NOT AFFECTED. The Bikini pipeline has no equivalent conversion at any stage.
 
-`phase_tile_common.py`:
-- `poly_shifted = np.column_stack([poly[:,0]-sx, poly[:,2]-sz, -(poly[:,1]-sy)])`
-- Same Z-up → Y-up transform; Z values in unknown unit propagate here
+### 5.4 NOLA Pipeline Status
 
-### 5.3 Manifest and Viewer
+`MIAMI_FOUR_TILE_PREFLIGHT.md` §Mixed-Unit Trace explicitly states:
+> "NOLA phases pipeline outputs: UNKNOWN — source CRS and Z handling require separate
+> verification. `production_ready: true` certification was based on visual inspection;
+> Z unit not verified; phases pipeline has no `in_srs` or Z conversion."
 
-`generate_viewer_manifest.py`:
-- Reads `shift_x`, `shift_y`, `shift_z` from city GLB offset JSON
-- `source_to_scene_bounds()` computes scene bounds using these values
-- Bounding box min/max derived from local_min/max with offsets
-- All bounds carried forward in unknown unit if Z was not normalized
+NOLA status is UNKNOWN. This design does not address NOLA. A separate NOLA CRS audit
+is a prerequisite (PM-2) before production migration of Miami.
 
 ---
 
 ## 6. Defects Identified
 
-### D-1: No Z Normalization Stage (Critical)
+### D-1: No Z Normalization Stage (Critical — Verified)
 
 **Location**: `s01_extract.py:107-118`, `phase_03_extract.py` (equivalent),
 `run_tile_miami.py:87-95`
 
-**Defect**: After `filters.reprojection`, Z is in an unverified unit. The pipeline proceeds
-to `filters.hag_nn` and all downstream operations without asserting or enforcing that Z is
-in meters.
+**Evidence**: MIAMI_FOUR_TILE_PREFLIGHT Stage B; empirical ground_z distribution
+(1.51–8.36 ftUS for South Beach, consistent with feet not meters)
 
-**Impact**: If Z is in US survey feet (the source unit for FL_MiamiDade_D23):
-- HAG thresholds `[2.5:300.0]` operate in feet, not meters
-  - Lower bound: 2.5 ft ≈ 0.76 m — passes cars, low vegetation, street furniture
-  - Upper bound: 300 ft ≈ 91.4 m — **caps at ~300 feet, cutting all buildings above 91 m**
-  - Miami tallest building ~264 m = ~866 ft — would be **entirely excluded**
-- `estimated_height`, `ground_z`, `height_p90` stored in CSV/GeoJSON as feet while fields
-  are named and declared as meters
-- OBJ vertices: Z coordinates in feet, comment claims UTM meters
-- GLB: elevation axis in feet while horizontal axes are in meters → anisotropic scene
-- `"h"` in buildings.json in feet while manifest says `"units": "meters"`
-- `shift_z` computed from feet values; terrain water plane placed at feet elevation
+**Defect**: After `filters.reprojection`, Z remains in US survey feet. The pipeline
+proceeds to `filters.hag_nn` and all downstream operations without any Z conversion.
 
-### D-2: Mixed Vertical Datum Across Tiles (High)
+**Impact**:
+- HAG thresholds `[2.5:300.0]` apply in ftUS: 2.5 ft = 0.76 m minimum (passes low
+  vegetation), 300 ft = 91.44 m cap (irreversibly excludes buildings above ~30 floors)
+- `estimated_height`, `ground_z` etc. stored in ftUS while named/declared as meters
+- OBJ vertices: Z in ftUS; GLB Y axis in ftUS while X/Z are in meters
+- Viewer displays "182.1 m" for a building that is 55.5 m (3.28× overstated)
+- Claude enrichment prompt receives height_m in ftUS
 
-**Location**: `s06_export.py` lines 86–88, 469 (code comments)
+**Irreversibility**: Any LiDAR return with HAG > 91.44 m (> 300 ft) was discarded by
+`filters.range` at s01 and is permanently absent from all existing processed PLY, OBJ,
+and GLB files. Recovery requires re-running s01 from the original LAZ tiles.
 
-**Defect**: Some tiles carry 3D compound CRS headers that trigger PDAL vertical datum
-transforms, producing ellipsoidal WGS84 Z values (~−27 m for Miami). Other tiles carry 2D
-headers. These tile outputs are accumulated into the same PLY arrays without any datum tag.
+### D-2: Constants With Embedded Foot Assumptions (High — Verified)
 
-**Impact**: Even if the majority of tiles produce consistent Z values, the ~0.4% with
-ellipsoidal Z produce building `ground_z` values of ~−27 m instead of 0–50 m (or 0–165 ft).
-The runtime workaround (IQR rejection in `_ply_min_z`, 1st-percentile `_mass_floor_z`)
-masks but does not fix the defect. Adding a blanket Z *= 0.3048 to tiles that are already
-in meters would produce a second conversion error.
+**Location**: `bikini_config.py:150` (`DEFAULT_FALLBACK_HEIGHT = 6.0`), `s05_masses.py:152`
+(`ztop = max(ztop, zbot + 1.5)`), `s06_export.py:211` (water plane `GLB Y = -1.0`)
 
-### D-3: Incorrect `source_crs` in `configs/cities/miami.json` (Medium)
+**Defect**: These numeric constants were authored with meters as the intended unit.
+Currently they operate in a foot-valued Z space, producing:
+- Fallback height: 6.0 ftUS = 1.83 m (too short; intended 6 m)
+- Minimum slab: 1.5 ftUS = 0.46 m (too thin; intended 1.5 m)
+- Water plane: −1.0 glTF unit = −1 ftUS = −0.305 m depth (too shallow; intended −1 m)
+
+**Note**: The s01 `filters.assign` fix alone does not correct these constants. Each
+must be verified and explicitly annotated in implementation (Commit 3 in §18).
+
+### D-3: Incorrect `source_crs` in `configs/cities/miami.json` (Medium — Verified)
 
 **Location**: `configs/cities/miami.json:4`
 
-**Defect**: `"source_crs": "EPSG:3857"` (Web Mercator). The LAZ source CRS is Florida State
-Plane East in US survey feet, not Web Mercator. The json's own provenance comment flags this
-as unverified.
+**Defect**: `"source_crs": "EPSG:3857"` (Web Mercator). The actual source CRS is
+EPSG:6438+6360 (compound, US survey feet). The config is not consumed by the BIKINI
+PDAL pipeline (which auto-detects from headers), but it is stale and misleading.
 
-**Impact**: Any code that reads `source_crs` from this config to set PDAL `in_srs` would
-use the wrong projection and produce incorrect reprojected coordinates.
-
-### D-4: `county_height_m` Unit Not Verified (Medium)
+### D-4: `county_height_m` Unit Not Verified (Medium — Open)
 
 **Location**: `s03_county_footprints.py:132`, `s08_enrich.py:141`
 
-**Defect**: `"county_height_m": props_raw.get("HEIGHT")` reads the `HEIGHT` attribute from
-the Miami-Dade County Building Footprints layer. The unit of `HEIGHT` in that dataset is not
-documented in the code. Miami-Dade County typically stores building heights in feet. If
-`HEIGHT` is in feet, then `county_height_m` is mislabelled (feet stored as "meters").
+**Defect**: `"county_height_m": props_raw.get("HEIGHT")` reads the `HEIGHT` attribute
+from Miami-Dade County Building Footprints. Unit of `HEIGHT` is not documented in code.
+If it is in feet (as county GIS attribute HEIGHT often is), then the fallback in `s08`
+(`county_height_m or 6.0`) would use feet where the surrounding code expects meters.
 
-**Impact**: Fallback heights from county data for buildings with no LiDAR coverage would be
-reported in feet while downstream consumers expect meters.
+### D-5: Incorrect `source_crs` Hypothesis — Retracted
 
-### D-5: `DEFAULT_FALLBACK_HEIGHT` and Minimum Height Not Verified (Low)
+The initial version of this document hypothesized that approximately 0.4% of tiles have
+3D CRS headers causing ellipsoidal Z values (~−27 m for Miami), based on a comment in
+`s06_export.py`. This hypothesis is **not supported by the LAZ header evidence**.
 
-**Location**: `bikini_config.py:150`, `miami_city_config.py:134`
+MIAMI_FOUR_TILE_PREFLIGHT Stage B confirmed that both inspected tiles (318455, 318155)
+carry identical compound CRS (EPSG:6438+6360). The PDAL behavior documented in the
+preflight is: "PDAL has no vertical datum to project to, so Z passes through unchanged in
+source feet." No ellipsoidal transform was detected for these tiles. The s06_export.py
+code comment about "0.4% ellipsoidal outliers" either refers to a different dataset, a
+different pipeline configuration, or is an incorrect hypothesis. It should not be treated
+as a documented defect without evidence.
 
-**Defect**: `DEFAULT_FALLBACK_HEIGHT = 6.0` is assumed to be meters. If Z is in ftUS when
-this fallback is applied, the fallback height unit is inconsistent with actual measured
-heights in the same dataset (which would be in feet).
-
-**Location**: `s05_masses.py:152`
-
-**Defect**: `ztop = max(ztop, zbot + 1.5)` enforces a 1.5-unit minimum height. If Z is in
-feet, this is a 1.5 ft (≈0.46 m) minimum rather than a 1.5 m minimum.
+The IQR-based outlier rejection in `_ply_min_z` (s06_export.py:108-111) and the
+1st-percentile heuristic in `_mass_floor_z` remain useful defensive measures regardless
+of the outlier cause.
 
 ---
 
@@ -431,35 +456,29 @@ feet, this is a 1.5 ft (≈0.46 m) minimum rather than a 1.5 m minimum.
 
 ### 7.1 Normalization Boundary Principle
 
-The normalization boundary is fixed. Every file that constructs a PDAL pipeline for Miami
-LAZ ingestion must implement this exact stage order:
+The `filters.assign` stage must be placed immediately after `filters.reprojection` and
+immediately before `filters.hag_nn`. This is the canonical boundary. It is the only
+position at which all Z-dependent operations can receive metric Z, including the HAG
+filter that discards points irreversibly.
 
-```
-Stage 0: readers.las         — read raw LAZ (Z in ftUS NAVD88)
-Stage 1: filters.reprojection — X,Y: ftUS → meters (EPSG:32617); Z still in ftUS
-Stage 2: filters.assign      — Z: ftUS → meters  ← THE REQUIRED NEW STAGE
-Stage 3: filters.hag_nn      — HAG computed in meters
-Stage 4: filters.range       — HAG thresholds applied in meters
-Stage 5: filters.sample      — voxel subsampling in meter space
-```
+### 7.2 Verified Stage Order (from MIAMI_TWO_TILE_UNIT_FIXTURE.md §5)
 
-### 7.2 Exact PDAL Stage JSON (Building Extraction)
+The following stage order was verified by the two-tile fixture (PDAL 2.10.2 /
+Python-PDAL 3.5.3) on real LAZ tiles 318455 and 318155:
 
 ```json
 [
   {
     "type": "readers.las",
-    "filename": "<tile_path>",
-    "override_srs": "EPSG:2236"
+    "filename": "<tile_path>"
   },
   {
     "type": "filters.reprojection",
-    "in_srs": "EPSG:2236",
     "out_srs": "EPSG:32617"
   },
   {
     "type": "filters.assign",
-    "value": ["Z = Z * 0.3048006096012192"]
+    "value": "Z = Z * 0.3048006096012192"
   },
   {
     "type": "filters.hag_nn"
@@ -475,279 +494,198 @@ Stage 5: filters.sample      — voxel subsampling in meter space
 ]
 ```
 
-> **Note on `override_srs`**: The `override_srs` field forces PDAL to treat the file as
-> having EPSG:2236 regardless of what the header says. This prevents the mixed-datum problem
-> (D-2) where some tiles carry 3D CRS headers that trigger unwanted vertical datum transforms.
-> `in_srs` in `filters.reprojection` must match `override_srs` exactly.
->
-> **EPSG:2236 vs EPSG:6439**: The exact source EPSG depends on which horizontal datum the
-> LAZ files encode (NAD83 original vs NAD83(2011)). This must be confirmed by inspecting
-> LAZ headers before implementation (see §18.1). If EPSG:6439 is correct, substitute it in
-> both `override_srs` and `in_srs`.
+**No `override_srs` or `in_srs` is needed or recommended.** PDAL correctly
+auto-detects EPSG:6438+6360 from the LAZ VLR for horizontal reprojection. Overriding the
+source CRS would risk disrupting correct horizontal reprojection and would falsify the CRS
+provenance information. The vertical conversion is handled separately by `filters.assign`.
 
-### 7.3 Exact PDAL Stage JSON (Ground Extraction)
+**Ground extraction** (no HAG stage):
 
 ```json
 [
-  {
-    "type": "readers.las",
-    "filename": "<tile_path>",
-    "override_srs": "EPSG:2236"
-  },
-  {
-    "type": "filters.reprojection",
-    "in_srs": "EPSG:2236",
-    "out_srs": "EPSG:32617"
-  },
-  {
-    "type": "filters.assign",
-    "value": ["Z = Z * 0.3048006096012192"]
-  },
-  {
-    "type": "filters.range",
-    "limits": "Classification[2:2]"
-  },
-  {
-    "type": "filters.sample",
-    "radius": "<spacing_m>"
-  }
+  {"type": "readers.las", "filename": "<tile_path>"},
+  {"type": "filters.reprojection", "out_srs": "EPSG:32617"},
+  {"type": "filters.assign", "value": "Z = Z * 0.3048006096012192"},
+  {"type": "filters.range", "limits": "Classification[2:2]"},
+  {"type": "filters.sample", "radius": "<spacing_m>"}
 ]
 ```
 
-The ground extraction pipeline must also include the Z normalization stage so that ground Z
-and building Z are in the same unit when `filters.hag_nn` compares them.
+Ground extraction also requires the normalization stage so that ground Z values are in
+meters when `filters.hag_nn` uses them as the reference surface for building points.
 
-### 7.4 Conversion Expression Rationale
-
-The exact conversion is:
+### 7.3 Conversion Expression Rationale
 
 ```
 1 US survey foot = 0.3048006096012192 meters
 ```
 
-This is the exact definition per the U.S. National Geodetic Survey:
-`1200/3937 meters per US survey foot = 0.3048006096012192...`
+This is the exact statutory definition: 1200/3937 meters per US survey foot.
+The international foot (0.3048 exactly) is a different unit. Both FL_MiamiDade_D23 tiles
+embed `0.304800609601219` (rounded) in their CRS WKT `UNIT[]` field. The full-precision
+constant `0.3048006096012192` eliminates rounding errors accumulating across per-point
+arithmetic.
 
-The international foot (0.3048 exactly) is a different unit. USGS 3DEP data uses
-US survey feet. Using 0.3048 instead of 0.3048006096012192 introduces a systematic
-error of ~2 mm per meter, or ~0.5 m across a 250-m building. Use the exact value.
+### 7.4 Prevention of Double Conversion
 
-### 7.5 Prevention of Double Conversion
+Double conversion occurs if `filters.assign` is applied to Z that has already been
+converted to meters. Under the verified design (reading from source LAZ with auto-detected
+EPSG:6438+6360), PDAL leaves Z in ftUS after a 2D reprojection. There is no double
+conversion risk from the PDAL pipeline itself.
 
-Double conversion occurs if a tile's LAZ header already caused PDAL to convert Z to meters
-(via a 3D compound CRS), and then `filters.assign` applies Z *= 0.3048 again. The result
-would be Z in ~0.28× true meters — buildings would appear ~3.28× too short.
+Double conversion risk exists at s05 if an operator applies the LA-style
+`xyz[:, 2] *= FTUS_TO_M` to PLY data that has already been written by a corrected s01.
+The PLY file format carries no unit metadata; the corrected PLY would be indistinguishable
+from an uncorrected PLY to s05 without an external provenance record.
 
-The `override_srs` field in `readers.las` prevents this. By forcing PDAL to treat the file
-as EPSG:2236 (a 2D CRS with no vertical component), PDAL never attempts a vertical datum
-transform, leaving Z in ftUS as delivered. The subsequent `filters.assign` then performs
-exactly one conversion. No tile can undergo double conversion under this scheme.
+**Required guard**: The provenance JSON produced alongside each corrected PLY file must
+include `"z_unit": "meters"`. Any downstream stage that applies Z conversion must read
+and check this field before applying conversion. See §11.
 
-The pre-flight unit gate (§4.5) provides an additional check: if a tile's post-reprojection
-Z median falls in the range [−50, 10] (ellipsoidal range for Miami), that tile has already
-been datum-transformed, and the pipeline must halt rather than double-convert.
+### 7.5 Source CRS Preservation
+
+The proposed design preserves the source CRS metadata from the LAZ header. PDAL reads
+EPSG:6438+6360 from the VLR and uses it for horizontal reprojection. The `filters.assign`
+stage modifies Z values mathematically but does not alter or falsify the CRS metadata.
+This preserves:
+- The authoritative horizontal datum record (NAD83 2011)
+- The provenance of which vertical reference frame was used (NAVD88/Geoid18)
+- Auditability: inspecting the original LAZ header always reveals the source unit
 
 ---
 
 ## 8. HAG Threshold Semantics After Normalization
 
-After normalization, `HeightAboveGround` is in meters. The thresholds retain their current
-numerical values because they were named with intent of meters:
+After the `filters.assign` stage, `HeightAboveGround` is computed by `filters.hag_nn`
+in meters. The thresholds retain their current numerical values because they were authored
+with metric intent:
 
 | Parameter | Current value | Unit after fix | Semantic meaning |
-|-----------|---------------|----------------|-----------------|
-| `HAG_MIN_M` | 2.5 | meters | Minimum height to be considered a building candidate; excludes cars (~1.5 m), low vegetation, street furniture |
-| `HAG_MAX_M` | 300.0 | meters | Maximum height; noise cap above Miami's tallest (~264 m); 300 m passes all real buildings |
+|-----------|--------------|----------------|-----------------|
+| `HAG_MIN_M` | 2.5 | meters | Excludes ground clutter, cars (~1.5 m), low vegetation |
+| `HAG_MAX_M` | 300.0 | meters | Noise cap above Miami's tallest (~264 m); retains all real buildings |
 
-**Pass criteria**: A point at 100.0 m HAG passes `[2.5:300.0]`. Correct.  
-**Fail criteria**: A point at 301.0 m HAG fails. Correct.  
-**No change to numerical values required.** The fix is ensuring the unit is meters before
-the filter is applied.
+**Verified threshold behavior** (MIAMI_TWO_TILE_UNIT_FIXTURE.md §12):
+- Corrected HAG range for two South Beach tiles: 2.50 m to 78.98 m — no points above 91.44 m
+- Synthetic test: injected 100.0 m HAG point passes `[2.5:300.0]` ✓
+- Synthetic test: injected 301.0 m HAG point fails `[2.5:300.0]` ✓
 
-Before normalization (if Z in ftUS):
-- 300 ftUS = 91.44 m — Miami's Brickell City Centre (~225 m) would fail this cap
-- 2.5 ftUS = 0.76 m — cars and low shrubs would pass
-
-The fix resolves both errors simultaneously.
+**Known limitation**: These two South Beach tiles contain no real building returns above
+91.44 m after unit-equivalent comparison. Tall-tower HAG retention (HAG > 91.44 m on real
+data) is proven only by the synthetic injection test, not by real tall-building points.
+A tile containing a structure above 91.44 m must be used for Gate 1b (§13).
 
 ---
 
 ## 9. Downstream Z-Dependent Operations
 
-Every operation that reads or derives from Z must occur after the normalization boundary.
-No operation is permitted to assume Z is in meters without the normalization stage having
-been confirmed to run first.
+All operations below must receive metric Z (post-normalization) to produce correct outputs.
+After the `filters.assign` fix at s01, these operations require no code changes unless
+they also contain embedded foot-valued constants.
 
-### 9.1 PLY Files (s01_extract.py / phase_03_extract.py)
+### 9.1 PLY Files
 
-**Files produced**: `bikini_building_32617_0p25m.ply`, `bikini_building_32617_1m.ply`,
-`bikini_ground_32617_1m.ply`
+After the fix: Z in PLY files is in meters by construction. No format change. The filename
+suffix `_32617` remains valid (EPSG:32617 uses meters). Corrected PLY files go to
+versioned paths (see §11).
 
-**Required change**: None to PLY format. After the pipeline fix, Z in these files is in
-meters by construction. PLY headers do not carry unit metadata; the file naming (`_32617`)
-is the only implicit indicator. After the fix, the file naming remains valid because EPSG:32617
-uses meters.
+### 9.2 Height Estimation (s05_masses.py)
 
-**No re-read of existing PLY files from uncorrected runs.** Corrected outputs must be written
-to new versioned paths (see §11).
+- `ground_z`, `h90`, `est_h = max(0.0, h90 - ground_z)`: all in meters after fix ✓
+- `ztop = max(ztop, zbot + 1.5)`: **constant requires audit** — currently 1.5 ftUS = 0.46 m;
+  must remain 1.5 after fix becomes 1.5 m as intended (verify unit context after fix)
+- `DEFAULT_FALLBACK_HEIGHT = 6.0`: **constant requires audit** — currently 6.0 ftUS = 1.83 m;
+  must remain 6.0 after fix becomes 6.0 m as intended (verify in Commit 3)
 
-### 9.2 Height Estimation (s05_masses.py:estimate_heights / phase_07_masses.py)
+### 9.3 OBJ Vertices (s05_masses.py)
 
-**Operations**:
-- `ground_z = float(np.median(g_inside[:,2]))` — ground median Z
-- `h90 = float(np.percentile(zs, 90))` — building p90 Z
-- `est_h = max(0.0, h90 - ground_z)` — estimated height
+After fix: `ztop` and `gnd` are in meters. OBJ comment `"# CRS: EPSG:32617 (UTM 17N,
+meters, NO shift applied)"` becomes truthful. No format change required.
 
-After normalization, all three are in meters. No change to logic required; the fix is
-ensuring input PLY Z is in meters.
+### 9.4 OBJ Coordinate Shift (s06_export.py)
 
-**Minimum height**: `ztop = max(ztop, zbot + 1.5)` — 1.5 meters minimum building height.
-Semantically correct after normalization.
+`shift_obj` applies `x -= SHIFT_X`, `y -= SHIFT_Y`, Z unchanged. After fix, Z is in
+meters; shift_obj is correct. SHIFT_X and SHIFT_Y are in UTM meters (580000, 2849000).
 
-**Fallback height**: `DEFAULT_FALLBACK_HEIGHT = 6.0` — 6 meters. Semantically correct after
-normalization for buildings with no LiDAR coverage.
+### 9.5 Shift_z Computation (s06_export.py)
 
-### 9.3 OBJ Vertices (s05_masses.py:write_lod_obj / phase_07_masses.py)
+`_mass_floor_z` (1st-percentile of OBJ Z values) and `_ply_min_z` (IQR min of ground PLY
+Z) both operate on Z in meters after fix. The IQR fence and percentile logic remain valid.
+These functions' IQR-rejection behavior is a defensive measure that works regardless of
+whether the outlier hypothesis (retracted in §6 D-5) is correct.
 
-**Operations**:
-```python
-ztop = s["height_p90"] if s["height_p90"] is not None else gnd + s["estimated_height"]
-gnd  = s["ground_z"]
-f.write(f"v {x:.3f} {y:.3f} {ztop:.3f}\n")  # absolute UTM Z (meters after fix)
-f.write(f"v {x:.3f} {y:.3f} {gnd:.3f}\n")
-```
-
-OBJ files carry the comment `# CRS: EPSG:32617 (UTM 17N, meters, NO shift applied)`.
-After normalization, this comment is truthful. No format change required.
-
-### 9.4 OBJ Coordinate Shift (s06_export.py:shift_obj)
-
-**Operation**:
-```python
-x = float(parts[1]) - CFG.SHIFT_X   # X shifted; SHIFT_X is meters (580000.0)
-y = float(parts[2]) - CFG.SHIFT_Y   # Y shifted; SHIFT_Y is meters (2849000.0)
-z = float(parts[3])                  # Z unchanged — passes through
-```
-
-SHIFT_X and SHIFT_Y are UTM meter offsets. After normalization, Z is also in meters.
-The shifted OBJ is fully in meters (local coordinates). No change to `shift_obj` required.
-
-### 9.5 Z Shift Computation (s06_export.py:_ply_min_z / _mass_floor_z)
-
-**`_ply_min_z`**: IQR-based minimum Z from ground PLY (used as fallback for shift_z).
-After normalization, IQR operates on meter values; the fence logic and reject criteria
-remain valid. The comment about ellipsoidal outliers at "~-27 m" remains accurate because
-post-normalization ground Z is in meters.
-
-**`_mass_floor_z`**: 1st-percentile of all OBJ vertex Z values. After normalization,
-Z values are in meters. The 1st-percentile heuristic remains valid.
-
-Both functions produce `shift_z` in meters after the fix. The existing runtime workarounds
-(IQR, 1st-percentile) may be retained as defensive measures but are no longer needed for
-datum mixing when `override_srs` is used. They should be annotated accordingly.
+The printed label `"shift_z={shift_z:.4f} m"` becomes truthful after fix.
 
 ### 9.6 Terrain Mesh (s06_export.py:_build_terrain_mesh)
 
-**Critical operations**:
-```python
-land_mask = lz_full >= shift_z          # water/sea filter: keep points above shift_z
-lz = land_data["Z"].astype(np.float32) # terrain vertex Z
-land_verts = np.column_stack([lx, lz - shift_z, -ly])  # Y-up transform
-```
+After fix: `lz` (from ground PLY) in meters; `shift_z` in meters; `lz - shift_z`
+produces meters above scene floor. GLB terrain Y axis in meters — consistent with
+building Y axis. Terrain Delaunay triangle slopes become correct (ΔZ/ΔXY = m/m, not ft/m).
 
-After normalization:
-- `shift_z` is in meters (ground floor elevation in meters)
-- `lz` is in meters
-- `lz - shift_z` produces meters above scene floor
-- GLB terrain Y axis is in meters — consistent with GLB building Y axis
+### 9.7 GLB Coordinate Transform (s06_export.py:write_glb, line 420)
 
-**Water plane**: `water_verts` uses `wy = np.float32(-1.0)` hardcoded at -1.0. After
-normalization this is -1.0 meter below scene floor (a 1-meter depression for the water
-surface). Semantically correct and unit-agnostic.
-
-### 9.7 GLB Coordinate Transform (s06_export.py:write_glb)
-
-**Operation** (line 420):
 ```python
 verts = np.stack([verts[:,0], verts[:,2] - shift_z, -verts[:,1]], axis=1)
 ```
 
-Mapping: `(local_easting, local_northing, local_Z) → (GLB_X, GLB_Y, GLB_Z)`
-- `GLB_X = local_easting = UTM_X - SHIFT_X` (meters)
-- `GLB_Y = local_Z - shift_z` (elevation above scene floor, meters after fix)
-- `GLB_Z = -local_northing = -(UTM_Y - SHIFT_Y)` (meters)
+After fix: all three GLB axes in meters. Scene is isotropic. No code change required.
 
-After normalization, all three GLB axes are in meters. The scene is isotropic.
-No change to the transform logic required.
-
-### 9.8 Metadata CSV and GeoJSON Fields (s05_masses.py:write_metadata)
-
-Fields affected (currently in unknown unit; in meters after fix):
-
-| Field | Located in | Required change |
-|-------|------------|-----------------|
-| `ground_z` | CSV, GeoJSON | None to code; unit becomes meters by construction |
-| `height_p90` | CSV, GeoJSON | None to code; unit becomes meters by construction |
-| `height_p95` | CSV, GeoJSON | None to code; unit becomes meters by construction |
-| `height_max` | CSV, GeoJSON | None to code; unit becomes meters by construction |
-| `estimated_height` | CSV, GeoJSON | None to code; unit becomes meters by construction |
-| `footprint_area_m2` | CSV, GeoJSON | Already derived from Shapely geometry in EPSG:32617; meter² after horizontal fix is current |
-
-### 9.9 Manifest Unit Declaration (s07_metadata.py)
-
-**Current** (line 175): `"units": "meters"` in `viewer_hints`
-
-After normalization, this declaration becomes truthful. No code change required to the
-declaration itself — the fix makes the data match the declaration.
-
-**Additional required field**: The manifest must carry normalization version and unit
-provenance (see §11).
-
-### 9.10 Address Enrichment Height Field (s08_enrich.py)
+### 9.8 Water Plane Depth (s06_export.py:213)
 
 ```python
-"height_m": round(ms.get("height_m") or fp.get("county_height_m") or 6.0, 1)
+wy = np.float32(-1.0)
 ```
 
-After normalization:
-- `ms.get("height_m")` comes from masses metadata (now in meters)
-- `fp.get("county_height_m")` comes from county HEIGHT attribute — **unit unverified** (see D-4)
-- `6.0` fallback — now clearly 6 meters
+Currently: 1 glTF unit = 1 ftUS = 0.305 m depth. After fix: 1 glTF unit = 1 m. The
+hardcoded `−1.0` becomes correct (1 m below scene floor). No code change required to
+the constant, but it must be verified as intentional in Commit 3.
 
-`county_height_m` requires a separate data investigation: inspect the Miami-Dade County
-Building Footprints `HEIGHT` attribute specification. If it is in feet, the fallback chain
-must convert it before use.
+### 9.9 Metadata CSV and GeoJSON (s05_masses.py)
 
-### 9.11 Bounding Boxes
+After fix, all height fields in CSV/GeoJSON are in meters. The column names
+(`ground_z`, `height_p90`, `estimated_height` etc.) acquire truth. No schema change.
 
-All bounding boxes derived from footprint geometry in EPSG:32617 are in meters for X,Y.
-Z-derived bounding box components (`z_min`, `z_max` in cluster stats) are in unknown unit
-currently; in meters after fix. No geometry code changes required; Z units resolve by fix.
+### 9.10 Manifest Unit Declaration (s07_metadata.py)
+
+`"units": "meters"` in `viewer_hints` becomes truthful after fix and full re-run.
+The manifest must also carry the unit_provenance block defined in §11.
+
+### 9.11 Address Enrichment (s08_enrich.py)
+
+`"height_m": estimated_height or county_height_m or 6.0` becomes metric after fix.
+`county_height_m` is separately unresolved (D-4).
+
+### 9.12 Bounding Boxes
+
+Z-derived bounding box components (`z_min`, `z_max` in cluster stats) are in feet
+currently; in meters after fix. No geometry code changes required.
 
 ---
 
 ## 10. Truthful Field Naming and Unit Declarations
 
-### 10.1 Current Field Name Audit
+### 10.1 Field Audit
 
-| Field name | Location | Claimed unit | Actual unit (pre-fix) | Post-fix unit |
-|------------|----------|-------------|----------------------|---------------|
-| `ground_z` | masses CSV/GeoJSON | implicit meters | unknown | meters |
-| `height_p90` | masses CSV/GeoJSON | implicit meters | unknown | meters |
-| `height_p95` | masses CSV/GeoJSON | implicit meters | unknown | meters |
-| `height_max` | masses CSV/GeoJSON | implicit meters | unknown | meters |
-| `estimated_height` | masses CSV/GeoJSON | implicit meters | unknown | meters |
-| `HAG_MIN_M` | bikini_config.py | meters (_M suffix) | unknown | meters |
-| `HAG_MAX_M` | bikini_config.py | meters (_M suffix) | unknown | meters |
-| `county_height_m` | county footprint props | meters (_m suffix) | unknown — county field | verify |
-| `height_m` | structures_enriched.geojson | meters (_m suffix) | unknown | meters |
-| `h` | buildings.json | unspecified | unknown | meters |
-| `units` | tile_manifest.json viewer_hints | "meters" (declared) | unknown | truthful |
-| `shift_z` | bikini.shift.txt | implicit meters | unknown | meters |
+| Field | Location | Status pre-fix | Status post-fix |
+|-------|----------|---------------|-----------------|
+| `ground_z` | masses CSV/GeoJSON | ftUS mislabeled | meters ✓ |
+| `height_p90` | masses CSV/GeoJSON | ftUS mislabeled | meters ✓ |
+| `height_p95` | masses CSV/GeoJSON | ftUS mislabeled | meters ✓ |
+| `height_max` | masses CSV/GeoJSON | ftUS mislabeled | meters ✓ |
+| `estimated_height` | masses CSV/GeoJSON | ftUS mislabeled | meters ✓ |
+| `HAG_MIN_M` | bikini_config.py | applied in ftUS | applied in meters ✓ |
+| `HAG_MAX_M` | bikini_config.py | applied in ftUS | applied in meters ✓ |
+| `DEFAULT_FALLBACK_HEIGHT` | bikini_config.py | 6.0 ftUS = 1.83 m | 6.0 m (verify constant) |
+| `county_height_m` | s03_county_footprints, s08_enrich | unit unknown | investigate (D-4) |
+| `height_m` | structures_enriched.geojson | ftUS mislabeled | meters ✓ (after re-run) |
+| `h` | buildings.json | ftUS mislabeled | meters ✓ |
+| `units` | tile_manifest viewer_hints | "meters" (false) | "meters" (true) ✓ |
+| `shift_z` | bikini.shift.txt | ftUS (labeled "m") | meters ✓ |
+| `z_range`, `z_p90` | cluster_summary.csv | ftUS mislabeled | meters ✓ |
 
-### 10.2 Required Field Additions for Corrected Outputs
+### 10.2 Required Unit Provenance Block
 
-All corrected output files must carry explicit unit provenance. Add to relevant JSON outputs:
+All corrected output JSON files must include:
 
 ```json
 {
@@ -755,183 +693,178 @@ All corrected output files must carry explicit unit provenance. Add to relevant 
     "horizontal": "meters",
     "vertical": "meters",
     "crs": "EPSG:32617",
-    "source_horizontal_unit": "US_survey_foot",
-    "source_vertical_unit": "US_survey_foot",
+    "source_horizontal_crs": "EPSG:6438",
+    "source_vertical_crs": "EPSG:6360",
+    "source_unit": "US_survey_foot",
     "conversion_factor": 0.3048006096012192,
-    "normalization_version": "v1"
+    "normalization_version": "v1",
+    "normalization_stage": "filters.assign after filters.reprojection"
   }
 }
 ```
 
-### 10.3 `county_height_m` Rename
+### 10.3 `county_height_m` Resolution
 
-If investigation confirms Miami-Dade County HEIGHT is in feet, rename the pipeline chain:
-- Internal: `county_height_ft` during ingestion
-- Converted to: `county_height_m = county_height_ft * 0.3048006096012192`
-- Stored as: `county_height_m` in structures_enriched.geojson (now truthful)
+If investigation confirms Miami-Dade County `HEIGHT` attribute is in feet:
+- Read as `county_height_ft` internally
+- Convert: `county_height_m = county_height_ft * 0.3048006096012192`
+- Store and expose as `county_height_m` (now truthful)
 
-If HEIGHT is already in meters, no rename is needed but a code comment must document this.
+If `HEIGHT` is already in meters, add a code comment citing the source documentation.
+Do not rename or convert until the unit is confirmed by data inspection.
 
 ---
 
 ## 11. Output Versioning and Provenance
 
-Corrected outputs must not overwrite existing outputs. The following versioning scheme is
-required.
+Corrected outputs must not overwrite existing outputs. Existing affected outputs are
+preserved as-is for rollback comparison. They must not be deleted.
 
-### 11.1 Output Path Versioning
-
-All corrected outputs go into versioned subdirectories or carry a version suffix:
+### 11.1 Versioned Output Path Convention
 
 ```
 data_processed/miami/bikini/
-  pointcloud_v1/          ← existing (unknown unit)
-  pointcloud_v2_metric/   ← corrected (Z in meters, explicit)
+  pointcloud/                          ← existing (Z in ftUS)
+  pointcloud_v2_metric/                ← corrected (Z in meters)
 
 masses/
-  bikini_masses_LOD0_convexhull.obj            ← existing
-  bikini_masses_LOD0_convexhull_v2_metric.obj  ← corrected
+  bikini_masses_LOD0_convexhull.obj           ← existing
+  bikini_masses_LOD0_convexhull_v2_metric.obj ← corrected
 
 exports/MIAMI_BIKINI/
-  MIAMI_BIKINI_LOD0.glb             ← existing
-  MIAMI_BIKINI_LOD0_v2_metric.glb   ← corrected
+  MIAMI_BIKINI_LOD0.glb              ← existing (GLB Y in ftUS)
+  MIAMI_BIKINI_LOD0_v2_metric.glb    ← corrected (GLB Y in meters)
 ```
 
-### 11.2 Required Provenance Envelope
+Existing viewer GLBs (`miami_south_beach_318455_hero.glb` etc.) are not touched until
+Viewer Asset Replacement gates are met (VR-1 through VR-7 from adversarial review).
 
-Every corrected output JSON file (tile_manifest.json, buildings.json, structures_enriched.geojson,
-city_audit.json, GLB offset JSON) must include:
+### 11.2 Provenance Envelope
+
+Every corrected output JSON file must include:
 
 ```json
 {
   "glytchdraft_output_version": "2",
   "normalization_version": "v1",
   "pipeline_commit": "<git SHA at generation time>",
-  "source_laz_hash": "<SHA-256 of each LAZ file, hex, keyed by filename>",
+  "source_laz_sha256": {"<tile_filename>": "<hex_sha256>"},
   "unit_provenance": {
     "horizontal": "meters",
     "vertical": "meters",
     "source_unit": "US_survey_foot",
     "conversion_factor": 0.3048006096012192
   },
-  "generated_at": "<ISO-8601 UTC timestamp>"
+  "generated_at": "<ISO-8601 UTC>"
 }
 ```
 
-The `pipeline_commit` is the git SHA of the glytchdraft repo at processing time, obtained
-via `git rev-parse HEAD`. The `source_laz_hash` documents which exact LAZ files were
-processed. This allows future auditors to determine whether a given output was produced
-before or after the metric fix.
+Alongside each corrected PLY file, write a sidecar `provenance.json`:
+```json
+{
+  "z_unit": "meters",
+  "normalization_version": "v1",
+  "source_laz_tiles": ["<list>"],
+  "pipeline_commit": "<SHA>"
+}
+```
 
-### 11.3 Existing Output Preservation
-
-Existing processed outputs (PLY, OBJ, GLB, CSV, JSON) from the current pipeline are
-**preserved as-is** under their current paths. They are neither deleted nor overwritten.
-They serve as the baseline for regression comparison (before/after).
+This provenance record enables the double-conversion guard (§7.4) to verify that
+downstream stages do not re-convert already-metric Z.
 
 ---
 
 ## 12. Regression Test Matrix
 
-The following tests must all pass before corrected outputs are accepted. Tests are
-unit-level (verifiable by reading output files without running the full pipeline).
-
 | # | Test name | Input condition | Expected result | Failure condition |
 |---|-----------|-----------------|-----------------|-------------------|
-| T-01 | ftUS source, correct conversion | LAZ with 2D Florida State Plane CRS (EPSG:2236) | Post-filter ground Z in [0, 15] m; building HAG in [2.5, 300.0] m | Z in [0, 50] ft range (0–165 ftUS) |
-| T-02 | Meter source, no double conversion | LAZ with explicit meter CRS (hypothetical EPSG:32617 source) | Z unchanged through normalization stage; pipeline halts or skips assign | Z reduced to ~0.28× (double conversion detected) |
-| T-03 | Unknown vertical unit | LAZ with 2D CRS but unrecognised linear unit | Pipeline halts with explicit error naming the file and found unit | Silent continuation with wrong unit |
-| T-04 | 100 m HAG passes filter | Building point with HAG = 100.0 m (post-normalization) | Point retained after `filters.range[2.5:300.0]` | Point dropped |
-| T-05 | 301 m HAG fails filter | Building point with HAG = 301.0 m | Point excluded after `filters.range[2.5:300.0]` | Point retained |
-| T-06 | No double conversion on mixed-header tiles | Two tiles: one 2D CRS, one 3D CRS; both processed with `override_srs=EPSG:2236` | Both tiles produce Z in same meter range; no −27 m outliers | 3D-CRS tile still shows ellipsoidal Z |
-| T-07 | Feature flag off — no normalization applied | `METRIC_NORMALIZATION_ENABLED=False` (or equivalent rollback path) | Pipeline produces outputs identical to current baseline (Z in unknown unit) | Normalization applied despite flag off |
-| T-08 | Manifest unit truth | `tile_manifest.json` for a corrected run | `viewer_hints.units = "meters"` and all `h` values in [2.5, 300] m for Miami | Any `h` > 300 m (indicating remaining ftUS values ~264m=866ft) |
-| T-09 | OBJ and GLB metric extents | Corrected LOD0 OBJ + GLB for two Bikini tiles | Building height (ztop - zbot) in [2.5, 300] m for all non-fallback buildings | Heights in [2.5, 300] ft range (8–984 ft) |
-| T-10 | Terrain slope continuity | Ground PLY from corrected run, slope across a seam between two adjacent tiles | Slope < 5° across tile boundary | Slope discontinuity > 5° indicating datum mismatch between tiles |
+| T-01 | ftUS source, correct conversion | Source LAZ with EPSG:6438+6360 (two verified South Beach tiles) | Post-normalization ground Z in [0, 5] m; building HAG in [2.5, 300.0] m | Z in [0–17] ft range (0–165 ftUS) |
+| T-02 | No double conversion | PLY with provenance.json `z_unit: meters` passed to s05; `FTUS_TO_M` flag off | Z unchanged through s05; heights consistent with PLY Z values | Z reduced to ~0.28× expected (second conversion) |
+| T-03 | Unknown vertical unit | LAZ with 2D CRS (no vertical VLR) | Pipeline halts with explicit error naming the file and found CRS | Silent continuation |
+| T-04 | 100 m HAG passes filter | Point with HAG = 100.0 m after normalization | Point retained after `filters.range[2.5:300.0]` | Point dropped |
+| T-05 | 301 m HAG fails filter | Point with HAG = 301.0 m after normalization | Point excluded | Point retained |
+| T-06 | Feature flag off | `METRIC_NORMALIZATION_V1 = False` | Pipeline produces output identical to current baseline (Z in ftUS, heights in ftUS range) | Normalization applied despite flag off |
+| T-07 | Manifest unit truth | `tile_manifest.json` from corrected run | `viewer_hints.units = "meters"` and all `h` values in [2.5, 300] m | Any `h` > 300 m indicating residual ftUS values |
+| T-08 | OBJ and GLB metric extents | Corrected LOD0 OBJ + GLB for two Bikini tiles | Building height (ztop − zbot) in [2.5, 300] m for all non-fallback buildings | Heights in [2.5, 984] ft range |
+| T-09 | Terrain slope continuity | Ground PLY from corrected run, slope across 318455/318155 seam | Slope < 5° across tile boundary | Discontinuity > 5° |
+| T-10 | Tall-tower HAG retention (real data) | Tile containing a building with actual height > 91.44 m | Building-class points with metric HAG > 91.44 m present in corrected PLY | No points above 91.44 m (clipping at old 300-ft threshold) |
 
-### 12.1 Test Execution Strategy
-
-Tests T-01 through T-09 can be executed by processing two representative tiles (one
-Downtown/Brickell, one South Beach) with the corrected pipeline and inspecting the output
-PLY, OBJ, and JSON files. No full city run is needed for this validation stage.
-
-Test T-10 requires at least four adjacent tiles. Run against the four South Beach tiles
-(318154, 318155, 318454, 318455) which share seams and whose outputs already exist for
-baseline comparison.
+T-04 and T-05 were verified by the fixture's synthetic injection test (MIAMI_TWO_TILE_UNIT_FIXTURE.md §12).
+T-01 was verified empirically by the fixture run (corrected HAG range 2.50–78.98 m).
+T-10 remains unverified on real data; it is the blocker PM-5 in §15.
 
 ---
 
 ## 13. Controlled Validation Progression
 
-The following progression gates must be completed in order. Each gate is a prerequisite
-for the next. No gate may be declared passed by claim alone — a written artifact (audit
-file, test output, or spot check report) must be produced for each.
+Each gate requires a written artifact. No gate may be claimed complete by assertion alone.
 
-### Gate 0 — LAZ Header Evidence (prerequisite before any implementation)
+### Gate 0 — Environment Verification (partial, prerequisite)
 
-Inspect at least two representative LAZ file headers from FL_MiamiDade_D23:
-one Downtown/Brickell tile, one South Beach tile. Use:
-```
-pdal info --metadata <laz_file>
-```
-Confirm the linear unit for Z (horizontal: `LengthUnit`, vertical: VLR or WKT vertical CRS).
-Record the exact EPSG code and linear unit for each. This evidence answers §18.1.
+**Verified** (MIAMI_TWO_TILE_UNIT_FIXTURE.md §2):
+- Python 3.11.15, conda env `glitchos-pdal`
+- PDAL 2.10.2 (`git-version: 74a3ea`)
+- Python-PDAL 3.5.3
+- `readers.las`, `filters.reprojection`, `filters.assign`, `filters.hag_nn` all present
+- `filters.assign "Z = Z * 0.3048006096012192"` syntax verified
 
-### Gate 1 — Two Tiles
+**Required before production (additional)**: Confirm the same PDAL version or confirm
+`filters.assign` syntax in the production processing environment (PM-5 component).
 
-Process exactly two tiles (one Downtown, one South Beach) with the corrected pipeline.
-Verify:
-- Ground PLY Z range: [0, 15] m (Miami NAVD88 near sea level)
-- Building PLY Z range: [0, 270] m (all buildings present including tallest)
-- Building HAG range after filter: [2.5, 300.0] m
-- `estimated_height` for Brickell Key or equivalent tall building: [250, 275] m
-- OBJ vertex Z range matches ground PLY and building PLY
-- GLB Y axis range: [0, ~270] m (ground = 0, tallest roof ≈ 264 m)
-- Tile manifest `h` field values: all in [2.5, 300] m
+### Gate 0b — LAZ Header Evidence (complete)
 
-**Baseline comparison**: Compare with existing two-tile outputs. Heights should be
-approximately 3.28× smaller after the fix (if existing outputs were in feet). Record
-the ratio as evidence.
+**Verified** (MIAMI_FOUR_TILE_PREFLIGHT.md Stage B):
+- Tiles 318455 and 318155 both carry EPSG:6438+6360 compound CRS
+- All axes in US survey feet with conversion factor 0.3048006096012192
+- Tile boundary confirmed at source-CRS Y = 530,000 (exact, zero gap)
+
+### Gate 1a — Two South Beach Tiles (metric normalization)
+
+Process tiles 318455 and 318155 with `METRIC_NORMALIZATION_V1 = True`. Verify:
+- Ground PLY Z range: [0, 5] m (South Beach NAVD88 near sea level)
+- Building PLY HAG range: [2.50, ~80] m (within South Beach height profile)
+- `estimated_height` for BIKINI cluster 4994 equivalent: [50, 60] m (Loews ~55.5 m expected)
+- GLB LOD0 corrected vertical extent: ~52 m (fixture established 51.96 m for cross-seam cluster)
+- Corrected metadata `h` fields match expected South Beach height profile
+
+Partial evidence already established by the fixture on a cropped cross-seam area.
+Full two-tile run (uncropped, county footprints, full clustering) is still required.
+
+### Gate 1b — Tall-Tower Tile (PM-5)
+
+Identify a tile in the BIKINI extent containing a building with documented height
+> 91.44 m. (Four Seasons Miami, 1435 Brickell Ave, ~240 m, is a candidate.)
+Process with corrected s01. Verify that building-class points with metric HAG > 91.44 m
+are present in the corrected PLY. This is the proof that the HAG_MAX_M = 300.0 m ceiling
+is functioning correctly on real tall-building data.
 
 ### Gate 2 — Four South Beach Tiles
 
-Add three more South Beach tiles (318154, 318155, 318455 + current 318455 = four tiles).
-Verify:
-- T-10 (terrain slope across seams)
-- No ellipsoidal Z outliers (~−27 m) in ground PLY
-- IQR rejection count = 0 (no outliers needed if `override_srs` is applied)
-- tile_manifest.json for the four-tile set is consistent
+Add tiles 318454 and 318154. Verify:
+- T-09 (terrain slope across seams)
+- No ellipsoidal Z outliers from datum mixing (IQR rejection count near zero)
+- tile_manifest for the four-tile set is internally consistent
 
-### Gate 3 — Known-Height Landmark
+### Gate 3 — Known-Height Landmark (PM-8)
 
-Identify a building in the Downtown/Brickell zone with a publicly documented height
-(e.g., Brickell Key at ~240 m, or a building with a verifiable address and floor count).
-Run the corrected pipeline on the tiles containing that building. Verify:
-- `estimated_height` for the identified cluster is within 10% of the documented height
+Identify a building with a publicly certified height in the four-tile coverage area
+(Fontainebleau Miami Beach ~61 m at 4441 Collins, or Delano Hotel ~34 m at 1685 Collins
+per adversarial review §13–14). Verify corrected `estimated_height` within ±5% of
+published value.
 
-This is the first end-to-end correctness check. Document as a named audit record.
+### Gate 4 — Known Seam-Crossing Parcel (separate from 318455/318155)
 
-### Gate 4 — Known Seam-Crossing Parcel
+Validate a parcel crossing the 318455/318454 (western) and 318154/318155 (NW corner)
+seams, which have not been tested (adversarial review §14). These are the non-N seam types.
 
-Identify a parcel that straddles a tile boundary (verify from footprint geometry intersecting
-the tile grid). Run corrected pipeline across both tiles. Verify:
-- The parcel produces a single consistent building mass (not split or misaligned)
-- Ground Z is continuous across the tile boundary
+### Gate 5 — Full Four-Tile Batch
 
-### Gate 5 — District Batch
+Full four-tile regeneration (FT-1 through FT-7 gates, §15). County footprint dataset
+must be present (PM-3). `footprint_provenance` field must appear in all records.
 
-Run corrected pipeline across all 8 Downtown/Brickell tiles. Verify:
-- Total building count is plausible (compare against county footprint count for the area)
-- No buildings with `h` = 0 or `h` > 300 m in the manifest
-- All heights reasonable for known district skyline
+### Gate 6 — Broader Miami (BIKINI 16 tiles)
 
-### Gate 6 — Broader Miami
-
-Only after Gates 1–5 are formally documented. Run corrected pipeline on the full 16 Bikini
-tiles. This is the first candidate for a corrected production GLB.
-
-**Do not run Gate 6 before Gates 1–5 are complete.** Do not claim Gate 6 complete by
-running the full city without structured gate documentation.
+Only after Gates 1–5 are formally documented. DR-1 through DR-5 apply.
 
 ---
 
@@ -939,338 +872,365 @@ running the full city without structured gate documentation.
 
 ### 14.1 Feature Flag
 
-The implementation must be gated by an explicit boolean constant in both config files:
-
 ```python
 # bikini_config.py and miami_city_config.py — ADD:
-METRIC_NORMALIZATION_V1: bool = False  # set True only after Gate 1 passes
+METRIC_NORMALIZATION_V1: bool = False   # set True only after Gate 1a passes and is documented
+FT_US_TO_M: float = 0.3048006096012192
 ```
 
-When `METRIC_NORMALIZATION_V1 = False`, the pipeline produces outputs identical to the
-current baseline. No normalization stage is added. This allows rollback by config change
-without reverting code.
+When `METRIC_NORMALIZATION_V1 = False`, the pipeline is identical to the current baseline.
+No normalization stage is added. Rollback is a config line change.
 
 ### 14.2 Output Isolation
 
-Corrected outputs must go to versioned paths (§11.1). The existing output tree is never
-touched by the corrected pipeline. Rollback means repointing the viewer at the old paths.
+Corrected outputs go to `_v2_metric` versioned paths (§11.1). Existing outputs are never
+touched. Viewer GLBs are not replaced until VR gates are met.
 
 ### 14.3 Pre-flight Unit Gate
 
-Before each pipeline run (or as a batch pre-check across all LAZ files in a run), the
-pipeline must execute:
+Before each tile extraction, validate:
 
 ```python
-def assert_laz_vertical_unit_ftus(laz_path: Path) -> None:
-    """Halt if PDAL cannot confirm the LAZ vertical unit is US survey feet."""
-    import pdal, json
-    info = json.loads(pdal.Pipeline(
-        json.dumps({"pipeline": [{"type": "readers.las", "filename": str(laz_path),
-                                  "count": 0}]})
-    ).execute_streaming(chunk_size=0) or b"{}")
-    # Extract linear unit from metadata; raise ValueError if not ftUS or unknown
+def assert_source_crs_ftus(laz_path: Path, pdal_meta: dict) -> None:
+    srs_wkt = pdal_meta.get("metadata", {}).get("srs", {}).get("wkt", "")
+    if "US survey foot" not in srs_wkt and "us_ft" not in srs_wkt.lower():
+        raise ValueError(
+            f"Expected US survey foot vertical unit in {laz_path.name}; "
+            f"found: {srs_wkt[:120]!r}"
+        )
 ```
 
-If the gate cannot confirm ftUS for a given tile, the pipeline must raise `ValueError` with
-the filename and found unit rather than silently continuing.
+### 14.4 Double-Conversion Guard
 
-### 14.4 Failure Modes and Responses
+Any stage that applies `* FTUS_TO_M` to Z must first read the sidecar `provenance.json`
+and verify `z_unit == "US_survey_foot"` before converting. If `z_unit == "meters"`,
+conversion must be skipped with a logged warning. This prevents re-conversion of already-
+metric PLY data.
+
+### 14.5 Failure Modes and Responses
 
 | Failure | Detection | Response |
 |---------|-----------|----------|
-| Z range after normalization is [0, 50] ft (pre-fix values) | Ground PLY median Z > 10 after normalization | Halt; check `override_srs` and `filters.assign` ordering |
-| Double conversion: Z in [0, 15] ft after filter (values ~0.3× expected) | Ground PLY median < 5 m for Miami sea level | Halt; tile may already have been in meters |
-| HAG values > 300 m after filter | Building PLY max HAG > 300 | Investigate; may be aircraft or noise; increase cap temporarily if legitimate |
-| Ellipsoidal Z outliers still present after override_srs | Ground PLY IQR rejects > 0.1% of points | `override_srs` not applied; check PDAL version and VLR handling |
-| Pipeline version mismatch | `pipeline_commit` in output != current HEAD | Re-run required; do not mix output versions |
+| Ground PLY median Z > 10 after normalization (still in feet) | Post-run assertion | Halt; verify `filters.assign` is in PDAL pipeline and flag is True |
+| Ground PLY median Z < 0.3 (double conversion) | Post-run assertion | Halt; check if PLY was already metric before s01 ran |
+| Pre-flight unit gate fires | `ValueError` at tile start | Halt; do not accumulate points from unconfirmed-unit tile |
+| No points with HAG > 91.44 m in tall-building tile | Gate 1b check | Investigate; if confirmed missing, s01 normalization or filter is wrong |
+| Pipeline version mismatch | `pipeline_commit` in output ≠ current HEAD | Re-run required; do not mix output versions in same manifest |
 
 ---
 
-## 15. Explicit Exclusions and Unsupported Claims
+## 15. Adversarial Review — Blocker Reconciliation
 
-The following are **explicitly excluded** from the scope of this migration:
+The following table maps every blocker from `MIAMI_TRUTH_ADVERSARIAL_REVIEW.md` §12 and
+§19 (Production Migration gates PM-1 through PM-8, Four-Tile gates FT-1 through FT-7)
+against this design document's resolution status.
 
-### 15.1 Viewer Scale Workaround
+### Production Migration Blockers
 
-Any correction that adds a scale factor or camera adjustment in the `glytchOS` viewer to
-compensate for feet-vs-meters mismatch is **excluded**. The fix must be in the data pipeline,
-not in the viewer. Adding a viewer workaround would mask the defect and make the data
-untrustworthy to any consumer other than this specific viewer.
+| Blocker | Description | This design resolves? | Required evidence | Gate | Status |
+|---------|-------------|----------------------|-------------------|------|--------|
+| PM-1 | T7 drive health Warning — no confirmed backup | NO — design cannot resolve hardware risk | Confirm T7 root cause; establish cloud/redundant backup of raw LAZ before any writes | Pre-Gate 1a | NO-GO |
+| PM-2 | NOLA Z-unit UNKNOWN | NO — separate audit required | `pdal info --metadata` on NOLA source LAZ; confirm CRS linear unit | Pre-Gate 1a | NO-GO |
+| PM-3 | Full Miami-Dade county footprint dataset missing from T7 | NO — data management gap | Acquire and confirm oceanfront-inclusive footprint dataset (lon to −80.12) on T7 | Gate 5 | NO-GO |
+| PM-4 | Embedded unit constants not corrected | PARTIALLY ADDRESSED — §6 D-2 and §9.2–9.3 identify the constants | Commit 3 must explicitly audit `zbot + 1.5`, `DEFAULT_FALLBACK_HEIGHT`, `GLB Y = -1.0` and confirm each is metric after fix | Commit 3 | CONDITIONAL |
+| PM-5 | Tall-tower HAG retention on real data unverified | ADDRESSED AS GATE 1b — §13 defines required test | Process tile with verified building > 91.44 m actual height; confirm metric HAG retention | Gate 1b | NO-GO |
+| PM-6 | Double-conversion guard not implemented | ADDRESSED — §7.4, §14.4 define the guard | Commit 2 (pre-flight gate) and PLY provenance sidecar (Commit 6) | Commit 2 + 6 | CONDITIONAL |
+| PM-7 | Output versioning scheme not defined | ADDRESSED — §11.1 defines `_v2_metric` naming | Implement in Commit 5; confirm viewer manifest can load versioned names | Commit 5 | CONDITIONAL |
+| PM-8 | Known-height landmark not measured | ADDRESSED AS GATE 3 — §13 names Fontainebleau (~61 m) and Delano (~34 m) | Process tile containing landmark; compare corrected `estimated_height` to published value ±5% | Gate 3 | NO-GO |
 
-### 15.2 Camera Workaround
+### Four-Tile Regeneration Blockers
 
-Adjusting camera near/far planes, field of view, or orbit radius in the viewer to
-accommodate non-metric scene scale is **excluded** for the same reason.
+| Blocker | Description | This design resolves? | Status |
+|---------|-------------|----------------------|--------|
+| FT-1 | All PM gates passed | Depends on PM-1 through PM-8 | NO-GO (PM gates open) |
+| FT-2 | Production s01_extract.py changes merged to master (not fixture-only) | ADDRESSED in §18 commit sequence (Commit 3) | CONDITIONAL — requires PM gates |
+| FT-3 | 318455, 318454, 318155, 318154 re-extracted from source LAZ | Addressed in Gate 5 | NO-GO |
+| FT-4 | All four tiles exported with named per-building GLB nodes | Not addressed — separate viewer pipeline requirement | NO-GO |
+| FT-5 | `footprint_provenance` field in all regenerated metadata records | Not addressed in this design — separate schema gap | NO-GO |
+| FT-6 | `typology` field present or documented as gap | Not addressed — separate schema requirement | NO-GO |
+| FT-7 | Seam validation for 318455/318454 and 318154/318155 seams | ADDRESSED AS GATE 4 — §13 | NO-GO |
 
-### 15.3 Full-City Regeneration
-
-Regenerating all 108 Miami GLB tiles is **excluded** from scope until Gates 1–5
-(§13) are formally passed. Full-city regeneration is Gate 6 and must not be
-pre-empted.
-
-### 15.4 Key Biscayne Promotion
-
-Key Biscayne must not be promoted as a clean fallback or representative tile for
-this migration. Key Biscayne has separate coverage characteristics from the
-Downtown/Brickell and South Beach zones targeted by this migration.
-
-### 15.5 Unsupported Claims About 1601 Collins Avenue
-
-No claim that any building at or near 1601 Collins Avenue has been correctly
-height-corrected may be made until that specific parcel is validated in Gate 3
-(known-height landmark) or Gate 4 (known seam-crossing parcel) with documented
-evidence.
-
-### 15.6 Cosmetic Viewer Changes
-
-No cosmetic changes to the viewer (labels, colors, UI layout) are in scope for
-this migration.
-
-### 15.7 MIAMI_TWO_TILE_UNIT_FIXTURE Flag
-
-The `MIAMI_TWO_TILE_UNIT_FIXTURE=1` environment flag documented in the existing fixture
-branch (`codex/miami-two-tile-unit-fixture`) must not be activated in normal pipeline
-processing. It is a diagnostic fixture only.
+**Overall production readiness: NO-GO.** PM-1, PM-2, PM-3, PM-5 and PM-8 are open
+hardware, data, and evidence requirements that cannot be resolved by documentation.
+This design document resolves the architecture (PM-4 partial, PM-6, PM-7) but does not
+substitute for the evidence and data prerequisites.
 
 ---
 
-## 16. Production Branch Name
+## 16. Explicit Exclusions and Unsupported Claims
+
+### 16.1 Viewer Scale Workaround
+
+Adding a scale factor, `scale={[1, 0.3048, 1]}`, or camera parameter adjustment in
+`glytchOS` to compensate for the feet/meters mismatch is **explicitly excluded**. The
+fix must be in the data pipeline. A viewer workaround would mask the defect while leaving
+metadata, enrichment inputs, HAG thresholds, terrain slopes, and water plane depth wrong.
+
+### 16.2 Camera or Scene Adjustment Workaround
+
+Adjusting camera near/far planes, orbit radius, or field of view to accommodate
+non-metric scene scale is **explicitly excluded** for the same reason.
+
+### 16.3 Full-City Regeneration Before Gates
+
+Regenerating all 108 Miami GLB tiles before Gates 1–5 and the PM gates are formally
+documented is **explicitly excluded**. Full city regeneration is Gate 6.
+
+### 16.4 Key Biscayne Promotion
+
+Key Biscayne must not be promoted as a clean fallback. Its source vertical unit is
+classified as LIKELY AFFECTED (adversarial review §1.2), not VERIFIED. The Cape Florida
+Lighthouse (28.7 m documented height) is identified in the adversarial review §13 as
+a landmark for resolving this classification — but that test has not been run.
+
+### 16.5 1601 Collins Avenue
+
+No claim that the building at 1601 Collins Avenue has been repaired or that its correct
+height is known may be made until:
+- Its county parcel footprint has been identified in a complete footprint dataset
+- Its tile boundary truncation has been corrected in a rebuild from source LAZ
+- Its corrected `estimated_height` has been compared to a published or surveyed reference
+
+### 16.6 Cluster 6 as Individual Building
+
+Fixture cluster 6 (footprint ~35,069 m², centroid 47.74 m from old per-tile cluster)
+is almost certainly a DBSCAN parcel aggregate spanning multiple structures, not the
+specific building at 1601 Collins Ave. It must not be described as recovering or
+repairing that building. (MIAMI_TWO_TILE_UNIT_FIXTURE.md §14; adversarial review §11.)
+
+### 16.7 MIAMI_TWO_TILE_UNIT_FIXTURE=1 Activation in Production
+
+This flag enables both cross-tile merging and Z normalization in the fixture path. It
+must not be activated in normal production processing. It is an opt-in diagnostic
+fixture as documented in the feature branch.
+
+### 16.8 Cosmetic Viewer Changes
+
+No cosmetic changes (labels, colors, UI layout) are in scope for this migration.
+
+---
+
+## 17. Production Branch Name
 
 ```
 fix/miami-metric-normalization-v1
 ```
 
-Branched from `master` at the commit that introduces the feature flag
-`METRIC_NORMALIZATION_V1`. No merges to `master` until Gate 3 is documented.
+Branched from `master` at the commit that introduces the `METRIC_NORMALIZATION_V1` flag.
+No merge to `master` until at least Gate 1a, Gate 1b, and Gate 3 are documented.
+The commit that sets `METRIC_NORMALIZATION_V1 = True` is separate from the commit that
+implements the normalization code, and is gated behind documented Gate 0b completion.
 
 ---
 
-## 17. Commit-by-Commit Implementation Sequence
+## 18. Commit-by-Commit Implementation Sequence
 
-> **Important**: This sequence is a design plan only. No production Python files are
-> modified on this branch. The sequence describes future implementation work.
+> **These commits describe future work on `fix/miami-metric-normalization-v1`.**
+> **No production Python files are modified on this documentation branch.**
 
-### Commit 1 — Feature flag and config constants
+### Commit 1 — Feature flag, conversion constant, source CRS constants
 
 ```
 Files: scripts/miami/bikini_config.py, scripts/miami/miami_city_config.py
-Change:
+Changes:
   + METRIC_NORMALIZATION_V1: bool = False
   + FT_US_TO_M: float = 0.3048006096012192
-  + SOURCE_LAZ_CRS: str = "EPSG:2236"  # or EPSG:6439, pending §18.1
-  + METRIC_OUTPUT_VERSION: str = "v2_metric"
-Purpose: Gate all normalization changes behind a flag; define conversion constant once.
+  + SOURCE_LAZ_HORIZONTAL_CRS: str = "EPSG:6438"
+  + SOURCE_LAZ_VERTICAL_CRS: str = "EPSG:6360"
+  + METRIC_OUTPUT_SUFFIX: str = "_v2_metric"
+Purpose: Single definition of conversion factor; gate for all normalization changes;
+         correct CRS references replacing the stale EPSG:3857 in miami.json.
 ```
 
 ### Commit 2 — Pre-flight LAZ unit gate
 
 ```
-Files: scripts/phases/phase_common.py (or new scripts/miami/laz_unit_gate.py)
-Change:
-  + def assert_laz_vertical_unit_ftus(laz_path: Path) -> None
-    Opens LAZ header via PDAL with count=0; extracts CRS WKT; checks linear unit;
-    raises ValueError if not ftUS or if unit cannot be determined.
-Purpose: Explicit failure before silent continuation on unknown vertical unit.
-Test: T-03
+Files: scripts/phases/phase_common.py (or scripts/miami/unit_gate.py)
+Changes:
+  + def assert_source_crs_ftus(laz_path: Path) -> None
+    Opens LAZ via PDAL with count=0; reads srs.wkt from metadata;
+    confirms "US survey foot" is present; raises ValueError if not.
+Purpose: Explicit halt on unknown or unexpected vertical unit (§4.5, §14.3).
+Tests: T-03
 ```
 
-### Commit 3 — Z normalization stage in Bikini s01_extract.py
+### Commit 3 — Z normalization stage in s01_extract.py + constant audit
 
 ```
 Files: scripts/miami/s01_extract.py
-Change:
-  + In _building_steps() and _ground_steps(), when METRIC_NORMALIZATION_V1 is True:
-    Insert {"type": "filters.assign", "value": ["Z = Z * 0.3048006096012192"]}
-    after filters.reprojection and before filters.hag_nn.
-    Add "override_srs": CFG.SOURCE_LAZ_CRS to readers.las.
-    Add "in_srs": CFG.SOURCE_LAZ_CRS to filters.reprojection.
-  + Output PLY paths: append CFG.METRIC_OUTPUT_VERSION suffix when flag is True.
-Purpose: Normalization boundary in Bikini extract pipeline.
-Tests: T-01, T-04, T-05, T-06
+Changes:
+  + When METRIC_NORMALIZATION_V1, insert in _building_steps() and _ground_steps():
+    {"type": "filters.assign", "value": "Z = Z * 0.3048006096012192"}
+    immediately after filters.reprojection and before filters.hag_nn.
+  + Output PLY paths: append METRIC_OUTPUT_SUFFIX when flag True.
+  + Audit and annotate: zbot + 1.5 (now 1.5 m — correct), DEFAULT_FALLBACK_HEIGHT
+    (now 6.0 m — correct), GLB Y = -1.0 (now -1.0 m — correct); add inline comments
+    confirming each constant is metric after normalization.
+Purpose: Normalization boundary at s01 (§7.2).
+Tests: T-01, T-04, T-05, T-06, T-08
 ```
 
-### Commit 4 — Z normalization stage in run_tile_miami.py
+### Commit 4 — Z normalization in run_tile_miami.py
 
 ```
 Files: scripts/miami/run_tile_miami.py
-Change: Same as Commit 3 applied to all three pipeline variants in run_tile_miami.py
-        (building, ground, vegetation extraction).
-Purpose: Normalization boundary in full-city tile runner.
+Changes: Same filters.assign insertion in all three pipeline variants (building,
+         ground, vegetation).
+Purpose: Normalization boundary in full-city per-tile runner.
 ```
 
-### Commit 5 — Z normalization stage in phase_03_extract.py
+### Commit 5 — Z normalization in phase_03_extract.py
 
 ```
 Files: scripts/phases/phase_03_extract.py
-Change: Same pattern; reads flag from CityRuntime or equivalent context object.
+Changes: Same pattern; reads flag from CityRuntime or equivalent.
 Purpose: Normalization boundary in shared phase pipeline.
 ```
 
-### Commit 6 — Versioned output paths in s05, s06, s07
+### Commit 6 — Versioned output paths and PLY provenance sidecar
 
 ```
-Files: scripts/miami/s05_masses.py, scripts/miami/s06_export.py, scripts/miami/s07_metadata.py
-Change:
-  + When METRIC_NORMALIZATION_V1, write outputs to versioned subdirectory (§11.1).
+Files: scripts/miami/s05_masses.py, scripts/miami/s06_export.py,
+       scripts/miami/s07_metadata.py
+Changes:
+  + When METRIC_NORMALIZATION_V1, write to METRIC_OUTPUT_SUFFIX versioned paths.
   + s07_metadata.py: add unit_provenance block to tile_manifest.json (§10.2).
-  + s06_export.py: update shift txt to include shift_z unit declaration.
-  + s05_masses.py: add unit_provenance to masses GeoJSON.
-Purpose: Corrected outputs do not overwrite existing outputs.
-Tests: T-07, T-08, T-09
+  + Alongside each corrected PLY, write provenance.json with z_unit, normalization_version,
+    source_laz_tiles, pipeline_commit.
+  + Double-conversion guard: any stage applying FTUS_TO_M reads provenance.json first.
+Purpose: §11 output versioning and double-conversion prevention.
+Tests: T-02, T-06, T-07
 ```
 
 ### Commit 7 — county_height_m investigation and fix
 
 ```
 Files: scripts/miami/s03_county_footprints.py, scripts/miami/s08_enrich.py
-Change:
-  + Document result of Miami-Dade HEIGHT field unit investigation.
-  + If HEIGHT is in feet: add conversion to county_height_m assignment.
-  + Add code comment citing source attribution for HEIGHT unit.
-Purpose: D-4 resolution.
-Prerequisite: §18.2 investigation complete.
+Changes:
+  + Document result of Miami-Dade HEIGHT field unit investigation (§10.3, D-4).
+  + If HEIGHT is in feet: apply * 0.3048006096012192 before assigning county_height_m.
+  + Add code comment citing source documentation for HEIGHT unit.
+Prerequisite: §19 Q-3 investigation complete.
 ```
 
-### Commit 8 — Output versioning envelope
-
-```
-Files: All output-writing scripts
-Change:
-  + Add pipeline_commit, source_laz_hash, generated_at, unit_provenance
-    to all JSON outputs produced under METRIC_NORMALIZATION_V1.
-Purpose: §11.2 provenance envelope.
-```
-
-### Commit 9 — Regression test scripts
+### Commit 8 — Regression test script
 
 ```
 Files: scripts/miami/test_metric_normalization.py (new)
-Change:
-  + Implement T-01 through T-09 as a test script that reads existing corrected
-    outputs and asserts expected ranges without re-running the full pipeline.
-  + Gate T-10 as a separate seam-crossing check.
-Purpose: Regression suite.
+Changes:
+  + Implement T-01 through T-09 as a test script reading corrected output files.
+  + T-10 (tall-tower) as a separate check requiring a tall-building tile.
+  + Integration with existing pytest infrastructure.
 ```
 
-### Commit 10 — Enable flag for Gate 1
+### Commit 9 — Enable flag for Gate 1a (after Gate 0b is documented)
 
 ```
 Files: scripts/miami/bikini_config.py
-Change: METRIC_NORMALIZATION_V1 = True
-Purpose: Activate for Gate 1 two-tile validation run.
-Note: This commit is made AFTER Gate 0 evidence is documented.
+Changes: METRIC_NORMALIZATION_V1 = True
+Purpose: Activate for Gate 1a two-tile validation run.
+Prerequisite: Gate 0b evidence confirmed in writing; PM-1 T7 backup confirmed.
 ```
 
-### Commit 11 — Gate 1 audit record
+### Commits 10–N — Gate documentation commits
 
-```
-Files: audit/metric_normalization/gate1_two_tile.json (new, gitignored output)
-Change: Document Gate 1 results — actual Z ranges, height comparisons, ratio to baseline.
-Purpose: Formal gate evidence.
-```
-
-Commits 12–N: Gate 2 seam test, Gate 3 landmark, Gate 4 seam parcel, Gate 5 district,
-Gate 6 full Bikini — each paired with an audit commit.
+Gate 1a audit, Gate 1b tall-tower test, Gate 3 landmark comparison, Gate 4 seam
+validation, Gate 5 four-tile batch — each gate produces a written audit artifact.
+Gate 6 (full BIKINI) does not proceed until all FT gates are met.
 
 ---
 
-## 18. Unanswered Questions Requiring Evidence
-
-The following questions cannot be answered from source code inspection alone. Each requires
-direct evidence from the LAZ files, external data sources, or a controlled pipeline run.
-
-### Q-1 (Critical): Exact EPSG for FL_MiamiDade_D23 LAZ Headers
-
-**Question**: Do the FL_MiamiDade_D23 LAZ files embed EPSG:2236 (NAD83/Florida East) or
-EPSG:6439 (NAD83(2011)/Florida East) as their horizontal CRS? Is any vertical CRS
-component present in the VLRs or WKT record?
-
-**Why it matters**: The `override_srs` and `in_srs` values in the proposed PDAL pipeline
-(§7.2) must match the actual source CRS. Using the wrong EPSG would cause horizontal
-reprojection errors and could invalidate building positions.
-
-**How to answer**: Run `pdal info --metadata <tile>.laz` on at least one Downtown tile
-and one South Beach tile. Record the `srs.wkt` and `srs.units` fields from the output.
-
-### Q-2 (Critical): Post-Reprojection Z Range in Current Outputs
-
-**Question**: In the existing `bikini_ground_32617_1m.ply` (produced by the current
-pipeline), what is the actual median Z value and IQR range?
-
-**Why it matters**: If median Z is [0, 15] (meters, consistent with Miami NAVD88 in meters),
-then PDAL may already be converting Z to meters for most tiles — suggesting the defect
-is smaller than worst-case. If median Z is [0, 50] (consistent with Miami NAVD88 in feet),
-the full 3.28× height error is confirmed.
-
-**How to answer**: Read `bikini_ground_32617_1m.ply` and print `np.median(Z)`, `np.min(Z)`,
-`np.max(Z)` for non-outlier points. Compare against expected ranges for both unit hypotheses.
+## 19. Unanswered Questions Requiring Evidence
 
 ### Q-3 (High): Miami-Dade County `HEIGHT` Field Unit
 
 **Question**: Does the `HEIGHT` attribute in the Miami-Dade County Building Footprints
-GeoJSON file contain values in feet or meters?
+file (`miami_footprints_4326.geojson`) carry values in feet or meters?
 
-**Why it matters**: `county_height_m` is used as a fallback for buildings with no LiDAR
-coverage (s08_enrich.py:141). If it is in feet, every building that relies on the county
-fallback has a height error of factor ~3.28 in the output.
+**Why it matters**: `county_height_m` is used as a fallback in `s08_enrich.py:141` for
+buildings with no LiDAR coverage. If it is in feet, every building relying on the county
+fallback has a height error of ~3.28× in the output.
 
 **How to answer**: Inspect the Miami-Dade County Building Footprints data dictionary at
-gis-mdc.opendata.arcgis.com. Cross-reference a known building with a documented height
-(e.g., Brickell City Centre) and compare the `HEIGHT` attribute value.
+gis-mdc.opendata.arcgis.com. Cross-reference against a known building with a documented
+height (e.g., Brickell City Centre). **Note**: the footprint dataset on T7 is an
+incomplete partial download missing the oceanfront strip (PM-3) and may not match the
+version used in the original BIKINI run; this investigation requires the full dataset.
 
-### Q-4 (High): Exact Per-Tile Z Behavior with PDAL Auto-Detect
+### Q-4 (High): Which Other BIKINI Tiles Have Different CRS Headers
 
-**Question**: Which specific FL_MiamiDade_D23 tiles carry 3D CRS headers (producing
-ellipsoidal Z), and which carry 2D CRS headers (passing Z through unchanged)?
+**Question**: Do any of the remaining 14 BIKINI tiles (beyond 318455 and 318155) carry
+a different CRS in their LAZ headers — either a different compound CRS version, a 2D
+CRS (no vertical component), or a non-ftUS vertical unit?
 
-**Why it matters**: Understanding which tiles produce the 0.4% ellipsoidal outliers is
-needed to verify that `override_srs` correctly suppresses the datum transform for all of
-them, and to confirm no legitimate tiles are carrying 3D meters CRS that would be
-double-converted.
+**Why it matters**: The two inspected tiles are both confirmed EPSG:6438+6360. If other
+tiles in the FL_MiamiDade_D23 collection have different headers (e.g., from different
+download batches), the conversion factor or the `filters.assign` behavior might differ.
 
-**How to answer**: Run `pdal info --metadata` on all 16 Bikini tiles and catalogue the
-`srs.wkt` for each. Identify which carry compound 3D CRS vs 2D.
+**How to answer**: Run `pdal info --metadata` on all 16 BIKINI tiles when T7 is
+available. Compare the VLR WKT across all tiles. Expect all to be identical compound
+EPSG:6438+6360, but confirm before applying the normalization uniformly.
 
-### Q-5 (Medium): PDAL Version Compatibility for `override_srs`
+### Q-5 (Medium, Reclassified): PDAL Version in Production Environment
 
-**Question**: Does the version of PDAL installed in the processing environment support
-the `override_srs` key in `readers.las`?
+**Status**: PARTIALLY KNOWN. The fixture environment has been confirmed:
+- PDAL 2.10.2, Python-PDAL 3.5.3
+- `filters.assign` with `value: "Z = Z * 0.3048006096012192"` verified working
 
-**Why it matters**: `override_srs` was added in PDAL 2.x but behavior varies. Some PDAL
-versions use `spatialreference` instead. The exact key name and behaviour must be confirmed
-before it is relied upon to suppress 3D datum transforms.
+**Remaining question**: Is the same PDAL version (or a compatible version) available in
+the production processing environment? The production environment may differ from the
+fixture conda environment (`glitchos-pdal`). The `filters.assign` syntax and behavior
+should be stable across PDAL 2.x but requires confirmation before production runs.
 
-**How to answer**: Run `pdal --version` in the processing environment. Consult the PDAL
-changelog for `readers.las` `override_srs` support. Test with one tile.
+**How to answer**: Run `pdal --version` in the production processing environment. Confirm
+`filters.assign` accepts the `value` string syntax. If a different PDAL version is found,
+run a one-tile probe to confirm the assign stage produces the expected Z range.
 
-### Q-6 (Medium): `phase_common.py` CityRuntime `source_crs` Field
+### Q-6 (Medium): `phase_common.py` CityRuntime `source_crs` Field Consumption
 
-**Question**: Is the `source_crs: "EPSG:3857"` in `configs/cities/miami.json` consumed
-by any code path that passes it to PDAL as `in_srs`?
+**Question**: Is the `source_crs` field from `configs/cities/miami.json` (currently
+`"EPSG:3857"`, incorrectly) consumed by any code path that passes it to PDAL as `in_srs`
+or `override_srs`?
 
-**Why it matters**: If any code reads `city.source_crs` and passes it to PDAL, the
-incorrect EPSG:3857 would cause grossly wrong horizontal coordinates. The trace did not
-find this usage, but `phase_common.py`'s `CityRuntime` dataclass carries the field and
-its consumers were not fully read.
+**Why it matters**: If any phase script reads `city.source_crs` and passes it to PDAL,
+the incorrect EPSG:3857 would produce wrong horizontal coordinates. The pipeline trace
+did not find this usage, but `CityRuntime` in `phase_common.py` carries the field and
+not all consumers were fully read.
 
-**How to answer**: Search all phase scripts for `source_crs` usage as an `in_srs` or
-`override_srs` value.
+**How to answer**: `grep -rn "source_crs" scripts/phases/` to confirm no phase script
+passes `source_crs` to PDAL.
 
-### Q-7 (Low): `filters.assign` Behaviour on `HeightAboveGround` Dimension
+### Q-7 (Low, Reclassified): `filters.assign` → `filters.hag_nn` Stage Order Behavior
 
-**Question**: Does applying `filters.assign` with `Z = Z * 0.3048006096012192` BEFORE
-`filters.hag_nn` affect the `HeightAboveGround` dimension in any PDAL-internal way? Does
-PDAL recompute HAG from modified Z, or cache the raw Z for HAG computation?
+**Status**: VERIFIED in fixture environment (PDAL 2.10.2). From MIAMI_TWO_TILE_UNIT_FIXTURE.md §5:
+> "Probe HAG was generated after Z conversion."
 
-**Why it matters**: If PDAL caches Z before `filters.assign`, HAG would be computed on
-the original ftUS Z rather than the normalized metric Z.
+The stage order `filters.reprojection → filters.assign → filters.hag_nn` correctly
+produces HAG in meters. The fixture ran 4 regression tests that all passed, including
+explicit HAG range validation. This is no longer an open question for the fixture
+environment.
 
-**How to answer**: Run a controlled test pipeline with a known LAZ tile: apply
-`filters.assign` before `filters.hag_nn`, then verify HAG values are consistent with
-the scaled Z (i.e., `HAG_meters ≈ HAG_feet * 0.3048`). PDAL's implementation passes
-dimensions through the pipeline in order, so this should work correctly, but confirmation
-is required.
+**Remaining**: Retain as a production regression requirement (T-01) to confirm the same
+behavior in the production environment.
+
+### Q-8 (High): NOLA Source LAZ CRS
+
+**Question**: Does the NOLA (New Orleans) LAZ source use a state-plane CRS in US survey
+feet (e.g., EPSG:6472, Louisiana South)?
+
+**Why it matters**: NOLA carries `production_ready: true`. If its source is also in
+state-plane feet and the phases pipeline applies the same Z-passthrough behavior as
+the BIKINI pipeline, all 178 NOLA GLBs and 137,830 building metadata records carry Z
+in feet. This is the highest-consequence open question in the entire record
+(adversarial review §1.3).
+
+**How to answer**: Run `pdal info --metadata` on any NOLA LAZ tile. Inspect the
+`srs.wkt` for the vertical unit. Report before any Miami migration is activated.
 
 ---
 
-*End of Miami Metric Migration Design*
+*End of Miami Metric Migration Design (amended)*
+
+*This document is architecture and documentation only. No production Python files were
+modified on this branch. All claims are grounded in committed evidence from
+`aetherbeing/glytchdraft` branches. See §15 for the full blocker reconciliation.*
