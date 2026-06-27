@@ -85,3 +85,39 @@ C:\Users\Glytc\glytchOS
 ```
 
 See `C:\Users\Glytc\glytchOS\AGENTS.md` for the Phase 2 viewer boundary.
+
+## Canonical Documentation System
+
+The following documents constitute the canonical source-of-truth hierarchy for this
+repository. Read them in this order when picking up a new session:
+
+| Document | Governs |
+|----------|---------|
+| `PROJECT_CONSTITUTION.md` | Principles, authority, phase boundary, agent behavior |
+| `AGENTS.md` (this file) | Agent instructions — mirrors CLAUDE.md |
+| `docs/CANONICAL_TRUTH_AUDIT.md` | Full evidence inventory; 10 open founder decisions |
+| `docs/CURRENT_STATE.md` | Verified present state (cities, pipeline, milestones) |
+| `docs/NEXT_ACTION.md` | Exactly one active next task |
+| `docs/VISION.md` | Product purpose; Phase 2+ fenced |
+| `docs/PRODUCT_SCOPE.md` | What is in and out of scope |
+| `docs/ARCHITECTURE.md` | System relationships; pipeline phases |
+| `docs/DATA_CONTRACTS.md` | Schema contracts; asset handoff to glytchOS |
+| `docs/ROADMAP.md` | Milestone order; R-numbers and city status |
+| `docs/INFRASTRUCTURE.md` | Hosting, operating scripts, environment |
+| `docs/RESOURCE_MAP.md` | Data locations by drive and path |
+| `docs/GLOSSARY.md` | Canonical terminology; naming ambiguity explained |
+| `docs/CHANGELOG.md` | Phase milestones and city certifications |
+| `docs/decisions/` | ADR index and individual architectural decisions |
+
+**Key location terms:**
+- **Key Biscayne** is the current viewer hero location.
+- Tile **`318455`** (`USGS_LPC_FL_MiamiDade_D23_LID2024_318455_0901`) is a South Beach
+  diagnostic tile. It is NOT the hero tile. Do not conflate these.
+
+**Authoritative spec:** `docs/GLYTCHOS_SPEC.md` (declared in docs/HANDOFF.md).
+`docs/GLITCHOS_AGNOSTIC_PIPELINE_VIEWER_SPEC.md` is a byte-for-byte duplicate and
+is SUPERSEDED (see ADR-008).
+
+**Open founder decisions:** 10 items labeled FC-1 through FC-10 in
+`docs/CANONICAL_TRUTH_AUDIT.md §15`. Do not write canonical facts that depend on
+these decisions without flagging them as FOUNDER-CONFIRMATION-REQUIRED.
