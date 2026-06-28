@@ -85,7 +85,14 @@ The provenance envelope records source LAZ path, source SHA-256, source horizont
 
 ## Tests
 
-Focused tests cover gate defaults, disabled stage-order regression, enabled conversion insertion, exact factor, ordering before HAG/range, fail-closed unit cases, double-conversion prevention, HAG thresholds, `_m` metadata, manifest unit declarations, water-plane numeric semantics, fallback constants, output isolation, provenance completeness, and gate-off regression behavior.
+Focused tests cover gate defaults, disabled stage-order regression, enabled conversion insertion, exact factor, ordering before HAG/range, fail-closed unit cases, double-conversion prevention, HAG thresholds, `_m` metadata, manifest unit declarations, water-plane metric geometry semantics, fallback constants, output isolation, provenance completeness, and gate-off regression behavior.
+
+The adversarial review corrections are resolved:
+
+- P2-1: water-plane coverage now builds terrain geometry and asserts the GLB Y-up water coordinate is exactly `-1.0` under the metric gate.
+- P2-2: contradictory vertical units are tested through `s01_extract.main()`, which aborts before normalization-stage construction, extraction, provenance writing, or output emission.
+- P2-3: profile-based Z conversion now requires explicit `normalize_z_to_meters: true`; a conversion factor alone is a no-op, and fixture tests use the full production-equivalent profile.
+- P2-4: repeated production normalization-step calls are covered as pure helper invocations, each assembled building/ground pipeline contains exactly one `filters.assign`, and the stateful guard still fails closed on an actual second conversion attempt.
 
 ## Two-tile validation
 

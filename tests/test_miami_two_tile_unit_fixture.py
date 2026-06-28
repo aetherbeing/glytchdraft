@@ -49,6 +49,7 @@ def test_feature_flag_off_keeps_existing_extract_stage_structure(monkeypatch: py
 def test_feature_flag_on_inserts_exact_z_conversion_before_hag(monkeypatch: pytest.MonkeyPatch):
     s01 = _fresh_s01(monkeypatch, enabled=True)
     s01._UNIT_PROFILE = {
+        "normalize_z_to_meters": True,
         "z_to_meters_factor": FTUS_TO_M,
     }
 

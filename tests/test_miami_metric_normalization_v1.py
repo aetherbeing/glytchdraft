@@ -3,9 +3,11 @@ from __future__ import annotations
 import importlib
 import json
 import sys
+import types
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+import numpy as np
 import pytest
 
 
@@ -123,6 +125,36 @@ def test_already_metric_source_plus_conversion_request_fails(monkeypatch: pytest
             s01.inspect_source_units([Path("a.laz")])
 
 
+def test_contradictory_vertical_units_fail_closed(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+):
+    _, s01 = _fresh_modules(monkeypatch, gate=True)
+    tile_a = Path("USGS_LPC_FL_MiamiDade_D23_LID2024_318455_0901.laz")
+    tile_b = Path("USGS_LPC_FL_MiamiDade_D23_LID2024_318155_0901.laz")
+
+    with patch.object(s01, "check_tiles", return_value=[tile_a, tile_b]), \
+         patch("subprocess.run") as mock_run, \
+         patch.object(s01, "run_extraction") as run_extraction, \
+         patch.object(s01, "write_provenance_envelope") as write_provenance:
+        mock_run.side_effect = [
+            MagicMock(stdout=_fake_pdal_metadata("US survey foot")),
+            MagicMock(stdout=_fake_pdal_metadata("metre")),
+        ]
+
+        assert s01.main() == 1
+
+    captured = capsys.readouterr()
+    assert "Contradictory vertical units" in captured.out
+    assert tile_a.name in captured.out
+    assert tile_b.name in captured.out
+    assert s01._UNIT_PROFILE is None
+    with pytest.raises(RuntimeError, match="unit profile was not initialized"):
+        s01._metric_normalization_step()
+    run_extraction.assert_not_called()
+    write_provenance.assert_not_called()
+
+
 def test_expected_source_crs_contract_violation_fails(monkeypatch: pytest.MonkeyPatch):
     _, s01 = _fresh_modules(monkeypatch, gate=True)
     with patch("subprocess.run") as mock_run:
@@ -133,6 +165,53 @@ def test_expected_source_crs_contract_violation_fails(monkeypatch: pytest.Monkey
 
 def test_second_conversion_attempt_fails():
     sys.path.insert(0, str(MIAMI_DIR))
+    metric = importlib.import_module("metric_normalization_v1")
+    guard = metric.ZConversionGuard(metric.ZUnitState.FTUS, conversion_requested=True)
+    metric.build_z_normalization_step(guard)
+    with pytest.raises(metric.DoubleConversionError):
+        metric.build_z_normalization_step(guard)
+
+
+def test_factor_without_explicit_enablement_does_not_convert():
+    sys.path.insert(0, str(MIAMI_DIR))
+    metric = importlib.import_module("metric_normalization_v1")
+    profile = {"z_to_meters_factor": FTUS_TO_M}
+    assert metric.build_profile_z_normalization_step(profile) == []
+
+
+def test_full_profile_inserts_exactly_one_assign():
+    sys.path.insert(0, str(MIAMI_DIR))
+    metric = importlib.import_module("metric_normalization_v1")
+    profile = {
+        "normalize_z_to_meters": True,
+        "z_to_meters_factor": FTUS_TO_M,
+    }
+    steps = metric.build_profile_z_normalization_step(profile)
+    assert [step["type"] for step in steps] == ["filters.assign"]
+    assert steps[0]["value"] == "Z = Z * 0.3048006096012192"
+
+
+def test_repeated_metric_normalization_step_is_pure_and_pipeline_has_one_assign(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    _, s01 = _fresh_modules(monkeypatch, gate=True)
+    profile = {
+        "normalize_z_to_meters": True,
+        "z_to_meters_factor": FTUS_TO_M,
+    }
+    s01._UNIT_PROFILE = profile
+
+    first = s01._metric_normalization_step()
+    second = s01._metric_normalization_step()
+    building_steps = s01._building_steps(Path("tile.laz"), 1.0)
+    ground_steps = s01._ground_steps(Path("tile.laz"), 1.0)
+
+    assert first == [{"type": "filters.assign", "value": "Z = Z * 0.3048006096012192"}]
+    assert second == first
+    assert profile == {"normalize_z_to_meters": True, "z_to_meters_factor": FTUS_TO_M}
+    assert sum(1 for step in building_steps if step["type"] == "filters.assign") == 1
+    assert sum(1 for step in ground_steps if step["type"] == "filters.assign") == 1
+
     metric = importlib.import_module("metric_normalization_v1")
     guard = metric.ZConversionGuard(metric.ZUnitState.FTUS, conversion_requested=True)
     metric.build_z_normalization_step(guard)
@@ -192,11 +271,56 @@ def test_manifest_declares_meters_only_for_corrected_outputs(monkeypatch: pytest
     assert corrected_manifest["coordinate_system"]["z_values_metric"] is True
 
 
-def test_water_plane_is_numerically_metric():
+def test_water_plane_uses_metric_y_up_coordinate(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
     sys.path.insert(0, str(MIAMI_DIR))
+    cfg, _ = _fresh_modules(monkeypatch, gate=True)
     s06 = importlib.import_module("s06_export")
-    # The water mesh is generated in GLB coordinates as a flat plane one meter below shift_z.
-    assert s06.np.float32(-1.0) == pytest.approx(-1.0)
+
+    class FakeDelaunay:
+        def __init__(self, points):
+            self.simplices = np.array([[0, 1, 2], [0, 2, 3]], dtype=np.uint32)
+
+    spatial = types.ModuleType("scipy.spatial")
+    spatial.Delaunay = FakeDelaunay
+    scipy = types.ModuleType("scipy")
+    scipy.spatial = spatial
+    monkeypatch.setitem(sys.modules, "scipy", scipy)
+    monkeypatch.setitem(sys.modules, "scipy.spatial", spatial)
+
+    ply = tmp_path / "ground_metric.ply"
+    dtype = np.dtype([("X", "<f8"), ("Y", "<f8"), ("Z", "<f8")])
+    data = np.array(
+        [(cfg.SHIFT_X + i, cfg.SHIFT_Y + (i % 4), 2.0 + (i % 3) * 0.1) for i in range(12)],
+        dtype=dtype,
+    )
+    header = "\n".join([
+        "ply",
+        "format binary_little_endian 1.0",
+        f"element vertex {len(data)}",
+        "property double X",
+        "property double Y",
+        "property double Z",
+        "end_header",
+        "",
+    ]).encode("ascii")
+    with ply.open("wb") as f:
+        f.write(header)
+        data.tofile(f)
+
+    land_verts, _, water_verts, water_faces = s06._build_terrain_mesh(
+        ply,
+        shift_z=2.0,
+        step=1,
+        water_plane=True,
+    )
+
+    assert cfg.z_values_are_metric() is True
+    assert land_verts[:, 1].min() == pytest.approx(0.0)
+    assert water_verts is not None
+    assert water_faces is not None
+    assert water_verts.dtype == np.float32
+    assert set(water_verts[:, 1].tolist()) == {-1.0}
+    assert not any("0.3048006096012192" in str(value) for row in water_verts for value in row)
 
 
 def test_fallback_and_min_height_constants_are_metric(monkeypatch: pytest.MonkeyPatch):

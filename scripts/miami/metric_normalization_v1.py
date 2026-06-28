@@ -170,8 +170,13 @@ def validate_source_contract(
 
     vertical_units = {str(row.get("vertical_unit") or "unknown") for row in records}
     if len(vertical_units) != 1:
+        unit_tiles: dict[str, list[str]] = {}
+        for row in records:
+            unit = str(row.get("vertical_unit") or "unknown")
+            unit_tiles.setdefault(unit, []).append(str(row["path"]))
         raise SourceUnitError(
-            f"Contradictory vertical units across tile set; refusing to proceed: {sorted(vertical_units)}"
+            "Contradictory vertical units across tile set; refusing to proceed: "
+            f"{unit_tiles}"
         )
     raw_unit = next(iter(vertical_units))
     state = unit_state_from_raw(raw_unit)
@@ -249,7 +254,7 @@ def build_z_normalization_step(guard: ZConversionGuard) -> list[dict]:
 
 
 def build_profile_z_normalization_step(profile: dict) -> list[dict]:
-    if not profile.get("normalize_z_to_meters", "z_to_meters_factor" in profile):
+    if not profile.get("normalize_z_to_meters", False):
         return []
     factor = float(profile["z_to_meters_factor"])
     if factor == 1.0:
