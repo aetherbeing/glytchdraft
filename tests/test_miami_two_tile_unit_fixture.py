@@ -21,8 +21,10 @@ def _fresh_s01(monkeypatch: pytest.MonkeyPatch, *, enabled: bool):
         sys.modules.pop(name, None)
     if enabled:
         monkeypatch.setenv("MIAMI_TWO_TILE_UNIT_FIXTURE", "1")
+        monkeypatch.setenv("MIAMI_METRIC_NORMALIZATION_V1", "1")
     else:
         monkeypatch.delenv("MIAMI_TWO_TILE_UNIT_FIXTURE", raising=False)
+        monkeypatch.delenv("MIAMI_METRIC_NORMALIZATION_V1", raising=False)
     monkeypatch.delenv("MIAMI_TWO_TILE_UNIT_FIXTURE_CROP_BOUNDS_32617", raising=False)
     monkeypatch.delenv("MIAMI_TWO_TILE_UNIT_FIXTURE_NORMALIZE_Z", raising=False)
     return importlib.import_module("s01_extract")
