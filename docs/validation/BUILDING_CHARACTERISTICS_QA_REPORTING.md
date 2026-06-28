@@ -77,7 +77,7 @@ python scripts/validation/building_characteristics_qa.py \
 
 ## Output Files
 
-Default outputs:
+Default outputs (collectively referred to as reporter-owned filenames):
 
 - `building_characteristics_qa.json`;
 - `building_characteristics_qa.md`;
@@ -88,6 +88,8 @@ Default outputs:
 - `suspicious_records.csv`;
 - `city_summary.csv`;
 - `tile_summary.csv`.
+
+The reporter writes only these filenames. Unrelated files already present in the output directory are never deleted or modified. All report content is staged in a temporary directory before any destination file is replaced, so a failed run leaves existing files intact.
 
 The reporter does not export whole source datasets.
 
@@ -149,15 +151,49 @@ Completeness distinguishes:
 
 Completeness percentage is based on records that are present and not null, blank, NaN, or infinite.
 
+## Atlas Pipeline Field Contract
+
+The reporter is aligned to the Atlas pipeline canonical field names. Default `expected_fields` and `numeric_fields` use:
+
+| Canonical field | Accepted historical alias |
+|---|---|
+| `estimated_height` | `height` |
+| `ground_z` | `ground_elevation` |
+| `roof_z` | `roof_elevation` |
+| `footprint_area_m2` | `footprint_area` |
+| `perimeter_m` | `perimeter` |
+| `roof_area_m2` | `roof_area` |
+| `volume_m3` | `volume` |
+| `point_count_inside` | `point_count_filtered` |
+| `point_count_cluster` | `point_count_raw` |
+
+Relationship diagnostics prefer canonical fields. Historical alias fields are accepted for backward compatibility. Absolute elevation fields (`ground_z`, `roof_z`) and building height (`estimated_height`) are treated as different characteristics.
+
+## Output Directory Safety
+
+The reporter rejects unsafe source/output path relationships before any file is written:
+
+- output directory equal to the input path;
+- output directory inside the input path;
+- input path inside the output directory (including the case where output is the parent of the input file).
+
+Path comparisons use fully resolved paths, including symlink resolution.
+
 ## Unit And CRS Handling
 
-The reporter checks for declared CRS fields and unit declarations where available. It never infers units solely from field names and does not certify historical mixed-unit outputs as metric.
+The reporter checks for declared CRS fields and unit declarations where available. It never infers units solely from field suffixes (`_m`, `_m2`, `_m3`) or field names alone, and does not certify historical mixed-unit outputs as metric.
 
 Miami records without verified normalization provenance are flagged as review risks, not automatically repaired.
 
 ## Provenance Analysis
 
-The reporter summarizes source-hash coverage and flags missing provenance/source hashes, high confidence without provenance, fallback-looking values without explicit markers, and supplied unit/provenance findings.
+Footprint derivation provenance and source hash coverage are tracked and reported independently. A record that carries a source hash but no `footprint_provenance` field is flagged for missing footprint provenance. A record that carries `footprint_provenance` but no source hash is flagged for missing immutability evidence.
+
+The dataset summary includes both `footprint_provenance_coverage` and `source_hash_coverage` as separate metrics.
+
+High-confidence records with missing footprint provenance are flagged separately.
+
+Fallback-looking values without explicit fallback markers are flagged.
 
 ## Relationship Diagnostics
 
@@ -165,19 +201,23 @@ Relationship diagnostics include:
 
 - `height_max < height_p95`;
 - `height_p95 < height_p90`;
-- roof elevation below ground elevation;
-- height inconsistent with roof minus ground;
-- negative or zero geometry measurements;
-- filtered point count above raw point count;
-- density mismatch;
+- roof elevation below ground elevation (using `roof_z`/`ground_z`);
+- height inconsistent with roof minus ground (comparing `estimated_height` vs `roof_z - ground_z`);
+- negative or zero geometry measurements (`footprint_area_m2`, `perimeter_m`, `roof_area_m2`, `volume_m3`);
+- filtered point count above raw (`point_count_inside > point_count_cluster`);
+- density mismatch (`point_count_inside / footprint_area_m2` vs `point_density`);
 - missing metric provenance;
-- mixed units within city or tile;
-- duplicate source tile references;
+- mixed units within city or tile scope;
+- duplicate tile entries within a single building's `contributing_source_tiles` list;
 - fallback marker gaps;
-- high confidence with missing provenance;
+- high confidence with missing footprint provenance;
+- missing footprint provenance (independent of source hash);
+- missing source hash (independent of footprint provenance);
 - historical Miami normalization gaps.
 
-Labels separate `CONTRACT_FINDING`, `STATISTICAL_OUTLIER`, `DATA_QUALITY_SIGNAL`, and `UNSUPPORTED_INFERENCE`.
+Multiple buildings sharing the same `source_tile` is normal pipeline behavior and is not flagged.
+
+Labels separate `STATISTICAL_OUTLIER`, `DATA_QUALITY_SIGNAL`, and `UNSUPPORTED_INFERENCE`.
 
 ## Security And HTML Escaping
 
