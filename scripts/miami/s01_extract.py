@@ -32,16 +32,21 @@ Usage:
 from __future__ import annotations
 
 import json
-import subprocess
 import sys
 import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 import bikini_config as CFG
+from metric_normalization_v1 import (
+    MiamiMetricNormalizationConfig,
+    SourceUnitError,
+    build_profile_z_normalization_step,
+    inspect_sources,
+    write_provenance_envelope,
+)
 
 import numpy as np
-import pdal
 
 # ── extraction targets ─────────────────────────────────────────────────────────
 
@@ -79,7 +84,6 @@ _PLY_TYPES: dict[str, tuple[str, str]] = {
     "Classification":    ("uint8",  "u1"),
 }
 
-_US_SURVEY_FOOT_TO_M = 0.3048006096012192
 _UNIT_PROFILE: dict | None = None
 
 
@@ -104,69 +108,18 @@ def check_tiles() -> list[Path]:
     return found
 
 
-def _pdal_metadata(tile_path: Path) -> dict:
-    proc = subprocess.run(
-        ["pdal", "info", "--metadata", str(tile_path)],
-        check=True,
-        text=True,
-        encoding="utf-8",
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-    )
-    return json.loads(proc.stdout)["metadata"]
-
-
 def inspect_source_units(tile_paths: list[Path]) -> dict:
     """Inspect LAZ CRS/units and return the vertical Z conversion profile."""
-    sources = []
-    vertical_units: set[str] = set()
-    horizontal_units: set[str] = set()
-    for tile_path in tile_paths:
-        meta = _pdal_metadata(tile_path)
-        srs = meta.get("srs", {})
-        units = srs.get("units", {})
-        h_unit = units.get("horizontal", "unknown")
-        v_unit = units.get("vertical", "unknown")
-        horizontal_units.add(h_unit)
-        vertical_units.add(v_unit)
-        sources.append({
-            "path": str(tile_path),
-            "compound_crs": srs.get("compoundwkt") or meta.get("comp_spatialreference"),
-            "horizontal_crs": srs.get("horizontal"),
-            "horizontal_unit": h_unit,
-            "vertical_crs": srs.get("vertical"),
-            "vertical_unit": v_unit,
-            "point_format": meta.get("dataformat_id"),
-            "point_count": meta.get("count"),
-            "bounds": {
-                "minx": meta.get("minx"), "miny": meta.get("miny"), "minz": meta.get("minz"),
-                "maxx": meta.get("maxx"), "maxy": meta.get("maxy"), "maxz": meta.get("maxz"),
-            },
-        })
-
-    if len(vertical_units) != 1:
-        raise RuntimeError(f"mixed source vertical units are not supported: {sorted(vertical_units)}")
-
-    vertical_unit = next(iter(vertical_units))
-    if vertical_unit == "US survey foot":
-        factor = _US_SURVEY_FOOT_TO_M
-    elif vertical_unit.lower() in {"metre", "meter", "metres", "meters"}:
-        factor = 1.0
-    else:
-        raise RuntimeError(
-            f"unknown source vertical unit {vertical_unit!r}; refusing to compute metric HAG"
-        )
-
-    return {
-        "sources": sources,
-        "source_horizontal_units": sorted(horizontal_units),
-        "source_vertical_unit": vertical_unit,
-        "target_horizontal_unit": "metre",
-        "target_vertical_unit": "metre",
-        "z_to_meters_factor": factor,
-        "normalize_z_to_meters": bool(CFG.NORMALIZE_SOURCE_Z_TO_METERS),
-        "pdal_assign_syntax": f"Z = Z * {factor}",
-    }
+    config = MiamiMetricNormalizationConfig(
+        enabled=bool(CFG.NORMALIZE_SOURCE_Z_TO_METERS),
+        source_vertical_unit=CFG.METRIC_NORMALIZATION_CONFIG["source_vertical_unit"],
+        target_vertical_unit=CFG.METRIC_NORMALIZATION_CONFIG["target_vertical_unit"],
+        conversion_factor=CFG.METRIC_NORMALIZATION_CONFIG["conversion_factor"],
+        normalization_version=CFG.METRIC_NORMALIZATION_CONFIG["normalization_version"],
+        expected_source_horizontal_crs=CFG.METRIC_NORMALIZATION_CONFIG["expected_source_horizontal_crs"],
+        expected_source_vertical_crs=CFG.METRIC_NORMALIZATION_CONFIG["expected_source_vertical_crs"],
+    )
+    return inspect_sources(tile_paths, config)
 
 
 def _metric_normalization_step() -> list[dict]:
@@ -174,10 +127,7 @@ def _metric_normalization_step() -> list[dict]:
         return []
     if _UNIT_PROFILE is None:
         raise RuntimeError("unit profile was not initialized before building PDAL steps")
-    factor = float(_UNIT_PROFILE["z_to_meters_factor"])
-    if factor == 1.0:
-        return []
-    return [{"type": "filters.assign", "value": f"Z = Z * {factor}"}]
+    return build_profile_z_normalization_step(_UNIT_PROFILE)
 
 
 def _fixture_crop_step() -> list[dict]:
@@ -226,6 +176,8 @@ def process_tile(tile_path: Path, mode: str, spacing_m: float) -> np.ndarray | N
         steps = _ground_steps(tile_path, spacing_m)
 
     try:
+        import pdal
+
         pipeline = pdal.Pipeline(json.dumps({"pipeline": steps}))
         n = pipeline.execute()
     except Exception as exc:
@@ -317,7 +269,7 @@ def main() -> int:
     if CFG.NORMALIZE_SOURCE_Z_TO_METERS:
         try:
             _UNIT_PROFILE = inspect_source_units(tile_paths)
-        except Exception as exc:
+        except (RuntimeError, SourceUnitError) as exc:
             print(f"ERROR: source unit inspection failed: {exc}")
             return 1
         CFG.SOURCE_Z_TO_METERS_FACTOR = float(_UNIT_PROFILE["z_to_meters_factor"])
@@ -362,6 +314,25 @@ def main() -> int:
         unit_path = CFG.META_DIR / "source_unit_profile.json"
         unit_path.write_text(json.dumps(_UNIT_PROFILE, indent=2), encoding="utf-8")
         log_lines.append(f"# source_unit_profile: {unit_path}")
+        if CFG.NORMALIZE_SOURCE_Z_TO_METERS:
+            provenance_path = CFG.META_DIR / "normalization_provenance.json"
+            write_provenance_envelope(
+                provenance_path,
+                source_profile=_UNIT_PROFILE,
+                laz_paths=tile_paths,
+                repo_root=Path(__file__).resolve().parents[2],
+                output_root=CFG.OUT_ROOT,
+                config=MiamiMetricNormalizationConfig(
+                    enabled=True,
+                    source_vertical_unit=CFG.METRIC_NORMALIZATION_CONFIG["source_vertical_unit"],
+                    target_vertical_unit=CFG.METRIC_NORMALIZATION_CONFIG["target_vertical_unit"],
+                    conversion_factor=CFG.METRIC_NORMALIZATION_CONFIG["conversion_factor"],
+                    normalization_version=CFG.METRIC_NORMALIZATION_CONFIG["normalization_version"],
+                    expected_source_horizontal_crs=CFG.METRIC_NORMALIZATION_CONFIG["expected_source_horizontal_crs"],
+                    expected_source_vertical_crs=CFG.METRIC_NORMALIZATION_CONFIG["expected_source_vertical_crs"],
+                ),
+            )
+            log_lines.append(f"# normalization_provenance: {provenance_path}")
     total_t0 = time.time()
 
     for key in targets:
