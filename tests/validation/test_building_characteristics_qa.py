@@ -16,6 +16,7 @@ import building_characteristics_qa as qa  # noqa: E402
 
 
 def base_records():
+    """Two Miami records using Atlas canonical field names."""
     return [
         {
             "building_id": "b1",
@@ -23,19 +24,18 @@ def base_records():
             "tile_id": "t1",
             "source_tile": "src-a",
             "pipeline_version": "v1",
-            "height": 10,
+            "estimated_height": 10,
             "height_p90": 8,
             "height_p95": 9,
             "height_max": 11,
-            "ground_elevation": 1,
-            "roof_elevation": 11,
-            "footprint_area": 100,
-            "perimeter": 40,
-            "roof_area": 90,
-            "volume": 1000,
-            "point_count_raw": 100,
-            "point_count_filtered": 80,
-            "point_density": 0.8,
+            "ground_z": 1,
+            "roof_z": 11,
+            "footprint_area_m2": 100,
+            "perimeter_m": 40,
+            "roof_area_m2": 90,
+            "volume_m3": 1000,
+            "point_count_cluster": 100,
+            "point_count_inside": 80,
             "horizontal_units": "meters",
             "vertical_units": "meters",
             "source_crs": "EPSG:6346",
@@ -52,19 +52,18 @@ def base_records():
             "tile_id": "t1",
             "source_tile": "src-a",
             "pipeline_version": "v1",
-            "height": 20,
+            "estimated_height": 20,
             "height_p90": 18,
             "height_p95": 19,
             "height_max": 21,
-            "ground_elevation": 2,
-            "roof_elevation": 22,
-            "footprint_area": 200,
-            "perimeter": 60,
-            "roof_area": 180,
-            "volume": 2000,
-            "point_count_raw": 200,
-            "point_count_filtered": 100,
-            "point_density": 0.5,
+            "ground_z": 2,
+            "roof_z": 22,
+            "footprint_area_m2": 200,
+            "perimeter_m": 60,
+            "roof_area_m2": 180,
+            "volume_m3": 2000,
+            "point_count_cluster": 200,
+            "point_count_inside": 100,
             "horizontal_units": "meters",
             "vertical_units": "meters",
             "source_crs": "EPSG:6346",
@@ -115,7 +114,7 @@ def test_json_lines_input(tmp_path: Path):
 
 def test_geojson_feature_collection_input(tmp_path: Path):
     path = tmp_path / "records.geojson"
-    path.write_text(json.dumps({"type": "FeatureCollection", "features": [{"type": "Feature", "id": "g1", "properties": {"height": 1}}]}), encoding="utf-8")
+    path.write_text(json.dumps({"type": "FeatureCollection", "features": [{"type": "Feature", "id": "g1", "properties": {"estimated_height": 1}}]}), encoding="utf-8")
     assert qa.load_records(path)[0]["id"] == "g1"
 
 
@@ -176,13 +175,13 @@ def test_categorical_distribution_correctness():
 
 
 def test_relationship_diagnostic_detection():
-    records = [{"building_id": "a", "height_max": 1, "height_p95": 2, "source_crs": "EPSG:1", "footprint_provenance": "open"}]
+    records = [{"building_id": "a", "height_max": 1, "height_p95": 2, "source_crs": "EPSG:1", "footprint_provenance": "open", "source_hash": "abc"}]
     report = qa.build_report(records, generated_at="fixed")
     assert any(d["code"] == "REL-HEIGHT-MAX-P95" for d in report["relationship_diagnostics"])
 
 
 def test_no_false_relationship_diagnostic_when_fields_absent():
-    report = qa.build_report([{"building_id": "a", "source_crs": "EPSG:1", "footprint_provenance": "open"}], generated_at="fixed")
+    report = qa.build_report([{"building_id": "a", "source_crs": "EPSG:1", "footprint_provenance": "open", "source_hash": "abc"}], generated_at="fixed")
     assert not any(d["code"] == "REL-HEIGHT-MAX-P95" for d in report["relationship_diagnostics"])
 
 
@@ -193,22 +192,22 @@ def test_mixed_unit_detection():
 
 
 def test_missing_crs_declaration():
-    report = qa.build_report([{"building_id": "a", "footprint_provenance": "open"}], generated_at="fixed")
+    report = qa.build_report([{"building_id": "a", "footprint_provenance": "open", "source_hash": "abc"}], generated_at="fixed")
     assert any(d["code"] == "REL-CRS-MISSING" for d in report["relationship_diagnostics"])
 
 
 def test_missing_provenance():
-    report = qa.build_report([{"building_id": "a", "source_crs": "EPSG:1"}], generated_at="fixed")
+    report = qa.build_report([{"building_id": "a", "source_crs": "EPSG:1", "source_hash": "abc"}], generated_at="fixed")
     assert any(d["code"] == "REL-PROVENANCE-MISSING" for d in report["relationship_diagnostics"])
 
 
 def test_high_confidence_with_missing_provenance():
-    report = qa.build_report([{"building_id": "a", "confidence": "HIGH", "source_crs": "EPSG:1"}], generated_at="fixed")
+    report = qa.build_report([{"building_id": "a", "confidence": "HIGH", "source_crs": "EPSG:1", "source_hash": "abc"}], generated_at="fixed")
     assert any(d["code"] == "REL-HIGH-CONFIDENCE-NO-PROVENANCE" for d in report["relationship_diagnostics"])
 
 
 def test_historical_miami_record_without_normalization_provenance():
-    report = qa.build_report([{"building_id": "a", "city": "Miami", "source_crs": "EPSG:1", "footprint_provenance": "open"}], generated_at="fixed")
+    report = qa.build_report([{"building_id": "a", "city": "Miami", "source_crs": "EPSG:1", "footprint_provenance": "open", "source_hash": "abc"}], generated_at="fixed")
     assert any(d["code"] == "REL-MIAMI-NORMALIZATION-MISSING" for d in report["relationship_diagnostics"])
 
 
@@ -269,13 +268,8 @@ def test_unsupported_field_types_handled_safely():
     assert report["categorical_distributions"]["quality_flags"]["distinct_count"] == 1
 
 
-def test_duplicate_source_tiles_surfaced():
-    report = qa.build_report(base_records(), generated_at="fixed")
-    assert any(d["code"] == "REL-DUPLICATE-SOURCE-TILE" for d in report["relationship_diagnostics"])
-
-
 def test_statistical_outliers_labeled_separately():
-    records = [{"building_id": f"b{i}", "height": value, "source_crs": "EPSG:1", "footprint_provenance": "open"} for i, value in enumerate([1, 2, 3, 4, 100])]
+    records = [{"building_id": f"b{i}", "estimated_height": value, "source_crs": "EPSG:1", "footprint_provenance": "open", "source_hash": "h"} for i, value in enumerate([1, 2, 3, 4, 100])]
     report = qa.build_report(records, generated_at="fixed")
     assert any(d["diagnostic_type"] == "STATISTICAL_OUTLIER" for d in report["relationship_diagnostics"])
 
@@ -309,3 +303,177 @@ def test_report_has_expected_summary_categories():
 def test_non_finite_json_serialization_rejected_safely():
     report = qa.build_report([{"building_id": "a", "height": math.inf}], generated_at="fixed")
     assert report["field_completeness"]["height"]["infinity_count"] == 1
+
+
+# ---------------------------------------------------------------------------
+# P1-02: Atlas canonical fields trigger intended diagnostics
+# ---------------------------------------------------------------------------
+
+def test_atlas_estimated_height_triggers_height_delta_diagnostic():
+    """estimated_height inconsistent with roof_z minus ground_z fires REL-HEIGHT-DELTA."""
+    record = {
+        "building_id": "a",
+        "source_crs": "EPSG:1",
+        "footprint_provenance": "open",
+        "source_hash": "h",
+        "ground_z": 0.0,
+        "roof_z": 10.0,
+        "estimated_height": 30.0,  # far from roof_z - ground_z = 10
+    }
+    report = qa.build_report([record], generated_at="fixed")
+    assert any(d["code"] == "REL-HEIGHT-DELTA" for d in report["relationship_diagnostics"])
+
+
+def test_atlas_roof_z_below_ground_z_fires_diagnostic():
+    """roof_z < ground_z fires REL-ROOF-BELOW-GROUND using Atlas canonical fields."""
+    record = {
+        "building_id": "a",
+        "source_crs": "EPSG:1",
+        "footprint_provenance": "open",
+        "source_hash": "h",
+        "ground_z": 10.0,
+        "roof_z": 5.0,
+    }
+    report = qa.build_report([record], generated_at="fixed")
+    assert any(d["code"] == "REL-ROOF-BELOW-GROUND" for d in report["relationship_diagnostics"])
+
+
+def test_atlas_negative_footprint_area_m2_fires_diagnostic():
+    """Negative footprint_area_m2 fires REL-NEG-FOOTPRINT-AREA using Atlas canonical field."""
+    record = {
+        "building_id": "a",
+        "source_crs": "EPSG:1",
+        "footprint_provenance": "open",
+        "source_hash": "h",
+        "footprint_area_m2": -5.0,
+    }
+    report = qa.build_report([record], generated_at="fixed")
+    assert any(d["code"] == "REL-NEG-FOOTPRINT-AREA" for d in report["relationship_diagnostics"])
+
+
+def test_atlas_point_count_inside_above_cluster_fires_diagnostic():
+    """point_count_inside > point_count_cluster fires REL-FILTERED-GT-RAW using Atlas canonical fields."""
+    record = {
+        "building_id": "a",
+        "source_crs": "EPSG:1",
+        "footprint_provenance": "open",
+        "source_hash": "h",
+        "point_count_inside": 200,
+        "point_count_cluster": 100,
+    }
+    report = qa.build_report([record], generated_at="fixed")
+    assert any(d["code"] == "REL-FILTERED-GT-RAW" for d in report["relationship_diagnostics"])
+
+
+def test_atlas_estimated_height_in_numeric_distributions():
+    """estimated_height is covered by the configured numeric_fields in default QAConfig."""
+    assert "estimated_height" in qa.QAConfig().numeric_fields
+
+
+def test_atlas_footprint_area_m2_in_numeric_distributions():
+    """footprint_area_m2 is covered by configured numeric_fields."""
+    assert "footprint_area_m2" in qa.QAConfig().numeric_fields
+
+
+def test_atlas_point_count_inside_in_expected_fields():
+    """point_count_inside is in default expected_fields."""
+    assert "point_count_inside" in qa.QAConfig().expected_fields
+
+
+def test_alias_height_still_works_via_alias_resolution():
+    """Historical 'height' alias is still detected via ATLAS_FIELD_ALIASES for backward compat."""
+    record = {
+        "building_id": "a",
+        "source_crs": "EPSG:1",
+        "footprint_provenance": "open",
+        "source_hash": "h",
+        "ground_z": 0.0,
+        "roof_z": 10.0,
+        "height": 50.0,  # alias for estimated_height
+    }
+    report = qa.build_report([record], generated_at="fixed")
+    assert any(d["code"] == "REL-HEIGHT-DELTA" for d in report["relationship_diagnostics"])
+
+
+def test_alias_footprint_area_still_works():
+    """Historical 'footprint_area' alias is still detected via ATLAS_FIELD_ALIASES."""
+    record = {
+        "building_id": "a",
+        "source_crs": "EPSG:1",
+        "footprint_provenance": "open",
+        "source_hash": "h",
+        "footprint_area": -1.0,  # alias for footprint_area_m2
+    }
+    report = qa.build_report([record], generated_at="fixed")
+    assert any(d["code"] == "REL-NEG-FOOTPRINT-AREA" for d in report["relationship_diagnostics"])
+
+
+# ---------------------------------------------------------------------------
+# P2-01: Source hash and footprint provenance are tracked independently
+# ---------------------------------------------------------------------------
+
+def test_source_hash_alone_does_not_suppress_provenance_missing():
+    """A record with source_hash but no footprint_provenance triggers REL-PROVENANCE-MISSING."""
+    record = {"building_id": "a", "source_crs": "EPSG:1", "source_hash": "abc123"}
+    report = qa.build_report([record], generated_at="fixed")
+    assert any(d["code"] == "REL-PROVENANCE-MISSING" for d in report["relationship_diagnostics"])
+
+
+def test_footprint_provenance_alone_triggers_source_hash_missing():
+    """A record with footprint_provenance but no source hash triggers REL-SOURCE-HASH-MISSING."""
+    record = {"building_id": "a", "source_crs": "EPSG:1", "footprint_provenance": "open_city_footprint"}
+    report = qa.build_report([record], generated_at="fixed")
+    assert any(d["code"] == "REL-SOURCE-HASH-MISSING" for d in report["relationship_diagnostics"])
+
+
+def test_both_provenance_and_hash_suppress_both_diagnostics():
+    """A record with footprint_provenance AND source_hash suppresses both provenance diagnostics."""
+    record = {"building_id": "a", "source_crs": "EPSG:1", "footprint_provenance": "open_city_footprint", "source_hash": "abc"}
+    report = qa.build_report([record], generated_at="fixed")
+    assert not any(d["code"] == "REL-PROVENANCE-MISSING" for d in report["relationship_diagnostics"])
+    assert not any(d["code"] == "REL-SOURCE-HASH-MISSING" for d in report["relationship_diagnostics"])
+
+
+def test_dataset_summary_tracks_footprint_provenance_coverage_separately():
+    """dataset_summary includes footprint_provenance_coverage distinct from source_hash_coverage."""
+    report = qa.build_report(base_records(), generated_at="fixed")
+    assert "footprint_provenance_coverage" in report["dataset_summary"]
+    assert "source_hash_coverage" in report["dataset_summary"]
+    assert report["dataset_summary"]["footprint_provenance_coverage"]["present"] == 2
+    assert report["dataset_summary"]["source_hash_coverage"]["present"] == 2
+
+
+# ---------------------------------------------------------------------------
+# P2-02: Dataset-level duplicate source-tile is not flagged (normal behavior)
+# ---------------------------------------------------------------------------
+
+def test_multiple_buildings_same_source_tile_not_flagged():
+    """Multiple buildings referencing the same source_tile is normal and must NOT fire REL-DUPLICATE-SOURCE-TILE."""
+    report = qa.build_report(base_records(), generated_at="fixed")
+    assert not any(d["code"] == "REL-DUPLICATE-SOURCE-TILE" for d in report["relationship_diagnostics"])
+
+
+def test_duplicate_entries_within_contributing_source_tiles_flagged():
+    """Duplicate tile entries within a single building's contributing_source_tiles fires REL-DUPLICATE-SOURCE-TILE."""
+    record = {
+        "building_id": "a",
+        "source_crs": "EPSG:1",
+        "footprint_provenance": "open",
+        "source_hash": "h",
+        "contributing_source_tiles": ["tile-1", "tile-2", "tile-1"],  # tile-1 duplicated
+    }
+    report = qa.build_report([record], generated_at="fixed")
+    assert any(d["code"] == "REL-DUPLICATE-SOURCE-TILE" for d in report["relationship_diagnostics"])
+
+
+def test_unique_contributing_source_tiles_not_flagged():
+    """Unique contributing_source_tiles within a single building does NOT fire REL-DUPLICATE-SOURCE-TILE."""
+    record = {
+        "building_id": "a",
+        "source_crs": "EPSG:1",
+        "footprint_provenance": "open",
+        "source_hash": "h",
+        "contributing_source_tiles": ["tile-1", "tile-2", "tile-3"],
+    }
+    report = qa.build_report([record], generated_at="fixed")
+    assert not any(d["code"] == "REL-DUPLICATE-SOURCE-TILE" for d in report["relationship_diagnostics"])
