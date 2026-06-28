@@ -21,6 +21,36 @@ from typing import Any, Iterable
 
 REPORT_VERSION = "building_characteristics_qa.v1"
 DEFAULT_OUTPUT_FORMATS = ["json", "markdown", "html", "csv"]
+
+# Reporter-owned output filenames. Only these are ever replaced in the output directory.
+# Unrelated files present in the output directory are never deleted or overwritten.
+OWNED_REPORT_FILENAMES: frozenset[str] = frozenset([
+    "building_characteristics_qa.json",
+    "building_characteristics_qa.md",
+    "building_characteristics_qa.html",
+    "field_completeness.csv",
+    "numeric_distributions.csv",
+    "finding_counts.csv",
+    "suspicious_records.csv",
+    "city_summary.csv",
+    "tile_summary.csv",
+])
+
+# Atlas pipeline canonical field names → accepted historical aliases.
+# Relationship diagnostics prefer canonical fields; aliases provide backward compatibility
+# with records produced before Atlas field naming was standardized.
+ATLAS_FIELD_ALIASES: dict[str, list[str]] = {
+    "estimated_height": ["height"],
+    "ground_z": ["ground_elevation"],
+    "roof_z": ["roof_elevation"],
+    "footprint_area_m2": ["footprint_area"],
+    "perimeter_m": ["perimeter"],
+    "roof_area_m2": ["roof_area"],
+    "volume_m3": ["volume"],
+    "point_count_inside": ["point_count_filtered"],
+    "point_count_cluster": ["point_count_raw"],
+}
+
 RELATIONSHIP_CHECKS = (
     "height_max_lt_height_p95",
     "height_p95_lt_height_p90",
@@ -36,12 +66,13 @@ RELATIONSHIP_CHECKS = (
     "missing_unit_provenance_on_metric_labeled_fields",
     "mixed_horizontal_units",
     "mixed_vertical_units",
-    "duplicate_source_tiles",
+    "duplicate_source_tile_entries_within_building",
     "missing_fallback_marker_for_fallback_value",
     "high_confidence_missing_provenance",
     "historical_miami_without_verified_normalization",
     "missing_crs_declaration",
-    "missing_provenance",
+    "missing_footprint_provenance",
+    "missing_source_hash",
     "statistical_numeric_outlier",
 )
 
@@ -54,7 +85,9 @@ PIPELINE_KEYS = ("pipeline_version", "pipeline", "normalization_version")
 GEN_TIME_KEYS = ("generated_at", "generation_time", "created_at", "timestamp")
 HASH_KEYS = ("source_hash", "source_sha256", "metadata_sha256", "input_hash")
 CRS_KEYS = ("source_crs", "crs", "horizontal_crs", "vertical_crs", "target_crs")
-PROVENANCE_KEYS = ("footprint_provenance", "provenance", "source_hash", "source_sha256")
+# Footprint derivation provenance keys. Source hash evidence is tracked separately
+# and is not a substitute for footprint derivation provenance.
+FOOTPRINT_PROVENANCE_KEYS = ("footprint_provenance", "provenance")
 UNIT_KEYS = ("horizontal_units", "horizontal_unit", "vertical_units", "vertical_unit", "units")
 FALLBACK_KEYS = ("fallback_reason", "fallback_type", "is_fallback", "footprint_provenance")
 
@@ -66,19 +99,24 @@ class QAConfig:
         "city",
         "tile_id",
         "pipeline_version",
-        "height",
+        "estimated_height",
         "height_p90",
         "height_p95",
         "height_max",
-        "ground_elevation",
-        "roof_elevation",
-        "footprint_area",
-        "perimeter",
-        "roof_area",
-        "volume",
-        "point_count_raw",
-        "point_count_filtered",
-        "point_density",
+        "ground_z",
+        "roof_z",
+        "min_z_inside",
+        "footprint_area_m2",
+        "bbox_area_m2",
+        "perimeter_m",
+        "roof_area_m2",
+        "volume_m3",
+        "point_count_inside",
+        "point_count_cluster",
+        "rooftop_gap_m",
+        "vertical_unit",
+        "metric_normalization_version",
+        "contributing_source_tiles",
         "horizontal_units",
         "vertical_units",
         "source_crs",
@@ -88,19 +126,21 @@ class QAConfig:
     ])
     grouping_keys: list[str] = field(default_factory=lambda: ["city", "tile_id", "pipeline_version"])
     numeric_fields: list[str] = field(default_factory=lambda: [
-        "height",
+        "estimated_height",
         "height_p90",
         "height_p95",
         "height_max",
-        "ground_elevation",
-        "roof_elevation",
-        "footprint_area",
-        "perimeter",
-        "roof_area",
-        "volume",
-        "point_count_raw",
-        "point_count_filtered",
-        "point_density",
+        "ground_z",
+        "roof_z",
+        "min_z_inside",
+        "footprint_area_m2",
+        "bbox_area_m2",
+        "perimeter_m",
+        "roof_area_m2",
+        "volume_m3",
+        "point_count_inside",
+        "point_count_cluster",
+        "rooftop_gap_m",
     ])
     categorical_fields: list[str] = field(default_factory=lambda: [
         "city",
@@ -110,6 +150,7 @@ class QAConfig:
         "quality_flags",
         "fallback_reason",
         "normalization_version",
+        "metric_normalization_version",
         "horizontal_units",
         "horizontal_unit",
         "vertical_units",
@@ -376,6 +417,9 @@ def _dataset_summary(records: list[dict[str, Any]], paths: list[Path]) -> dict[s
         if value not in (None, ""):
             times.append(str(value))
     hash_present = sum(1 for record in records if _first(record, HASH_KEYS) not in (None, ""))
+    footprint_provenance_present = sum(
+        1 for record in records if _first(record, FOOTPRINT_PROVENANCE_KEYS) not in (None, "")
+    )
     schema_ids = sorted({str(record.get("schema_version") or record.get("contract_id")) for record in records if record.get("schema_version") or record.get("contract_id")})
     return {
         "record_count": len(records),
@@ -390,6 +434,7 @@ def _dataset_summary(records: list[dict[str, Any]], paths: list[Path]) -> dict[s
         "pipeline_versions": versions,
         "generation_time_range": {"min": min(times) if times else None, "max": max(times) if times else None},
         "source_hash_coverage": {"present": hash_present, "missing": len(records) - hash_present, "percent": _pct(hash_present, len(records))},
+        "footprint_provenance_coverage": {"present": footprint_provenance_present, "missing": len(records) - footprint_provenance_present, "percent": _pct(footprint_provenance_present, len(records))},
         "schema_or_contract_ids": schema_ids,
         "input_paths": [str(path) for path in paths],
     }
@@ -536,12 +581,29 @@ def _diag(kind: str, code: str, message: str, record: dict[str, Any] | None = No
     return out
 
 
+def _resolve_atlas(record: dict[str, Any], canonical: str) -> tuple[str | None, Any]:
+    """Return (field_name_used, raw_value), preferring Atlas canonical over historical aliases."""
+    if canonical in record:
+        return canonical, record[canonical]
+    for alias in ATLAS_FIELD_ALIASES.get(canonical, []):
+        if alias in record:
+            return alias, record[alias]
+    return None, None
+
+
+def _ffa(record: dict[str, Any], canonical: str) -> float | None:
+    """Resolve Atlas canonical or alias field to finite float."""
+    _, value = _resolve_atlas(record, canonical)
+    return _finite_float(value)
+
+
 def relationship_diagnostics(records: list[dict[str, Any]], cfg: QAConfig, numeric: dict[str, Any]) -> list[dict[str, Any]]:
     diagnostics: list[dict[str, Any]] = []
     for idx, record in enumerate(records):
         def f(key: str) -> float | None:
             return _finite_float(record.get(key))
 
+        # Height-ordering checks (height_max, height_p95, height_p90 are Atlas canonical)
         pairs = [
             ("height_max", "height_p95", "REL-HEIGHT-MAX-P95", "height_max < height_p95"),
             ("height_p95", "height_p90", "REL-HEIGHT-P95-P90", "height_p95 < height_p90"),
@@ -549,49 +611,98 @@ def relationship_diagnostics(records: list[dict[str, Any]], cfg: QAConfig, numer
         for left, right, code, msg in pairs:
             if f(left) is not None and f(right) is not None and f(left) < f(right):
                 diagnostics.append(_diag("DATA_QUALITY_SIGNAL", code, msg, record, idx, left, observed={left: record.get(left), right: record.get(right)}))
-        if f("roof_elevation") is not None and f("ground_elevation") is not None:
-            delta = f("roof_elevation") - f("ground_elevation")
+
+        # Roof-ground and height consistency using Atlas canonical fields.
+        # ground_z and roof_z are absolute elevations; estimated_height is building height.
+        # Treating absolute elevation and building height as different characteristics.
+        roof_field, roof_raw = _resolve_atlas(record, "roof_z")
+        ground_field, ground_raw = _resolve_atlas(record, "ground_z")
+        rf = _finite_float(roof_raw)
+        gz = _finite_float(ground_raw)
+        if rf is not None and gz is not None:
+            delta = rf - gz
+            label = roof_field or "roof_z"
             if delta < 0:
-                diagnostics.append(_diag("DATA_QUALITY_SIGNAL", "REL-ROOF-BELOW-GROUND", "roof elevation below ground elevation", record, idx, "roof_elevation", observed=delta))
-            h = f("height")
+                diagnostics.append(_diag("DATA_QUALITY_SIGNAL", "REL-ROOF-BELOW-GROUND", "roof elevation below ground elevation", record, idx, label, observed=delta))
+            _, height_raw = _resolve_atlas(record, "estimated_height")
+            h = _finite_float(height_raw)
             tol = float(cfg.statistical_warning_thresholds.get("height_roof_ground_tolerance", 2.0))
             if h is not None and abs(h - delta) > tol:
-                diagnostics.append(_diag("DATA_QUALITY_SIGNAL", "REL-HEIGHT-DELTA", "reported height inconsistent with roof minus ground", record, idx, "height", observed={"height": h, "roof_minus_ground": delta}))
-        for key, code, message in [
-            ("footprint_area", "REL-NEG-FOOTPRINT-AREA", "negative footprint area"),
-            ("perimeter", "REL-NEG-PERIMETER", "negative perimeter"),
-            ("roof_area", "REL-NEG-ROOF-AREA", "negative roof area"),
-            ("volume", "REL-NEG-VOLUME", "negative volume"),
+                diagnostics.append(_diag("DATA_QUALITY_SIGNAL", "REL-HEIGHT-DELTA", "reported height inconsistent with roof minus ground", record, idx, "estimated_height", observed={"estimated_height": height_raw, "roof_minus_ground": delta}))
+
+        # Negative/zero geometric fields using Atlas canonical names (with alias fallback)
+        for canonical, code, message in [
+            ("footprint_area_m2", "REL-NEG-FOOTPRINT-AREA", "negative footprint area"),
+            ("perimeter_m", "REL-NEG-PERIMETER", "negative perimeter"),
+            ("roof_area_m2", "REL-NEG-ROOF-AREA", "negative roof area"),
+            ("volume_m3", "REL-NEG-VOLUME", "negative volume"),
         ]:
-            if f(key) is not None and f(key) < 0:
-                diagnostics.append(_diag("DATA_QUALITY_SIGNAL", code, message, record, idx, key, observed=record.get(key)))
-        if f("footprint_area") == 0:
-            diagnostics.append(_diag("DATA_QUALITY_SIGNAL", "REL-ZERO-FOOTPRINT-AREA", "zero footprint area", record, idx, "footprint_area", observed=0))
-        if f("point_count_filtered") is not None and f("point_count_raw") is not None and f("point_count_filtered") > f("point_count_raw"):
-            diagnostics.append(_diag("DATA_QUALITY_SIGNAL", "REL-FILTERED-GT-RAW", "filtered point count above raw point count", record, idx, "point_count_filtered", observed={"filtered": record.get("point_count_filtered"), "raw": record.get("point_count_raw")}))
-        if f("point_density") is not None and f("point_count_filtered") is not None and f("footprint_area") not in (None, 0):
-            expected = f("point_count_filtered") / f("footprint_area")
+            val = _ffa(record, canonical)
+            if val is not None and val < 0:
+                used_field, _ = _resolve_atlas(record, canonical)
+                diagnostics.append(_diag("DATA_QUALITY_SIGNAL", code, message, record, idx, used_field or canonical, observed=val))
+
+        fa = _ffa(record, "footprint_area_m2")
+        if fa == 0:
+            used_field, _ = _resolve_atlas(record, "footprint_area_m2")
+            diagnostics.append(_diag("DATA_QUALITY_SIGNAL", "REL-ZERO-FOOTPRINT-AREA", "zero footprint area", record, idx, used_field or "footprint_area_m2", observed=0))
+
+        # Point count: point_count_inside (inside footprint, canonical) vs point_count_cluster (raw cluster)
+        pc_inside = _ffa(record, "point_count_inside")
+        pc_cluster = _ffa(record, "point_count_cluster")
+        if pc_inside is not None and pc_cluster is not None and pc_inside > pc_cluster:
+            fi, _ = _resolve_atlas(record, "point_count_inside")
+            diagnostics.append(_diag("DATA_QUALITY_SIGNAL", "REL-FILTERED-GT-RAW", "filtered point count above raw point count", record, idx, fi or "point_count_inside", observed={"point_count_inside": pc_inside, "point_count_cluster": pc_cluster}))
+
+        # Density check: point_density vs point_count_inside / footprint_area_m2
+        pd_val = f("point_density")
+        fa_d = _ffa(record, "footprint_area_m2")
+        if pd_val is not None and pc_inside is not None and fa_d not in (None, 0):
+            expected = pc_inside / fa_d
             tol = float(cfg.statistical_warning_thresholds.get("density_relative_tolerance", 0.05))
-            if expected and abs(f("point_density") - expected) / abs(expected) > tol:
-                diagnostics.append(_diag("DATA_QUALITY_SIGNAL", "REL-DENSITY-MISMATCH", "density inconsistent with point count divided by area", record, idx, "point_density", observed={"reported": record.get("point_density"), "expected": expected}))
+            if expected and abs(pd_val - expected) / abs(expected) > tol:
+                diagnostics.append(_diag("DATA_QUALITY_SIGNAL", "REL-DENSITY-MISMATCH", "density inconsistent with point count divided by area", record, idx, "point_density", observed={"reported": pd_val, "expected": expected}))
+
+        # Unit provenance
         metricish = any(str(record.get(key, "")).lower() in {"meter", "meters", "metre", "metres"} for key in UNIT_KEYS)
-        if metricish and not (record.get("normalization_version") or record.get("unit_provenance") or record.get("metric_provenance")):
+        if metricish and not (record.get("normalization_version") or record.get("metric_normalization_version") or record.get("unit_provenance") or record.get("metric_provenance")):
             diagnostics.append(_diag("DATA_QUALITY_SIGNAL", "REL-METRIC-PROVENANCE-MISSING", "missing unit provenance on metric-labeled fields", record, idx, "unit_provenance"))
+
+        # CRS declaration
         if not any(record.get(key) for key in CRS_KEYS):
             diagnostics.append(_diag("DATA_QUALITY_SIGNAL", "REL-CRS-MISSING", "missing CRS declaration", record, idx, "source_crs"))
-        if not any(record.get(key) for key in PROVENANCE_KEYS):
-            diagnostics.append(_diag("DATA_QUALITY_SIGNAL", "REL-PROVENANCE-MISSING", "missing provenance or source hash", record, idx, "footprint_provenance"))
-        if str(record.get("confidence", "")).upper() == "HIGH" and not any(record.get(key) for key in PROVENANCE_KEYS):
+
+        # Footprint derivation provenance (P2-01 fix: source hash is NOT a substitute)
+        if not any(record.get(key) for key in FOOTPRINT_PROVENANCE_KEYS):
+            diagnostics.append(_diag("DATA_QUALITY_SIGNAL", "REL-PROVENANCE-MISSING", "missing footprint derivation provenance", record, idx, "footprint_provenance"))
+
+        # Source hash / immutability evidence (reported independently from footprint provenance)
+        if not any(record.get(key) for key in HASH_KEYS):
+            diagnostics.append(_diag("DATA_QUALITY_SIGNAL", "REL-SOURCE-HASH-MISSING", "missing source hash or immutability evidence", record, idx, "source_hash", severity="INFO"))
+
+        # High confidence + missing footprint provenance
+        if str(record.get("confidence", "")).upper() == "HIGH" and not any(record.get(key) for key in FOOTPRINT_PROVENANCE_KEYS):
             diagnostics.append(_diag("DATA_QUALITY_SIGNAL", "REL-HIGH-CONFIDENCE-NO-PROVENANCE", "high confidence paired with missing provenance", record, idx, "confidence"))
+
+        # Fallback marker
         looks_fallback = any("fallback" in str(value).lower() for value in record.values())
         has_marker = any(record.get(key) not in (None, "", False) for key in FALLBACK_KEYS)
         if looks_fallback and not has_marker:
             diagnostics.append(_diag("UNSUPPORTED_INFERENCE", "REL-FALLBACK-MARKER-MISSING", "missing fallback marker when a fallback-looking value is present", record, idx, "fallback_reason", observed="fallback-looking value"))
+
+        # Miami normalization
         city = _city(record).lower().replace(" ", "_")
         norm = str(record.get("normalization_version") or record.get("metric_normalization_version") or "")
         if city in {"miami", "miami_dade", "miami-dade"} and not norm:
             diagnostics.append(_diag("DATA_QUALITY_SIGNAL", "REL-MIAMI-NORMALIZATION-MISSING", "historical Miami output lacks verified normalization provenance", record, idx, "normalization_version"))
 
+        # P2-02 fix: check for duplicate entries within a single building's contributing_source_tiles.
+        # Multiple buildings sharing the same source tile is normal and is NOT flagged.
+        cst = record.get("contributing_source_tiles")
+        if isinstance(cst, list) and len(cst) > len(set(str(x) for x in cst)):
+            diagnostics.append(_diag("DATA_QUALITY_SIGNAL", "REL-DUPLICATE-SOURCE-TILE", "duplicate entries in contributing_source_tiles for a single building", record, idx, "contributing_source_tiles", observed=cst))
+
+    # Mixed units across records within a scope
     for scope_name, scope_func in (("city", _city), ("tile", _tile)):
         groups: dict[str, list[dict[str, Any]]] = defaultdict(list)
         for record in records:
@@ -615,11 +726,8 @@ def relationship_diagnostics(records: list[dict[str, Any]], cfg: QAConfig, numer
                         "scope_value": group,
                         "observed_value": values,
                     })
-    source_tiles = [str(record.get("source_tile")) for record in records if record.get("source_tile")]
-    for tile, count in sorted(Counter(source_tiles).items()):
-        if count > 1:
-            diagnostics.append({"diagnostic_type": "DATA_QUALITY_SIGNAL", "code": "REL-DUPLICATE-SOURCE-TILE", "severity": "INFO", "message": "duplicate source tile references", "characteristic": "source_tile", "source_tile": tile, "observed_value": count})
 
+    # Statistical outliers
     for field_name, dist in sorted(numeric.items()):
         values = [(idx, _finite_float(record.get(field_name)), record) for idx, record in enumerate(records) if field_name in record]
         finite = [(idx, value, record) for idx, value, record in values if value is not None]
@@ -639,6 +747,7 @@ def relationship_diagnostics(records: list[dict[str, Any]], cfg: QAConfig, numer
         for idx, value, record in finite:
             if value < low or value > high:
                 diagnostics.append(_diag("STATISTICAL_OUTLIER", "STAT-IQR-OUTLIER", "statistical outlier; review required, not proof of physical error", record, idx, field_name, "INFO", observed=value))
+
     return sorted(diagnostics, key=lambda d: (str(d.get("diagnostic_type")), str(d.get("code")), str(d.get("city")), str(d.get("source_tile")), str(d.get("building_id"))))
 
 
@@ -783,6 +892,7 @@ def render_markdown(report: dict[str, Any]) -> str:
         f"- Pipeline versions: {', '.join(ds['pipeline_versions']) if ds['pipeline_versions'] else 'none'}",
         f"- Generation time range: {ds['generation_time_range']}",
         f"- Source hash coverage: {ds['source_hash_coverage']['percent']}%",
+        f"- Footprint provenance coverage: {ds['footprint_provenance_coverage']['percent']}%",
         f"- Schema or contract IDs: {', '.join(ds['schema_or_contract_ids']) if ds['schema_or_contract_ids'] else 'none'}",
         "",
         "## Field Completeness",
@@ -802,7 +912,7 @@ def render_markdown(report: dict[str, Any]) -> str:
             lines.append(f"- {diag.get('code')}: {diag.get('message')}")
     lines.extend(["", "## Provenance Risks"])
     for diag in report["relationship_diagnostics"]:
-        if "PROVENANCE" in str(diag.get("code")) or "CONFIDENCE" in str(diag.get("code")):
+        if "PROVENANCE" in str(diag.get("code")) or "CONFIDENCE" in str(diag.get("code")) or "HASH" in str(diag.get("code")):
             lines.append(f"- {diag.get('code')}: {diag.get('message')}")
     lines.extend(["", "## Suspicious Relationships"])
     for diag in report["relationship_diagnostics"][:25]:
@@ -851,45 +961,65 @@ def write_csv_exports(report: dict[str, Any], out_dir: Path) -> None:
     _write_csv(out_dir / "tile_summary.csv", [{"tile": k, **v} for k, v in sorted(report["tile_summaries"].items())], ["tile", "record_count", "unique_building_count", "diagnostic_count", "validation_finding_count", "source_hash_coverage_percent"])
 
 
+def _check_path_safety(source_path: Path, output_dir: Path) -> None:
+    """Reject unsafe source/output path relationships using resolved (symlink-followed) paths.
+
+    Prevents the reporter from writing into or adjacent to source inputs, which would
+    risk overwriting canonical records or unrelated files with report outputs.
+    """
+    source_resolved = source_path.resolve()
+    output_resolved = output_dir.resolve()
+    if source_resolved == output_resolved:
+        raise ValueError(
+            f"Output directory must not be the same path as the input: {output_resolved}"
+        )
+    if source_resolved in output_resolved.parents:
+        raise ValueError(
+            f"Output directory must not be inside the input path: "
+            f"{output_resolved} is inside {source_resolved}"
+        )
+    if output_resolved in source_resolved.parents:
+        raise ValueError(
+            f"Input path must not be inside the output directory: "
+            f"{source_resolved} is inside {output_resolved}"
+        )
+
+
 def write_report_outputs(report: dict[str, Any], output_dir: Path) -> list[Path]:
+    """Write report files to output_dir, replacing only known reporter-owned filenames.
+
+    Unrelated files present in output_dir are never deleted or modified.
+    All report content is staged in a temporary directory before any file in output_dir
+    is replaced, so a failed run leaves existing files intact.
+    """
     output_dir = output_dir.resolve()
     parent = output_dir.parent
     parent.mkdir(parents=True, exist_ok=True)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    formats = report["configuration"].get("output_formats", DEFAULT_OUTPUT_FORMATS)
     with tempfile.TemporaryDirectory(prefix=f".{output_dir.name}.", dir=parent) as tmp_name:
         tmp = Path(tmp_name)
-        outputs: list[Path] = []
-        if "json" in report["configuration"].get("output_formats", DEFAULT_OUTPUT_FORMATS):
+        if "json" in formats:
             (tmp / "building_characteristics_qa.json").write_text(_stable_json(report) + "\n", encoding="utf-8")
-            outputs.append(output_dir / "building_characteristics_qa.json")
-        if "markdown" in report["configuration"].get("output_formats", DEFAULT_OUTPUT_FORMATS):
+        if "markdown" in formats:
             (tmp / "building_characteristics_qa.md").write_text(render_markdown(report), encoding="utf-8")
-            outputs.append(output_dir / "building_characteristics_qa.md")
-        if "html" in report["configuration"].get("output_formats", DEFAULT_OUTPUT_FORMATS):
+        if "html" in formats:
             try:
                 from render_building_characteristics_dashboard import render_dashboard_html
             except ImportError:
                 sys.path.insert(0, str(Path(__file__).resolve().parent))
                 from render_building_characteristics_dashboard import render_dashboard_html
             (tmp / "building_characteristics_qa.html").write_text(render_dashboard_html(report), encoding="utf-8")
-            outputs.append(output_dir / "building_characteristics_qa.html")
-        if "csv" in report["configuration"].get("output_formats", DEFAULT_OUTPUT_FORMATS):
+        if "csv" in formats:
             write_csv_exports(report, tmp)
-            outputs.extend(output_dir / name for name in [
-                "field_completeness.csv",
-                "numeric_distributions.csv",
-                "finding_counts.csv",
-                "suspicious_records.csv",
-                "city_summary.csv",
-                "tile_summary.csv",
-            ])
-        if output_dir.exists():
-            for child in output_dir.iterdir():
-                if child.is_file():
-                    child.unlink()
-        else:
-            output_dir.mkdir(parents=True)
+        # Move only owned filenames from staging to output; preserve all unrelated files
+        outputs: list[Path] = []
         for child in sorted(tmp.iterdir()):
-            os.replace(child, output_dir / child.name)
+            if child.name not in OWNED_REPORT_FILENAMES:
+                continue
+            dest = output_dir / child.name
+            os.replace(child, dest)
+            outputs.append(dest)
         return outputs
 
 
@@ -906,10 +1036,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 def main(argv: list[str] | None = None) -> int:
     try:
         args = parse_args(argv)
-        source_path = args.input.resolve()
-        output_dir = args.output_dir.resolve()
-        if source_path == output_dir or source_path in output_dir.parents:
-            raise ValueError("Output directory must not be inside the input path.")
+        _check_path_safety(args.input, args.output_dir)
         cfg = QAConfig.from_path(args.config)
         records = load_records(args.input)
         findings = load_findings(args.findings)
