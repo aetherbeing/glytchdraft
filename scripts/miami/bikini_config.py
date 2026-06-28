@@ -11,6 +11,16 @@ import os
 import sys
 from pathlib import Path
 
+from metric_normalization_v1 import (
+    EXPECTED_SOURCE_HORIZONTAL_CRS,
+    EXPECTED_SOURCE_VERTICAL_CRS,
+    FTUS_TO_METERS,
+    GATE_ENV,
+    NORMALIZATION_VERSION,
+    SOURCE_VERTICAL_UNIT,
+    TARGET_VERTICAL_UNIT,
+)
+
 # ── project root ───────────────────────────────────────────────────────────────
 
 ROOT = Path(os.environ.get(
@@ -19,6 +29,7 @@ ROOT = Path(os.environ.get(
 ))
 
 TWO_TILE_UNIT_FIXTURE = os.environ.get("MIAMI_TWO_TILE_UNIT_FIXTURE") == "1"
+MIAMI_METRIC_NORMALIZATION_V1 = os.environ.get(GATE_ENV) == "1"
 
 # ── LAZ input — 16 tiles from FL_MiamiDade_D23 (2024), on T7 ─────────────────
 # Windows CMD: T:\miami\data_raw\laz
@@ -71,7 +82,13 @@ COUNTY_FP_PATH  = GEOJSON_RAW_DIR / "miami_footprints_4326.geojson"
 
 # ── output roots ───────────────────────────────────────────────────────────────
 
-if TWO_TILE_UNIT_FIXTURE:
+if MIAMI_METRIC_NORMALIZATION_V1:
+    OUT_ROOT = Path(os.environ.get(
+        "MIAMI_METRIC_NORMALIZATION_V1_OUT_ROOT",
+        "/mnt/c/Users/Glytc/miami_metric_normalization_v1/corrected",
+    ))
+    EXPORT_ROOT = OUT_ROOT / "exports" / "MIAMI_METRIC_NORMALIZATION_V1"
+elif TWO_TILE_UNIT_FIXTURE:
     OUT_ROOT = Path(os.environ.get(
         "MIAMI_TWO_TILE_UNIT_FIXTURE_OUT_ROOT",
         "/mnt/c/Users/Glytc/miami_two_tile_unit_fixture/corrected",
@@ -148,15 +165,20 @@ GROUND_CLASS          = 2
 HAG_MIN_M             = 2.5   # exclude ground clutter, cars, low vegetation
 HAG_MAX_M             = 300.0 # cap noise; Miami tallest ~264m
 
-# Fixture-only switch: source Miami LAZ files are horizontal + vertical US
-# survey feet. Reprojection converts X/Y to meters, but PDAL does not convert Z
-# unless explicitly instructed. Production defaults remain unchanged unless the
-# two-tile fixture environment variable is set.
-NORMALIZE_SOURCE_Z_TO_METERS = (
-    TWO_TILE_UNIT_FIXTURE
-    and os.environ.get("MIAMI_TWO_TILE_UNIT_FIXTURE_NORMALIZE_Z", "1") != "0"
-)
+# Production migration switch. Default is disabled. Do not use the two-tile
+# fixture flag as the production normalization gate.
+NORMALIZE_SOURCE_Z_TO_METERS = MIAMI_METRIC_NORMALIZATION_V1
 SOURCE_Z_TO_METERS_FACTOR: float | None = None
+METRIC_NORMALIZATION_CONFIG = {
+    "feature_gate": GATE_ENV,
+    "enabled": MIAMI_METRIC_NORMALIZATION_V1,
+    "source_vertical_unit": SOURCE_VERTICAL_UNIT,
+    "target_vertical_unit": TARGET_VERTICAL_UNIT,
+    "conversion_factor": FTUS_TO_METERS,
+    "normalization_version": NORMALIZATION_VERSION,
+    "expected_source_horizontal_crs": EXPECTED_SOURCE_HORIZONTAL_CRS,
+    "expected_source_vertical_crs": EXPECTED_SOURCE_VERTICAL_CRS,
+}
 FIXTURE_CROP_BOUNDS_32617 = (
     os.environ.get("MIAMI_TWO_TILE_UNIT_FIXTURE_CROP_BOUNDS_32617")
     if TWO_TILE_UNIT_FIXTURE
@@ -180,6 +202,13 @@ MIN_POINTS_GOOD         = 8
 DEFAULT_FALLBACK_HEIGHT = 6.0
 LOD2_BUFFER_M           = 8.0
 LOD2_SIMPLIFY_M         = 3.0
+
+def vertical_unit_label() -> str:
+    return "meters" if MIAMI_METRIC_NORMALIZATION_V1 else "source_vertical_units_un-normalized"
+
+
+def z_values_are_metric() -> bool:
+    return MIAMI_METRIC_NORMALIZATION_V1
 
 # ── address source (optional) ──────────────────────────────────────────────────
 #
