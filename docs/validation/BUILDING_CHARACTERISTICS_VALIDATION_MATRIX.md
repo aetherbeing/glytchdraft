@@ -215,18 +215,18 @@
 
 | Status | Count |
 |--------|-------|
-| VERIFIED | 8 |
-| PARTIALLY_VERIFIED | 28 |
-| AMBIGUOUS | 8 |
-| UNVALIDATED | 9 |
+| VERIFIED | 16 |
+| PARTIALLY_VERIFIED | 32 |
+| AMBIGUOUS | 9 |
+| UNVALIDATED | 13 |
 | NOT_IMPLEMENTED | 5 |
 | DEPRECATED | 0 |
 | **Total** | **75** |
 
 | Confidence | Count |
 |------------|-------|
-| HIGH | 18 |
-| MEDIUM | 33 |
-| LOW | 9 |
+| HIGH | 24 |
+| MEDIUM | 36 |
+| LOW | 12 |
 | UNKNOWN | 3 |
 | **Total** | **75** |
