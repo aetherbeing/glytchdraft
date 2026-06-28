@@ -2,8 +2,8 @@
 
 Read-only validation library for building characteristics emitted by the Atlas pipeline.
 
-**Module:** `scripts/validation/building_characteristics.py`  
-**Branch:** `test/building-characteristics-validation`  
+**Module:** `scripts/validation/building_characteristics.py`
+**Branch:** `test/building-characteristics-validation`
 **Baseline:** `64faee98fe5957a82ea823d9e24b67cd815369b9`
 
 ---
