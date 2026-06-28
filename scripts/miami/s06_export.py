@@ -64,6 +64,9 @@ def _make_shift_txt(shift_z: float) -> str:
         f"shift_x: {int(CFG.SHIFT_X)}\n"
         f"shift_y: {int(CFG.SHIFT_Y)}\n"
         f"shift_z: {shift_z:.4f}\n"
+        f"vertical_unit: {CFG.vertical_unit_label()}\n"
+        f"metric_normalization_version: "
+        f"{CFG.METRIC_NORMALIZATION_CONFIG['normalization_version'] if CFG.z_values_are_metric() else 'disabled'}\n"
         f"anchor: bikini_SW_corner_rounded_1km\n"
         f"\n"
         f"# To recover UTM {CFG.OUT_EPSG} from local coords:\n"
@@ -480,7 +483,8 @@ def main() -> int:
     (CFG.SHIFT_DIR / "bikini.shift.txt").write_text(_make_shift_txt(shift_z), encoding="utf-8")
 
     log_lines = [
-        f"# s06_export.py  shift_x={int(CFG.SHIFT_X)}  shift_y={int(CFG.SHIFT_Y)}  shift_z={shift_z:.4f}"
+        f"# s06_export.py  shift_x={int(CFG.SHIFT_X)}  shift_y={int(CFG.SHIFT_Y)}  "
+        f"shift_z={shift_z:.4f}  vertical_unit={CFG.vertical_unit_label()}"
     ]
 
     for src_name, dst_name, glb_name in LODS:

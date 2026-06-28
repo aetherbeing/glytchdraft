@@ -40,7 +40,12 @@ def read_masses_metadata() -> list[dict]:
 
 def read_shift() -> dict:
     shift_file = CFG.SHIFT_DIR / "bikini.shift.txt"
-    out = {"epsg": str(CFG.OUT_EPSG), "shift_x": CFG.SHIFT_X, "shift_y": CFG.SHIFT_Y}
+    out = {
+        "epsg": str(CFG.OUT_EPSG),
+        "shift_x": CFG.SHIFT_X,
+        "shift_y": CFG.SHIFT_Y,
+        "vertical_unit": CFG.vertical_unit_label(),
+    }
     if not shift_file.exists():
         return out
     for line in shift_file.read_text(encoding="utf-8").splitlines():
@@ -51,7 +56,18 @@ def read_shift() -> dict:
             out["shift_y"] = float(line.split(":", 1)[1].strip())
         elif line.startswith("epsg:"):
             out["epsg"] = line.split(":", 1)[1].strip()
+        elif line.startswith("shift_z:"):
+            out["shift_z"] = float(line.split(":", 1)[1].strip())
+        elif line.startswith("vertical_unit:"):
+            out["vertical_unit"] = line.split(":", 1)[1].strip()
     return out
+
+
+def read_normalization_provenance() -> dict | None:
+    path = CFG.META_DIR / "normalization_provenance.json"
+    if not path.exists():
+        return None
+    return json.loads(path.read_text(encoding="utf-8"))
 
 
 def build_buildings_json(rows: list[dict]) -> list[dict]:
@@ -126,6 +142,7 @@ def main() -> int:
         print("  Run s05_masses.py first for full metadata.")
 
     shift = read_shift()
+    normalization_provenance = read_normalization_provenance()
     buildings = build_buildings_json(rows)
     glbs = check_glb_inventory()
 
@@ -152,8 +169,30 @@ def main() -> int:
         "coordinate_system": {
             "processed_crs":  f"EPSG:{CFG.OUT_EPSG}",
             "local_shift":    shift,
+            "xy_unit":         "meters",
+            "z_unit":          CFG.vertical_unit_label(),
+            "z_values_metric": CFG.z_values_are_metric(),
             "note": "All exported geometry is in local coords (UTM 32617 minus shift). "
                     "To recover real-world UTM: add shift_x to X, shift_y to Y.",
+        },
+        "metric_normalization": {
+            **CFG.METRIC_NORMALIZATION_CONFIG,
+            "provenance_path": (
+                str(CFG.META_DIR / "normalization_provenance.json")
+                if normalization_provenance else None
+            ),
+            "source_laz": (
+                normalization_provenance.get("source_laz")
+                if normalization_provenance else None
+            ),
+            "pipeline_commit": (
+                normalization_provenance.get("pipeline_commit")
+                if normalization_provenance else None
+            ),
+            "generated_at": (
+                normalization_provenance.get("generated_at")
+                if normalization_provenance else None
+            ),
         },
         "building_summary": {
             "total":   len(buildings),
@@ -171,7 +210,8 @@ def main() -> int:
         },
         "viewer_hints": {
             "origin":        "SW corner of combined Bikini bbox, UTM 17N rounded to 1 km",
-            "units":         "meters",
+            "units":         "meters" if CFG.z_values_are_metric() else "xy_meters_z_source_vertical_units",
+            "vertical_units_are_metric": CFG.z_values_are_metric(),
             "y_up":          True,
             "recommended_import_order": [
                 "MIAMI_BIKINI_LOD2.glb  (fast overview — block silhouettes)",

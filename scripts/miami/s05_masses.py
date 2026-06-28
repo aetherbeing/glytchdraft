@@ -33,11 +33,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 import bikini_config as CFG
 
 import numpy as np
-import pdal
 from scipy.spatial import cKDTree
-from shapely.geometry import MultiPolygon, Polygon, mapping, shape
-from shapely import prepared
-from shapely.ops import unary_union
 
 CRS_TAG = {"type": "name", "properties": {"name": "urn:ogc:def:crs:EPSG::32617"}}
 
@@ -45,6 +41,8 @@ CRS_TAG = {"type": "name", "properties": {"name": "urn:ogc:def:crs:EPSG::32617"}
 # ── I/O helpers ────────────────────────────────────────────────────────────────
 
 def read_ply_xyz(path: Path) -> np.ndarray:
+    import pdal
+
     pipeline = pdal.Pipeline(json.dumps({"pipeline": [{"type": "readers.ply", "filename": str(path)}]}))
     pipeline.execute()
     arr = pipeline.arrays[0]
@@ -52,6 +50,8 @@ def read_ply_xyz(path: Path) -> np.ndarray:
 
 
 def read_footprint_geojson(path: Path) -> tuple[list[Polygon], list[dict]]:
+    from shapely.geometry import MultiPolygon, Polygon, shape
+
     if not path.exists():
         return [], []
     gj = json.loads(path.read_text(encoding="utf-8"))
@@ -80,6 +80,8 @@ def _shapely_point(x, y):
 
 def estimate_heights(polys: list[Polygon], building_xyz: np.ndarray,
                      ground_xyz: np.ndarray) -> list[dict]:
+    from shapely import prepared
+
     print(f"  building pts: {len(building_xyz):,}   ground pts: {len(ground_xyz):,}")
     b_tree = cKDTree(building_xyz[:, :2])
     g_tree = cKDTree(ground_xyz[:, :2])
@@ -168,7 +170,8 @@ def write_lod_obj(polys, stats, props, out_path: Path, lod_name: str,
                   exclude_fallback: bool = True) -> int:
     n_written = 0
     with out_path.open("w", encoding="utf-8") as f:
-        f.write(f"# {lod_name}\n# CRS: EPSG:32617 (UTM 17N, meters, NO shift applied)\n")
+        f.write(f"# {lod_name}\n# CRS: EPSG:32617 (UTM 17N, XY meters, NO shift applied)\n")
+        f.write(f"# vertical_unit: {CFG.vertical_unit_label()}\n")
         f.write("# source: USGS 3DEP FL_MiamiDade_D23 2024 (public domain)\n")
         vbase = 0
         for poly, s, p in zip(polys, stats, props):
@@ -190,6 +193,8 @@ def write_lod_obj(polys, stats, props, out_path: Path, lod_name: str,
 # ── LOD2 block silhouettes ─────────────────────────────────────────────────────
 
 def build_lod2_blocks(polys, stats):
+    from shapely.ops import unary_union
+
     good_pairs = [(p, s) for p, s in zip(polys, stats)
                   if s["source_quality"] not in ("empty",) and p is not None]
     if not good_pairs:
@@ -216,9 +221,12 @@ def build_lod2_blocks(polys, stats):
 
 
 def write_lod2_obj(blocks, heights, ground_z_default: float, out_path: Path) -> int:
+    from shapely.geometry import Polygon
+
     n = 0
     with out_path.open("w", encoding="utf-8") as f:
         f.write("# bikini_masses_LOD2_block_silhouette\n# CRS: EPSG:32617\n")
+        f.write(f"# vertical_unit: {CFG.vertical_unit_label()}\n")
         vbase = 0
         for block, h in zip(blocks, heights):
             if not isinstance(block, Polygon) or block.is_empty:
@@ -236,26 +244,42 @@ def write_lod2_obj(blocks, heights, ground_z_default: float, out_path: Path) -> 
 
 # ── metadata ───────────────────────────────────────────────────────────────────
 
+def build_metadata_row(poly_area: float, stat: dict, prop: dict, index: int) -> dict:
+    cid = prop.get("cluster_id", index)
+    return {
+        "cluster_id":           cid,
+        "point_count_cluster":  prop.get("point_count"),
+        "point_count_inside":   stat.get("point_count_inside"),
+        "footprint_area_m2":    round(poly_area, 2),
+        "bbox_area_m2":         prop.get("bbox_area_m2"),
+        "ground_z":             stat.get("ground_z"),
+        "height_p90":           stat.get("height_p90"),
+        "height_p95":           stat.get("height_p95"),
+        "height_max":           stat.get("height_max"),
+        "estimated_height":     stat.get("estimated_height"),
+        "ground_z_m":           stat.get("ground_z") if CFG.z_values_are_metric() else None,
+        "height_p90_m":         stat.get("height_p90") if CFG.z_values_are_metric() else None,
+        "height_p95_m":         stat.get("height_p95") if CFG.z_values_are_metric() else None,
+        "height_max_m":         stat.get("height_max") if CFG.z_values_are_metric() else None,
+        "estimated_height_m":   stat.get("estimated_height") if CFG.z_values_are_metric() else None,
+        "vertical_unit":        CFG.vertical_unit_label(),
+        "metric_normalization_version": (
+            CFG.METRIC_NORMALIZATION_CONFIG["normalization_version"]
+            if CFG.z_values_are_metric() else None
+        ),
+        "source_quality":       stat.get("source_quality"),
+        "footprint_method":     prop.get("footprint_method"),
+        "lod0_included":        stat.get("source_quality") not in ("empty", "fallback"),
+        "lod1_included":        stat.get("source_quality") not in ("empty",),
+    }
+
+
 def write_metadata(polys, stats, props, out_geojson: Path, out_csv: Path):
+    from shapely.geometry import mapping
+
     features, csv_rows = [], []
     for i, (poly, s, p) in enumerate(zip(polys, stats, props)):
-        cid = p.get("cluster_id", i)
-        row = {
-            "cluster_id":           cid,
-            "point_count_cluster":  p.get("point_count"),
-            "point_count_inside":   s.get("point_count_inside"),
-            "footprint_area_m2":    round(poly.area, 2),
-            "bbox_area_m2":         p.get("bbox_area_m2"),
-            "ground_z":             s.get("ground_z"),
-            "height_p90":           s.get("height_p90"),
-            "height_p95":           s.get("height_p95"),
-            "height_max":           s.get("height_max"),
-            "estimated_height":     s.get("estimated_height"),
-            "source_quality":       s.get("source_quality"),
-            "footprint_method":     p.get("footprint_method"),
-            "lod0_included":        s.get("source_quality") not in ("empty", "fallback"),
-            "lod1_included":        s.get("source_quality") not in ("empty",),
-        }
+        row = build_metadata_row(poly.area, s, p, i)
         features.append({"type": "Feature", "properties": row, "geometry": mapping(poly)})
         csv_rows.append(row)
 

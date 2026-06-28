@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import hashlib
 import json
 import os
 import struct
@@ -29,6 +30,14 @@ US_SURVEY_FOOT_TO_M = 0.3048006096012192
 HAG_TALL_THRESHOLD_M = 91.44018288
 ADDRESS_LON_LAT = (-80.1307, 25.7892)
 FIXTURE_CROP_BOUNDS_32617 = "([586950,587350],[2852450,2852800])"
+
+
+def sha256_file(path: Path, chunk_size: int = 1024 * 1024) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as fh:
+        for chunk in iter(lambda: fh.read(chunk_size), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
 
 
 def run_cmd(cmd: list[str], env: dict[str, str], log_path: Path) -> None:
@@ -56,9 +65,14 @@ def fixture_env(out_root: Path, normalize: bool) -> dict[str, str]:
         "MIAMI_BIKINI_REPO_ROOT": str(REPO_ROOT),
         "MIAMI_TWO_TILE_UNIT_FIXTURE": "1",
         "MIAMI_TWO_TILE_UNIT_FIXTURE_OUT_ROOT": str(out_root),
-        "MIAMI_TWO_TILE_UNIT_FIXTURE_NORMALIZE_Z": "1" if normalize else "0",
         "MIAMI_TWO_TILE_UNIT_FIXTURE_CROP_BOUNDS_32617": FIXTURE_CROP_BOUNDS_32617,
     })
+    if normalize:
+        env["MIAMI_METRIC_NORMALIZATION_V1"] = "1"
+        env["MIAMI_METRIC_NORMALIZATION_V1_OUT_ROOT"] = str(out_root)
+    else:
+        env.pop("MIAMI_METRIC_NORMALIZATION_V1", None)
+        env.pop("MIAMI_METRIC_NORMALIZATION_V1_OUT_ROOT", None)
     return env
 
 
@@ -82,6 +96,7 @@ def source_metadata() -> list[dict]:
         units = srs.get("units", {})
         rows.append({
             "path": str(path),
+            "sha256": sha256_file(path),
             "compound_crs": srs.get("compoundwkt") or meta.get("comp_spatialreference"),
             "horizontal_crs": srs.get("horizontal"),
             "horizontal_unit": units.get("horizontal"),
@@ -302,6 +317,7 @@ def compare_run(root: Path, seam_y: float, address_xy: tuple[float, float]) -> d
     min_y = float(cluster["min_y"])
     max_y = float(cluster["max_y"])
     is_old = root.name == "old_baseline"
+    export_name = "MIAMI_TWO_TILE_UNIT_FIXTURE" if is_old else "MIAMI_METRIC_NORMALIZATION_V1"
     estimated_height = float(masses["estimated_height"]) if masses and masses.get("estimated_height") else None
     return {
         "status": "PASS",
@@ -322,7 +338,7 @@ def compare_run(root: Path, seam_y: float, address_xy: tuple[float, float]) -> d
         },
         "point_contributions": cluster_point_contributions(root, cluster["cluster_id"], seam_y),
         "obj_lod0": obj_extent(root / "masses" / "bikini_masses_LOD0_convexhull.obj"),
-        "glb_lod0": glb_extent(root / "exports" / "MIAMI_TWO_TILE_UNIT_FIXTURE" / "MIAMI_BIKINI_LOD0.glb"),
+        "glb_lod0": glb_extent(root / "exports" / export_name / "MIAMI_BIKINI_LOD0.glb"),
         "hag_retention": hag_retention(root),
     }
 
@@ -390,6 +406,9 @@ def main() -> int:
         },
         "conversion_factor": US_SURVEY_FOOT_TO_M,
         "normalization_stage_syntax": f"filters.assign value: Z = Z * {US_SURVEY_FOOT_TO_M}",
+        "normalization_version": "miami_metric_normalization_v1",
+        "feature_gate": "MIAMI_METRIC_NORMALIZATION_V1",
+        "feature_gate_enabled": True,
         "pipeline_commit": subprocess.check_output(
             ["git", "rev-parse", "HEAD"], cwd=str(REPO_ROOT), text=True, encoding="utf-8"
         ).strip(),

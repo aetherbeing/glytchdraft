@@ -21,8 +21,10 @@ def _fresh_s01(monkeypatch: pytest.MonkeyPatch, *, enabled: bool):
         sys.modules.pop(name, None)
     if enabled:
         monkeypatch.setenv("MIAMI_TWO_TILE_UNIT_FIXTURE", "1")
+        monkeypatch.setenv("MIAMI_METRIC_NORMALIZATION_V1", "1")
     else:
         monkeypatch.delenv("MIAMI_TWO_TILE_UNIT_FIXTURE", raising=False)
+        monkeypatch.delenv("MIAMI_METRIC_NORMALIZATION_V1", raising=False)
     monkeypatch.delenv("MIAMI_TWO_TILE_UNIT_FIXTURE_CROP_BOUNDS_32617", raising=False)
     monkeypatch.delenv("MIAMI_TWO_TILE_UNIT_FIXTURE_NORMALIZE_Z", raising=False)
     return importlib.import_module("s01_extract")
@@ -47,6 +49,7 @@ def test_feature_flag_off_keeps_existing_extract_stage_structure(monkeypatch: py
 def test_feature_flag_on_inserts_exact_z_conversion_before_hag(monkeypatch: pytest.MonkeyPatch):
     s01 = _fresh_s01(monkeypatch, enabled=True)
     s01._UNIT_PROFILE = {
+        "normalize_z_to_meters": True,
         "z_to_meters_factor": FTUS_TO_M,
     }
 
