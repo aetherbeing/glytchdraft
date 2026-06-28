@@ -218,3 +218,210 @@ After corrections, merge order should be:
 NO-GO.
 
 Decision basis: unresolved P0 and P1 findings exist. Per the requested decision rules, any unresolved P0 or P1 requires `NO-GO`.
+
+---
+
+# Final Correction-Verification Re-review
+
+**Re-review date:** 2026-06-28
+
+**Final decision after correction verification:** GO
+
+## Corrected Branch SHAs
+
+| Lane | Original reviewed SHA | Corrected SHA | Assigned findings |
+|---|---:|---:|---|
+| Validator | `a60d1d2641eaa1cebfa7a617a12dac243599e125` | `8fac4721294adb5ba8334a74e2a9c1ff61a95f19` | P1-01, P1-04 |
+| Truth audit | `6be1983e67328a83454aece6c7238ff63e5ab2cb` | `652fd3414af0fce77ac5c35550a6cf4ff99b267f` | P1-03 |
+| QA reporting | `6aeadf1581793e4ef35c2da4fd45a00622fb2571` | `8eab30302d18465099d0377312a4dea459d83cde` | P0-01, P1-02, P2-01, P2-02 |
+
+Verified remotes:
+
+- `origin/master`: `64faee98fe5957a82ea823d9e24b67cd815369b9`
+- `origin/audit/phase2-building-characteristics-review`: `ded5755c356499ba31c01a864d91762c3ea2b5a4` before this amendment
+
+## Delta Summaries
+
+Validator correction delta:
+
+- `scripts/validation/building_characteristics.py`: recursive strict-JSON normalization for findings; city-contract-driven metric CRS validation; dataset validation accepts `city_contract`.
+- `tests/validation/test_building_characteristics.py`: regression coverage for NaN/infinity serialization, mutation safety, deterministic serialization, explicit CRS contracts, conflicting CRS declarations, and non-Miami contract behavior.
+
+Truth-audit correction delta:
+
+- `docs/validation/BUILDING_CHARACTERISTICS_DATA_DICTIONARY.md`: added coverage index and explicit/grouped entries covering all 75 validation-matrix rows; Miami CRS contradiction remains unresolved pending authoritative LAZ-header evidence.
+
+QA-reporting correction delta:
+
+- `scripts/validation/building_characteristics_qa.py`: reporter-owned filename set; resolved path-safety checks; no broad output directory clearing; Atlas canonical field defaults and alias resolution; independent footprint-provenance and source-hash coverage; duplicate tile detection limited to duplicate entries inside one building's contributing-tile list.
+- `docs/validation/BUILDING_CHARACTERISTICS_QA_REPORTING.md`: documents output safety, canonical Atlas fields, independent provenance/hash coverage, and revised duplicate-tile semantics.
+- QA tests: adversarial output safety, canonical field diagnostics, provenance/hash independence, and duplicate source-tile correction.
+
+No correction delta modified production assets, viewer code, deployment configuration, city readiness classifications, or generated city outputs.
+
+## Fresh Integration
+
+Fresh disposable local branch: `tmp/phase2-building-characteristics-final-rereview`
+
+Fresh worktree: `/mnt/c/Users/Glytc/glytchdraft-phase2-final-rereview`
+
+Merge order:
+
+1. `origin/audit/building-characteristics-matrix`
+2. `origin/test/building-characteristics-validation`
+3. `origin/feat/building-characteristics-qa-reporting`
+
+Fresh integration HEAD: `7b169fe36ed4c221a26db071eab7dd11c68b3ccf`
+
+Merge conflicts: none.
+
+Semantic overlap reviewed: validator and QA both use findings and canonical field names. No unresolved naming or enum mismatch remained in the assigned correction scope.
+
+The temporary integration branch was not pushed.
+
+## Verification Results By Finding
+
+### P0-01 - QA CLI destructive output-directory behavior
+
+Status: resolved.
+
+Verification:
+
+- `write_report_outputs()` now stages into a temporary directory and moves only filenames in `OWNED_REPORT_FILENAMES`.
+- No `rmtree`, broad `unlink`, directory-clearing loop, or equivalent destructive behavior remains in the output writer.
+- `_check_path_safety()` rejects output equal to input, output inside input, input inside output, output above input, and resolved symlink collisions before loading/writing.
+- Synthetic CLI runs preserved source files and unrelated sentinel files byte-for-byte.
+- Repeated runs produced the 9 reporter-owned outputs and left unrelated output files intact.
+- Invalid/unsafe path runs returned nonzero and preserved source files.
+
+### P1-01 - Validator strict-JSON safety
+
+Status: resolved.
+
+Verification:
+
+- `Finding.to_dict()` now recursively normalizes `NaN`, positive infinity, negative infinity, nested non-finite values, and non-string dict keys into strict-JSON-safe values.
+- Synthetic validator inputs contained actual `math.nan`, `math.inf`, and `-math.inf` values.
+- Complete findings payload serialized with `json.dumps(payload, allow_nan=False)`.
+- Repeated serialization was deterministic.
+- Source validator records were not mutated.
+
+### P1-02 - QA noncanonical Atlas field usage
+
+Status: resolved.
+
+Verification:
+
+- Default QA expected/numeric fields now use Atlas canonical names including `estimated_height`, `ground_z`, `roof_z`, `footprint_area_m2`, `perimeter_m`, `roof_area_m2`, `volume_m3`, `point_count_inside`, and `point_count_cluster`.
+- Alias resolution accepts historical `height`, `ground_elevation`, `roof_elevation`, `footprint_area`, `perimeter`, `roof_area`, `volume`, `point_count_filtered`, and `point_count_raw` but canonical fields take precedence.
+- Relationship diagnostics distinguish absolute elevations (`ground_z`, `roof_z`) from building height (`estimated_height`).
+- Actual Atlas-style synthetic records triggered expected diagnostics for height delta, roof below ground, zero/negative footprint area, point-count inconsistency, density mismatch, and mixed units.
+- Units are not inferred solely from suffixes; metric provenance remains separately checked.
+
+### P1-03 - Governing data-dictionary completeness
+
+Status: resolved.
+
+Verification:
+
+- Validation matrix rows parsed: 75.
+- Data dictionary coverage index expands to all 75 rows with no missing or extra row numbers.
+- Technical-debt entries parsed: 20.
+- Matrix status and confidence summary counts still total 75.
+- Persisted and schema-defined fields now have explicit or grouped governing-contract coverage.
+- Miami CRS is explicitly labeled unresolved; neither `EPSG:3857` nor `EPSG:6438` is treated as authoritative pending LAZ-header verification.
+
+### P1-04 - Hardcoded Miami CRS handling
+
+Status: resolved.
+
+Verification:
+
+- Validator no longer certifies Miami-like metric records against a hardcoded `EPSG:6438` contract by default.
+- Metric CRS certification fails closed unless a verified `city_contract` is supplied.
+- Conflicting city-contract declarations generate a `UNIT-005` finding.
+- Source horizontal CRS, source vertical CRS, processed CRS, horizontal CRS, and vertical CRS are distinguished.
+- Non-Miami cities can pass with their own verified contract and do not inherit Miami assumptions.
+
+### P2-01 - Footprint provenance/source-hash conflation
+
+Status: resolved.
+
+Verification:
+
+- `FOOTPRINT_PROVENANCE_KEYS` no longer includes source hash keys.
+- Dataset summary reports `source_hash_coverage` and `footprint_provenance_coverage` separately.
+- A record with `source_hash` but no `footprint_provenance` emits `REL-PROVENANCE-MISSING`.
+- A record with `footprint_provenance` but no source hash emits `REL-SOURCE-HASH-MISSING`.
+- A record with both emits neither diagnostic.
+
+### P2-02 - Incorrect duplicate source-tile detection
+
+Status: resolved.
+
+Verification:
+
+- Multiple buildings sharing the same `source_tile` no longer emit a duplicate-tile diagnostic.
+- Duplicate entries inside one building's `contributing_source_tiles` list emit `REL-DUPLICATE-SOURCE-TILE`.
+- Unique `contributing_source_tiles` lists do not emit that diagnostic.
+
+## Tests And Checks
+
+From the fresh integration worktree:
+
+- `pytest -q tests/validation/`: 168 passed, 0 failed, 0 skipped, 0 deselected; one pytest cache warning caused by read-only worktree cache metadata.
+- Existing regressions: `pytest -q tests/test_miami_metric_normalization_v1.py tests/test_check_miami_vertical_units.py tests/test_miami_manifest_consistency.py tests/test_city_config_schema_validation.py tests/test_generate_viewer_manifest.py`: 63 passed, 0 failed, 0 skipped, 0 deselected; one pytest cache warning caused by read-only worktree cache metadata.
+- Literal `python -m py_compile scripts/validation/*.py`: failed because the sandbox could not create `scripts/validation/__pycache__` (`Errno 30 Read-only file system`).
+- Equivalent compile with `PYTHONPYCACHEPREFIX=/tmp/glytchdraft_phase2_final_pycache python -m py_compile scripts/validation/*.py`: passed.
+- `git diff --check origin/master...HEAD`: passed with no output.
+- `git status --short --untracked-files=all`: clean.
+
+## Synthetic End-to-End Re-run
+
+Synthetic data was created only under `/tmp`.
+
+Strict-JSON validator path:
+
+- Validator input included valid records, invalid records, `NaN`, positive infinity, negative infinity, and nested non-finite values.
+- Complete findings payload serialized with `allow_nan=False`.
+- Strict JSON payload size: 12,232 bytes.
+- Source records were not mutated.
+
+QA reporter path:
+
+- CLI return codes for two repeated safe runs: `0`, `0`.
+- JSON, Markdown, HTML, and 6 CSV outputs generated.
+- Reporter-owned outputs produced: 9 files.
+- Validation findings ingested by QA: 25.
+- Severity aggregation: 20 `ERROR`, 3 `INFO`, 2 `WARNING`.
+- Rule codes, severities, building IDs, and canonical characteristics survived end-to-end.
+- HTML escaped the injected building ID `bad<script>alert(1)</script>`.
+- HTML contained no external `http://`, `https://`, `cdn`, or `fetch(` references.
+- Markdown retained the missing-findings caveat.
+- Source files and unrelated sentinel files remained byte-for-byte intact.
+- Repeated runs modified only reporter-owned output filenames.
+- Unsafe source/output arrangements returned nonzero and preserved source files.
+- Missing footprint provenance and missing source hash were reported independently.
+- Shared source tiles across different buildings did not create false duplicate-tile diagnostics.
+
+## Remaining Risks And Deferred Characteristics
+
+No unresolved P0 or P1 findings remain in the assigned correction set.
+
+Deferred characteristics remain as previously documented:
+
+- Miami CRS and vertical-unit certification still require authoritative LAZ-header verification and any necessary regeneration before Miami production certification.
+- Cross-tile ownership and deduplication remain unimplemented.
+- Facade evidence and building synthesis profiles remain prototype/planned at city scale.
+- Roof evidence production integration and roof aspect convention remain deferred.
+- AI enrichment remains optional, non-deterministic, and not joined back into `structures_enriched.geojson`.
+- Persistent global building IDs across tiles remain deferred.
+
+These are bounded known limitations, not blockers for merging the Phase 2 validation/reporting/documentation correction set.
+
+## Final Decision After Corrections
+
+GO.
+
+Decision basis: all assigned P0/P1/P2 findings from the original adversarial review are resolved, no new blocking findings were introduced, integration merged cleanly, tests pass, strict-JSON end-to-end succeeds, and filesystem-safety adversarial probes pass.
+
