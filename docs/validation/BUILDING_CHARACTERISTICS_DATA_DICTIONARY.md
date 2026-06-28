@@ -1,8 +1,8 @@
 # Building Characteristics Data Dictionary
 
-**Branch:** `audit/building-characteristics-matrix`  
-**Baseline commit:** `64faee98fe5957a82ea823d9e24b67cd815369b9`  
-**Generated:** 2026-06-28  
+**Branch:** `audit/building-characteristics-matrix`
+**Baseline commit:** `64faee98fe5957a82ea823d9e24b67cd815369b9`
+**Generated:** 2026-06-28
 
 This dictionary documents every persisted building characteristic in the GlitchOS city pipeline. Characteristics are grouped logically. For validation status and test coverage, see `BUILDING_CHARACTERISTICS_VALIDATION_MATRIX.md`.
 

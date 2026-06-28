@@ -1,8 +1,8 @@
 # Building Characteristics Technical Debt Register
 
-**Branch:** `audit/building-characteristics-matrix`  
-**Baseline commit:** `64faee98fe5957a82ea823d9e24b67cd815369b9`  
-**Generated:** 2026-06-28  
+**Branch:** `audit/building-characteristics-matrix`
+**Baseline commit:** `64faee98fe5957a82ea823d9e24b67cd815369b9`
+**Generated:** 2026-06-28
 **Scope:** Pipeline characteristics in `/mnt/c/Users/Glytc/glytchdraft-building-characteristics-matrix`
 
 ---
@@ -449,6 +449,6 @@
 | TD-19 | address_join_radius_m = 100 m is too large | MEDIUM | P2 | No |
 | TD-20 | Roof evidence not wired into production pipeline | MEDIUM | P3 | No |
 
-**Severity counts:** BLOCKER=2, HIGH=9, MEDIUM=7, LOW=1  
-**Requiring asset regeneration:** TD-01, TD-03, TD-04 (possibly), TD-05, TD-09, TD-12, TD-15  
+**Severity counts:** BLOCKER=2, HIGH=9, MEDIUM=7, LOW=1
+**Requiring asset regeneration:** TD-01, TD-03, TD-04 (possibly), TD-05, TD-09, TD-12, TD-15
 **No regeneration needed:** TD-02, TD-06, TD-07, TD-08, TD-10, TD-11, TD-13, TD-14, TD-16, TD-17, TD-18, TD-19, TD-20

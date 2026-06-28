@@ -1,8 +1,8 @@
 # Building Characteristics Validation Matrix
 
-**Branch:** `audit/building-characteristics-matrix`  
-**Baseline commit:** `64faee98fe5957a82ea823d9e24b67cd815369b9`  
-**Generated:** 2026-06-28  
+**Branch:** `audit/building-characteristics-matrix`
+**Baseline commit:** `64faee98fe5957a82ea823d9e24b67cd815369b9`
+**Generated:** 2026-06-28
 **Scope:** All characteristics produced, enriched, exported, stored, or exposed by the Atlas (GlitchOS city) pipeline.
 
 ---
