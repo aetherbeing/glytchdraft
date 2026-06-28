@@ -700,3 +700,233 @@ The PR must remain DRAFT until all four P2 corrections are applied.
 | Viewer assets changed | NO |
 | Deployment performed | NO |
 | Reviewer worktree modified | NO — review worktree at `/mnt/c/Users/Glytc/glytchdraft-pr4-review-head` is detached, no commits made from it |
+
+---
+
+## Correction Verification — Round 2
+
+**Previous PR head:** `20dd1132e482997a092929c50eb2944a3d40aa4e`
+**Corrected PR head:** `65a33b4d3586256dad24403d50558edc82446dd8`
+**Correction commit message:** "test: strengthen Miami metric normalization safeguards"
+**Review date of corrections:** 2026-06-28
+
+### Files Changed in Correction
+
+| File | Nature of change |
+|------|----------------|
+| `docs/diagnostics/MIAMI_METRIC_NORMALIZATION_V1_IMPLEMENTATION.md` | Updated to document all four P2 resolutions |
+| `scripts/miami/metric_normalization_v1.py` | Two targeted fixes: enhanced error message with per-tile paths; `build_profile_z_normalization_step` default changed from `"z_to_meters_factor" in profile` to `False` |
+| `tests/test_miami_metric_normalization_v1.py` | Replaced trivial water-plane test; added 4 new tests for P2-1 through P2-4 |
+| `tests/test_miami_two_tile_unit_fixture.py` | One-line fix: added `"normalize_z_to_meters": True` to fixture profile |
+
+No changes to any pipeline scripts (`s01`, `s05`, `s06`, `s07`, `bikini_config`), viewer assets, city configs, or canonical output paths. No changes to PR #4 review scope.
+
+---
+
+### P2-1 Verification — Water-plane test exercises actual geometry
+
+**Old test:** `test_water_plane_is_numerically_metric` asserted `np.float32(-1.0) == pytest.approx(-1.0)` — trivially true, gate-independent.
+
+**New test:** `test_water_plane_uses_metric_y_up_coordinate`
+
+The replacement test:
+1. Enables the metric gate via `_fresh_modules(monkeypatch, gate=True)` and asserts `cfg.z_values_are_metric() is True` — metric context is proven, not assumed.
+2. Constructs a binary PLY file with 12 synthetic ground points at Z=2.0–2.2 (metric values consistent with `shift_z=2.0`).
+3. Mocks `scipy.spatial.Delaunay` to isolate the test from the triangulation library.
+4. Calls `s06._build_terrain_mesh(ply, shift_z=2.0, step=1, water_plane=True)` — exercises the actual terrain-mesh builder function, not just a float literal.
+5. Asserts all of the following:
+   - `cfg.z_values_are_metric() is True` — gate-on context confirmed.
+   - `land_verts[:, 1].min() == pytest.approx(0.0)` — ground points at Z=2.0 produce GLB Y = Z − shift_z = 0.0, proving metric subtraction is correct.
+   - `water_verts is not None` and `water_faces is not None` — water geometry was generated.
+   - `water_verts.dtype == np.float32` — correct GLB type.
+   - `set(water_verts[:, 1].tolist()) == {-1.0}` — all four water-plane vertices have GLB Y = −1.0, not merely that a float constant equals −1.0.
+   - `not any("0.3048006096012192" in str(value) for row in water_verts for value in row)` — FTUS conversion factor is absent from water-plane coordinates.
+
+The proof chain is complete: gate-on is active → ground Z in meters → shift_z derived in meters → water plane at GLB Y = −1.0 meter below the local origin.
+
+**Result: P2-1 RESOLVED ✅**
+
+---
+
+### P2-2 Verification — Contradictory units fail closed through production path
+
+**Old state:** Code correctly raised `SourceUnitError` for mismatched tile units, but no test exercised this path.
+
+**New test:** `test_contradictory_vertical_units_fail_closed`
+
+The test:
+1. Uses `_fresh_modules(monkeypatch, gate=True)` to load the real `s01_extract` module with gate on.
+2. Patches `s01.check_tiles` to return two real tile-name Path objects.
+3. Patches `subprocess.run` with `side_effect` to return different metadata for each tile: first tile returns `"US survey foot"`, second returns `"metre"`.
+4. Patches `s01.run_extraction` and `s01.write_provenance_envelope` to detect if they are called.
+5. Calls `s01.main()` — the production-facing entry point.
+6. Asserts:
+   - Return code is `1` (failure). ✅
+   - Captured stdout contains `"Contradictory vertical units"`. ✅
+   - Captured stdout contains `tile_a.name` (the full filename of the first tile). ✅ — The enhanced error message in `validate_source_contract` now builds a `unit_tiles` dict mapping each unit to its tile paths, so both tile filenames appear in the output.
+   - Captured stdout contains `tile_b.name`. ✅
+   - `s01._UNIT_PROFILE is None` — no profile was initialised. ✅
+   - `s01._metric_normalization_step()` raises `RuntimeError("unit profile was not initialized")` — the normalization stage cannot be constructed. ✅
+   - `run_extraction.assert_not_called()` — extraction did not begin. ✅
+   - `write_provenance.assert_not_called()` — no provenance was emitted. ✅
+
+The code change in `validate_source_contract` that enables tile-name reporting in the error:
+```python
+unit_tiles: dict[str, list[str]] = {}
+for row in records:
+    unit = str(row.get("vertical_unit") or "unknown")
+    unit_tiles.setdefault(unit, []).append(str(row["path"]))
+raise SourceUnitError(
+    "Contradictory vertical units across tile set; refusing to proceed: "
+    f"{unit_tiles}"
+)
+```
+
+**Result: P2-2 RESOLVED ✅**
+
+---
+
+### P2-3 Verification — Explicit `normalize_z_to_meters` required; factor alone is a no-op
+
+**Old state:** `build_profile_z_normalization_step` defaulted to `"z_to_meters_factor" in profile`, meaning a profile with only a factor key would silently enable conversion.
+
+**Code fix:** Default changed to `False`:
+```python
+# Before:
+if not profile.get("normalize_z_to_meters", "z_to_meters_factor" in profile):
+# After:
+if not profile.get("normalize_z_to_meters", False):
+```
+
+**New tests:**
+
+`test_factor_without_explicit_enablement_does_not_convert`:
+```python
+profile = {"z_to_meters_factor": FTUS_TO_M}
+assert metric.build_profile_z_normalization_step(profile) == []
+```
+Proves that a conversion factor without `normalize_z_to_meters: True` returns an empty step list. ✅
+
+`test_full_profile_inserts_exactly_one_assign`:
+```python
+profile = {"normalize_z_to_meters": True, "z_to_meters_factor": FTUS_TO_M}
+steps = metric.build_profile_z_normalization_step(profile)
+assert [step["type"] for step in steps] == ["filters.assign"]
+assert steps[0]["value"] == "Z = Z * 0.3048006096012192"
+```
+Proves explicit enablement with the full profile inserts exactly one `filters.assign`. ✅
+
+All tests that supply `_UNIT_PROFILE` now use the complete production-equivalent profile:
+```python
+s01._UNIT_PROFILE = {"normalize_z_to_meters": True, "z_to_meters_factor": FTUS_TO_M}
+```
+This matches exactly what `inspect_sources()` produces in production. The implicit fallback is no longer exploited by any test.
+
+**Result: P2-3 RESOLVED ✅**
+
+---
+
+### P2-4 Verification — Repeated normalization-step construction is pure; single assign per pipeline; guard still catches actual double conversion
+
+**Old state:** No test demonstrated that repeated calls to `_metric_normalization_step()` were safe and that each pipeline had exactly one `filters.assign`. The `DoubleConversionError` test only proved the guard class worked in isolation, not the pipeline structure.
+
+**New test:** `test_repeated_metric_normalization_step_is_pure_and_pipeline_has_one_assign`
+
+```python
+profile = {"normalize_z_to_meters": True, "z_to_meters_factor": FTUS_TO_M}
+s01._UNIT_PROFILE = profile
+
+first  = s01._metric_normalization_step()
+second = s01._metric_normalization_step()
+building_steps = s01._building_steps(Path("tile.laz"), 1.0)
+ground_steps   = s01._ground_steps(Path("tile.laz"), 1.0)
+
+assert first == [{"type": "filters.assign", "value": "Z = Z * 0.3048006096012192"}]
+assert second == first                    # pure: identical on repeated call
+assert profile == {                       # profile not mutated
+    "normalize_z_to_meters": True,
+    "z_to_meters_factor": FTUS_TO_M,
+}
+assert sum(1 for step in building_steps if step["type"] == "filters.assign") == 1
+assert sum(1 for step in ground_steps   if step["type"] == "filters.assign") == 1
+
+# Guard still raises on second stateful attempt
+guard = metric.ZConversionGuard(metric.ZUnitState.FTUS, conversion_requested=True)
+metric.build_z_normalization_step(guard)
+with pytest.raises(metric.DoubleConversionError):
+    metric.build_z_normalization_step(guard)
+```
+
+This proves:
+- `_metric_normalization_step()` is side-effect-free: repeated calls return identical results and do not mutate the profile. ✅
+- Neither the `building_steps` nor `ground_steps` pipeline has more than one `filters.assign`, making double-insertion a regression-detectable condition. ✅
+- The profile dict is not consumed or altered by the calls. ✅
+- The stateful `ZConversionGuard` still correctly raises `DoubleConversionError` on a second call, preserving the fail-closed property for guard-based callers. ✅
+
+**Residual architectural note (no longer blocking):** `build_profile_z_normalization_step()` remains a pure function that can be called any number of times without raising. The guard is not wired into the PDAL construction path. The corrected test makes this structural property explicit and regression-detectable: any future modification that inserts a second `filters.assign` into `_building_steps()` or `_ground_steps()` will fail the count assertion.
+
+**Result: P2-4 RESOLVED ✅**
+
+---
+
+### Correction Test Results
+
+| Suite | Before correction | After correction | Delta |
+|-------|-------------------|-----------------|-------|
+| `test_miami_metric_normalization_v1.py` | 16 passed | **20 passed** | +4 (1 replaced, 4 added) |
+| `test_miami_two_tile_unit_fixture.py` | 4 passed | **4 passed** | 0 (one-line profile fix, same test count) |
+| `test_check_miami_vertical_units.py` | 29 passed | **29 passed** | 0 |
+| Full suite (minus pyproj) | 432 passed | **436 passed** | +4 |
+| py_compile all changed scripts | PASS | **PASS** | — |
+| git diff --check whitespace | PASS | **PASS** | — |
+| pyproj-dependent suites | COLLECTION ERROR | COLLECTION ERROR | unchanged (pre-existing) |
+
+---
+
+### Remaining Risks After Correction
+
+All P2 findings are resolved. The P3 notes from the initial review remain:
+
+- **P3-1** (informational): Provenance envelope hardcodes PDAL stage order without `filters.crop` for combined-gate fixture runs. Not a production-path defect.
+- **P3-2** (preexisting): `HAG_MIN_M`/`HAG_MAX_M` names are misleading under gate-off. Not introduced by this PR.
+- **P3-3** (informational): Two-tile validation not CI-reproducible (requires T7 LAZ data).
+- **P3-4** (preexisting): `1.5` minimum wall extrusion height in `_extrude_polygon_to_obj` is unlabeled.
+
+No new findings were introduced by the correction. The correction is narrowly scoped to the four identified test-quality deficiencies.
+
+---
+
+### Final Decision (Post-Correction)
+
+## GO
+
+All four P2 corrections are resolved. The implementation is functionally correct. The gate defaults off and cannot be activated accidentally. The source CRS/unit guard fails closed for all required cases (unknown, contradictory, already-metric, CRS mismatch). The PDAL stage order is exactly correct. Downstream semantics, output isolation, and provenance are sound. Tests now cover every required case without false positives.
+
+**PR #4 may exit DRAFT and proceed to merge review.**
+
+---
+
+### Correction Closeout
+
+| Field | Value |
+|-------|-------|
+| Previous PR head reviewed | `20dd1132e482997a092929c50eb2944a3d40aa4e` |
+| Corrected PR head reviewed | `65a33b4d3586256dad24403d50558edc82446dd8` |
+| Reviewer branch | `audit/miami-metric-normalization-v1-review` |
+| Final decision | **GO** |
+| P2-1 resolved | YES — water-plane test exercises `_build_terrain_mesh` and asserts GLB Y = −1.0 in metric context |
+| P2-2 resolved | YES — contradictory units routed through `s01.main()`, tile names in output, no extraction or provenance emitted |
+| P2-3 resolved | YES — default changed to `False`; factor-only profile is a proven no-op; all fixture profiles use explicit `normalize_z_to_meters: True` |
+| P2-4 resolved | YES — repeated helper calls proven pure; each pipeline has exactly one assign; guard still fails closed |
+| `test_miami_metric_normalization_v1.py` | **20 passed, 0 failed** |
+| `test_miami_two_tile_unit_fixture.py` | **4 passed, 0 failed** |
+| `test_check_miami_vertical_units.py` | **29 passed, 0 failed** |
+| Full suite (minus pyproj) | **436 passed, 8 skipped, 0 failed** |
+| Regression suites | **36 passed, 0 failed** |
+| py_compile | PASS |
+| git diff --check | PASS |
+| PR merged | NO |
+| PR marked ready | NO |
+| Production run performed | NO |
+| Viewer assets changed | NO |
+| Deployment performed | NO |
