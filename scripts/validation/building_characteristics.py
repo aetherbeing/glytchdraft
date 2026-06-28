@@ -110,14 +110,38 @@ class Finding:
     remediation_hint: str
 
     def to_dict(self) -> dict:
-        d = asdict(self)
-        # observed_value may not be serialisable; convert to str if needed
-        try:
-            import json
-            json.dumps(d["observed_value"])
-        except (TypeError, ValueError):
-            d["observed_value"] = repr(d["observed_value"])
-        return d
+        return _json_safe_value(asdict(self))
+
+
+def _json_safe_value(value: Any) -> Any:
+    """Return a recursively JSON-safe copy suitable for allow_nan=False."""
+    if isinstance(value, float):
+        if math.isnan(value):
+            return "NaN"
+        if math.isinf(value):
+            return "Infinity" if value > 0 else "-Infinity"
+        return value
+    if isinstance(value, dict):
+        safe: dict[str, Any] = {}
+        for key, item in value.items():
+            if isinstance(key, str):
+                safe_key = key
+            elif key is None or isinstance(key, (int, float, bool)):
+                safe_key = str(_json_safe_value(key))
+            else:
+                safe_key = repr(key)
+            safe[safe_key] = _json_safe_value(item)
+        return safe
+    if isinstance(value, (list, tuple)):
+        return [_json_safe_value(item) for item in value]
+    if isinstance(value, str) or value is None or isinstance(value, (int, bool)):
+        return value
+    try:
+        import json
+        json.dumps(value, allow_nan=False)
+        return value
+    except (TypeError, ValueError):
+        return repr(value)
 
 
 # ---------------------------------------------------------------------------
@@ -218,7 +242,7 @@ RULE_REGISTRY: dict[str, str] = {
     "UNIT-002": "vertical units must be explicit",
     "UNIT-003": "geometry and metadata unit declarations must agree",
     "UNIT-004": "_m/_m2/_m3 fields must have compatible unit provenance",
-    "UNIT-005": "corrected Miami outputs must identify EPSG:6438 + EPSG:6360",
+    "UNIT-005": "metric outputs must satisfy an explicitly verified CRS contract",
     "UNIT-006": "mixed foot/meter patterns must fail rather than pass silently",
     "UNIT-007": "historical outputs must not be falsely certified as metric",
     "UNIT-008": "bounding-box axis conventions must be explicit",
@@ -721,24 +745,217 @@ def _check_provenance(record: dict, bid: Any, tile: str, src: str, cfg: Validati
 # Category C+D: CRS and Units
 # ---------------------------------------------------------------------------
 
-def _check_crs_and_units(record: dict, bid: Any, tile: str, src: str, cfg: ValidationConfig) -> list[Finding]:
+def _first_present(*values: Any) -> Any:
+    for value in values:
+        if value is not None and value != "":
+            return value
+    return None
+
+
+def _contract_value(contract: dict, *keys: str) -> Any:
+    for key in keys:
+        value = contract.get(key)
+        if value is not None and value != "":
+            return value
+    return None
+
+
+def _is_contract_verified(contract: dict) -> bool:
+    return bool(
+        contract.get("verified")
+        or contract.get("crs_contract_verified")
+        or contract.get("metric_contract_verified")
+        or contract.get("metric_certification_verified")
+    )
+
+
+def _crs_equal(left: Any, right: Any) -> bool:
+    return str(left).strip().upper() == str(right).strip().upper()
+
+
+def _expected_crs_contract(city_contract: dict | None) -> dict[str, Any]:
+    if not isinstance(city_contract, dict):
+        return {}
+
+    expected = {
+        "verified": _is_contract_verified(city_contract),
+        "source_horizontal_crs": _contract_value(
+            city_contract,
+            "source_horizontal_crs",
+            "expected_source_horizontal_crs",
+            "source_crs",
+        ),
+        "source_vertical_crs": _contract_value(
+            city_contract,
+            "source_vertical_crs",
+            "expected_source_vertical_crs",
+        ),
+        "processed_crs": _contract_value(
+            city_contract,
+            "processed_crs",
+            "expected_processed_crs",
+            "output_crs",
+        ),
+        "horizontal_crs": _contract_value(
+            city_contract,
+            "horizontal_crs",
+            "expected_horizontal_crs",
+        ),
+        "vertical_crs": _contract_value(
+            city_contract,
+            "vertical_crs",
+            "expected_vertical_crs",
+        ),
+    }
+
+    explicit_pairs = (
+        ("source_crs", "expected_source_horizontal_crs"),
+        ("source_crs", "source_horizontal_crs"),
+        ("output_crs", "expected_processed_crs"),
+        ("output_crs", "processed_crs"),
+    )
+    conflicts: list[dict[str, Any]] = []
+    for left_key, right_key in explicit_pairs:
+        left = city_contract.get(left_key)
+        right = city_contract.get(right_key)
+        if left and right and not _crs_equal(left, right):
+            conflicts.append({
+                "field_a": left_key,
+                "value_a": left,
+                "field_b": right_key,
+                "value_b": right,
+            })
+    expected["conflicts"] = conflicts
+    return expected
+
+
+def _record_crs_evidence(record: dict, coord_sys: dict, metric_norm: dict) -> dict[str, Any]:
+    return {
+        "source_horizontal_crs": _first_present(
+            record.get("source_horizontal_crs"),
+            metric_norm.get("source_horizontal_crs"),
+            coord_sys.get("source_horizontal_crs"),
+            coord_sys.get("source_crs"),
+        ),
+        "source_vertical_crs": _first_present(
+            record.get("source_vertical_crs"),
+            metric_norm.get("source_vertical_crs"),
+            coord_sys.get("source_vertical_crs"),
+        ),
+        "processed_crs": _first_present(
+            record.get("processed_crs"),
+            metric_norm.get("processed_crs"),
+            coord_sys.get("processed_crs"),
+        ),
+        "horizontal_crs": _first_present(
+            record.get("horizontal_crs"),
+            coord_sys.get("horizontal_crs"),
+        ),
+        "vertical_crs": _first_present(
+            record.get("vertical_crs"),
+            coord_sys.get("vertical_crs"),
+        ),
+    }
+
+
+def _check_crs_contract(
+    record_crs: dict[str, Any],
+    metric_norm: dict,
+    record: dict,
+    city_contract: dict | None,
+    bid: Any,
+    tile: str,
+    src: str,
+) -> list[Finding]:
+    findings: list[Finding] = []
+    norm_enabled = metric_norm.get("enabled") is True or record.get("feature_gate_enabled") is True
+    if not norm_enabled:
+        return findings
+
+    expected = _expected_crs_contract(city_contract)
+    observed = {
+        "source_horizontal_crs": record_crs.get("source_horizontal_crs"),
+        "source_vertical_crs": record_crs.get("source_vertical_crs"),
+        "processed_crs": record_crs.get("processed_crs"),
+        "horizontal_crs": record_crs.get("horizontal_crs"),
+        "vertical_crs": record_crs.get("vertical_crs"),
+        "city_contract": city_contract or {},
+    }
+
+    if expected.get("conflicts"):
+        findings.append(_f(
+            "UNIT-005", "crs_contract_ambiguity", Severity.ERROR,
+            "Metric normalization CRS contract contains conflicting declarations",
+            {"observed": observed, "conflicts": expected["conflicts"]},
+            "city_contract must declare one verified source/processed/horizontal/vertical CRS contract",
+            bid, tile, src, 0.0,
+            "Resolve the city CRS contract against source metadata before certifying metric output",
+        ))
+        return findings
+
+    if not expected.get("verified"):
+        findings.append(_f(
+            "UNIT-005", "metric_crs_contract", Severity.ERROR,
+            "Metric normalization is enabled but no explicitly verified CRS contract was supplied",
+            observed,
+            "city_contract.crs_contract_verified=True with expected CRS fields is required",
+            bid, tile, src, 0.0,
+            "Supply a verified city_contract; do not infer CRS truth from city name or Miami defaults",
+        ))
+        return findings
+
+    for field_name in (
+        "source_horizontal_crs",
+        "source_vertical_crs",
+        "processed_crs",
+        "horizontal_crs",
+        "vertical_crs",
+    ):
+        expected_value = expected.get(field_name)
+        if expected_value is None:
+            continue
+        observed_value = record_crs.get(field_name)
+        if observed_value is None or not _crs_equal(observed_value, expected_value):
+            findings.append(_f(
+                "UNIT-005", field_name, Severity.ERROR,
+                f"Metric normalization CRS contract mismatch for {field_name}: "
+                f"observed={observed_value!r}, expected={expected_value!r}",
+                {"field": field_name, "observed": observed_value, "expected": expected_value},
+                f"{field_name} must match the verified city CRS contract",
+                bid, tile, src, 0.0,
+                "Correct the record CRS provenance or update the verified city contract after source review",
+            ))
+
+    return findings
+
+
+def _check_crs_and_units(
+    record: dict,
+    bid: Any,
+    tile: str,
+    src: str,
+    cfg: ValidationConfig,
+    city_contract: dict | None = None,
+) -> list[Finding]:
     findings: list[Finding] = []
 
     coord_sys = record.get("coordinate_system") or {}
     if not isinstance(coord_sys, dict):
         coord_sys = {}
+    metric_norm = record.get("metric_normalization") or {}
+    if not isinstance(metric_norm, dict):
+        metric_norm = {}
+    crs_evidence = _record_crs_evidence(record, coord_sys, metric_norm)
 
     # Resolve CRS fields from direct keys or coordinate_system sub-dict
-    h_crs = (record.get("horizontal_crs") or record.get("source_horizontal_crs")
-              or coord_sys.get("processed_crs") or coord_sys.get("horizontal_crs"))
-    v_crs = (record.get("vertical_crs") or record.get("source_vertical_crs")
-              or coord_sys.get("vertical_crs"))
+    h_crs = crs_evidence.get("horizontal_crs") or crs_evidence.get("processed_crs")
+    v_crs = crs_evidence.get("vertical_crs")
     h_unit = (record.get("horizontal_unit") or coord_sys.get("xy_unit")
                or coord_sys.get("horizontal_unit"))
     v_unit = (record.get("vertical_unit") or record.get("z_unit")
                or coord_sys.get("z_unit") or coord_sys.get("vertical_unit"))
 
-    has_any_crs = h_crs or v_crs or record.get("processed_crs")
+    has_any_crs = any(crs_evidence.values())
 
     # CRS-001: some CRS must be declared
     if not has_any_crs:
@@ -835,30 +1052,9 @@ def _check_crs_and_units(record: dict, bid: Any, tile: str, src: str, cfg: Valid
                 "Set metric_normalization_version or z_values_metric=True, or remove _m fields",
             ))
 
-    # UNIT-005: corrected Miami outputs must identify EPSG:6438 + EPSG:6360
-    metric_norm = record.get("metric_normalization") or {}
-    if not isinstance(metric_norm, dict):
-        metric_norm = {}
-    norm_enabled = metric_norm.get("enabled") or record.get("feature_gate_enabled")
-    if norm_enabled:
-        sh = (record.get("source_horizontal_crs") or metric_norm.get("source_horizontal_crs") or "")
-        sv = (record.get("source_vertical_crs") or metric_norm.get("source_vertical_crs") or "")
-        if "6438" not in str(sh):
-            findings.append(_f(
-                "UNIT-005", "miami_source_horizontal_crs", Severity.ERROR,
-                f"Metric normalization enabled but source_horizontal_crs does not reference EPSG:6438: {sh!r}",
-                sh, "must reference EPSG:6438",
-                bid, tile, src, 0.0,
-                "Record source_horizontal_crs='EPSG:6438' in the normalization provenance",
-            ))
-        if "6360" not in str(sv):
-            findings.append(_f(
-                "UNIT-005", "miami_source_vertical_crs", Severity.ERROR,
-                f"Metric normalization enabled but source_vertical_crs does not reference EPSG:6360: {sv!r}",
-                sv, "must reference EPSG:6360",
-                bid, tile, src, 0.0,
-                "Record source_vertical_crs='EPSG:6360' in the normalization provenance",
-            ))
+    findings.extend(_check_crs_contract(
+        crs_evidence, metric_norm, record, city_contract, bid, tile, src
+    ))
 
     # UNIT-006: mixed foot/meter patterns
     if v_unit and h_unit:
@@ -1733,8 +1929,9 @@ def validate_building(
     config:
         Configurable thresholds. Defaults to ValidationConfig() if None.
     city_contract:
-        Optional city-specific expected CRS / unit contract.  Currently unused
-        in rule evaluation but reserved for future city-gated checks.
+        Optional city-specific expected CRS / unit contract. Metric
+        certification rules fail closed unless this contract is explicitly
+        verified.
     source_file:
         Identifies the file that produced this record (for finding provenance).
 
@@ -1755,7 +1952,7 @@ def validate_building(
     findings: list[Finding] = []
     findings.extend(_check_identity(rec, bid, tile, src, config))
     findings.extend(_check_provenance(rec, bid, tile, src, config))
-    findings.extend(_check_crs_and_units(rec, bid, tile, src, config))
+    findings.extend(_check_crs_and_units(rec, bid, tile, src, config, city_contract))
     findings.extend(_check_geometry(rec, bid, tile, src, config))
     findings.extend(_check_height_and_dimensions(rec, bid, tile, src, config))
     findings.extend(_check_lidar(rec, bid, tile, src, config))
@@ -1768,6 +1965,7 @@ def validate_dataset(
     records: list[dict],
     *,
     config: ValidationConfig | None = None,
+    city_contract: dict | None = None,
     source_file: str = "",
 ) -> list[Finding]:
     """
@@ -1802,6 +2000,11 @@ def validate_dataset(
 
     # Per-record validation
     for rec in records:
-        findings.extend(validate_building(rec, config=config, source_file=source_file))
+        findings.extend(validate_building(
+            rec,
+            config=config,
+            city_contract=city_contract,
+            source_file=source_file,
+        ))
 
     return _sort_findings(findings)

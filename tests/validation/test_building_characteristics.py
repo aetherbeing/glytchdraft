@@ -132,6 +132,70 @@ _VALID_RECORD: dict = {
 }
 
 
+_VERIFIED_METRIC_CRS_CONTRACT: dict = {
+    "city_id": "miami",
+    "crs_contract_verified": True,
+    "source_horizontal_crs": "EPSG:6438",
+    "source_vertical_crs": "EPSG:6360",
+    "processed_crs": "EPSG:32617",
+    "horizontal_crs": "EPSG:32617",
+    "vertical_crs": "EPSG:5703",
+}
+
+
+def _valid_metric_record() -> dict:
+    return {
+        "cluster_id": 1001,
+        "footprint_source_id": "miami-fp-001",
+        "source_tiles": ["318455_0901"],
+        "pipeline_version": "1.0",
+        "generated_at": "2024-06-15T12:00:00Z",
+        "source_sha256": "b" * 64,
+        "footprint_provenance": "open_county_footprint",
+        "source_horizontal_crs": "EPSG:6438",
+        "source_vertical_crs": "EPSG:6360",
+        "processed_crs": "EPSG:32617",
+        "horizontal_crs": "EPSG:32617",
+        "vertical_crs": "EPSG:5703",
+        "horizontal_unit": "meters",
+        "vertical_unit": "metre",
+        "z_values_metric": True,
+        "metric_normalization_version": "miami_metric_normalization_v1",
+        "normalization_version": "miami_metric_normalization_v1",
+        "feature_gate_enabled": True,
+        "conversion_factor": 0.3048006096012192,
+        "metric_normalization": {
+            "enabled": True,
+            "source_horizontal_crs": "EPSG:6438",
+            "source_vertical_crs": "EPSG:6360",
+            "processed_crs": "EPSG:32617",
+            "conversion_factor": 0.3048006096012192,
+        },
+        "coordinate_system": {
+            "processed_crs": "EPSG:32617",
+            "xy_unit": "meters",
+            "z_unit": "metre",
+            "z_values_metric": True,
+        },
+        "footprint_area_m2": 250.0,
+        "footprint_coords": [[0.0, 0.0], [25.0, 0.0], [25.0, 10.0], [0.0, 10.0]],
+        "centroid_x": 12.5,
+        "centroid_y": 5.0,
+        "bbox_xmin": 0.0, "bbox_ymin": 0.0, "bbox_xmax": 25.0, "bbox_ymax": 10.0,
+        "ground_z": 3.0,
+        "height_p90": 33.0,
+        "height_p95": 34.0,
+        "height_max": 36.0,
+        "estimated_height": 30.0,
+        "estimated_height_m": 30.0,
+        "height_p90_m": 33.0,
+        "source_quality": "good",
+        "point_count_cluster": 400,
+        "point_count_inside": 150,
+        "confidence": 0.9,
+    }
+
+
 def _mutate(key: str, value) -> dict:
     """Return a copy of _VALID_RECORD with one field changed."""
     rec = copy.deepcopy(_VALID_RECORD)
@@ -739,57 +803,11 @@ def test_38b_cross_tile_with_risk_flag_no_finding():
 # ---------------------------------------------------------------------------
 
 def test_39_corrected_miami_metric_record():
-    """A properly-formed Miami metric record should pass all unit/CRS checks."""
-    rec = {
-        "cluster_id": 1001,
-        "footprint_source_id": "miami-fp-001",
-        "source_tiles": ["318455_0901"],
-        "pipeline_version": "1.0",
-        "generated_at": "2024-06-15T12:00:00Z",
-        "source_sha256": "b" * 64,
-        "footprint_provenance": "open_county_footprint",
-        # Miami source CRS contract
-        "source_horizontal_crs": "EPSG:6438",
-        "source_vertical_crs": "EPSG:6360",
-        "horizontal_crs": "EPSG:32617",
-        "vertical_crs": "EPSG:5703",
-        "horizontal_unit": "meters",
-        "vertical_unit": "metre",
-        "z_values_metric": True,
-        "metric_normalization_version": "miami_metric_normalization_v1",
-        "normalization_version": "miami_metric_normalization_v1",
-        "feature_gate_enabled": True,
-        "conversion_factor": 0.3048006096012192,
-        "metric_normalization": {
-            "enabled": True,
-            "source_horizontal_crs": "EPSG:6438",
-            "source_vertical_crs": "EPSG:6360",
-            "conversion_factor": 0.3048006096012192,
-        },
-        "coordinate_system": {
-            "processed_crs": "EPSG:32617",
-            "xy_unit": "meters",
-            "z_unit": "metre",
-            "z_values_metric": True,
-        },
-        "footprint_area_m2": 250.0,
-        "footprint_coords": [[0.0, 0.0], [25.0, 0.0], [25.0, 10.0], [0.0, 10.0]],
-        "centroid_x": 12.5,
-        "centroid_y": 5.0,
-        "bbox_xmin": 0.0, "bbox_ymin": 0.0, "bbox_xmax": 25.0, "bbox_ymax": 10.0,
-        "ground_z": 3.0,
-        "height_p90": 33.0,
-        "height_p95": 34.0,
-        "height_max": 36.0,
-        "estimated_height": 30.0,
-        "estimated_height_m": 30.0,
-        "height_p90_m": 33.0,
-        "source_quality": "good",
-        "point_count_cluster": 400,
-        "point_count_inside": 150,
-        "confidence": 0.9,
-    }
-    findings = validate_building(rec)
+    """A metric record should pass unit/CRS checks only with a verified contract."""
+    findings = validate_building(
+        _valid_metric_record(),
+        city_contract=_VERIFIED_METRIC_CRS_CONTRACT,
+    )
     unit_crs_codes = [f.code for f in findings if f.code.startswith(("UNIT-", "CRS-", "PROV-008"))]
     assert unit_crs_codes == [], (
         f"Corrected Miami metric record should have no unit/CRS/provenance-008 findings, "
@@ -903,6 +921,84 @@ def test_44b_finding_to_dict_has_all_fields():
         assert not missing, f"Finding {finding.code} dict is missing keys: {missing}"
 
 
+def test_44c_strict_json_safety_for_nan_observed_value():
+    finding = Finding(
+        "TEST-001", "nan_value", Severity.ERROR, "nan observed",
+        math.nan, "finite", "b1", "tile", "source.json", 0.0, "replace NaN",
+    )
+    payload = finding.to_dict()
+    assert payload["observed_value"] == "NaN"
+    json.dumps(payload, allow_nan=False)
+
+
+def test_44d_strict_json_safety_for_positive_and_negative_infinity():
+    finding = Finding(
+        "TEST-001", "infinite_values", Severity.ERROR, "inf observed",
+        {"positive": math.inf, "negative": -math.inf},
+        "finite", "b1", "tile", "source.json", 0.0, "replace infinity",
+    )
+    payload = finding.to_dict()
+    assert payload["observed_value"] == {"positive": "Infinity", "negative": "-Infinity"}
+    json.dumps(payload, allow_nan=False)
+
+
+def test_44e_strict_json_safety_for_nested_non_finite_values():
+    observed = {
+        "outer": [
+            {"nan": math.nan},
+            {"nested": [math.inf, -math.inf]},
+        ],
+    }
+    finding = Finding(
+        "TEST-001", "nested_values", Severity.ERROR, "nested non-finite",
+        observed, "finite", "b1", "tile", "source.json", 0.0, "replace nested values",
+    )
+    payload = finding.to_dict()
+    assert payload["observed_value"] == {
+        "outer": [
+            {"nan": "NaN"},
+            {"nested": ["Infinity", "-Infinity"]},
+        ],
+    }
+    json.dumps(payload, allow_nan=False)
+
+
+def test_44f_strict_json_serialization_is_deterministic():
+    finding = Finding(
+        "TEST-001", "deterministic", Severity.ERROR, "non-finite",
+        {"values": [math.nan, math.inf, -math.inf]},
+        "finite", "b1", "tile", "source.json", 0.0, "replace values",
+    )
+    payload_1 = finding.to_dict()
+    payload_2 = finding.to_dict()
+    assert payload_1 == payload_2
+    assert json.dumps(payload_1, sort_keys=True, allow_nan=False) == json.dumps(
+        payload_2, sort_keys=True, allow_nan=False
+    )
+
+
+def test_44g_finding_to_dict_does_not_mutate_source_record():
+    observed = {"nested": [math.nan, {"value": math.inf}]}
+    snapshot = copy.deepcopy(observed)
+    finding = Finding(
+        "TEST-001", "immutable_source", Severity.ERROR, "non-finite",
+        observed, "finite", "b1", "tile", "source.json", 0.0, "replace values",
+    )
+    payload = finding.to_dict()
+    assert observed == snapshot
+    assert payload["observed_value"] == {"nested": ["NaN", {"value": "Infinity"}]}
+
+
+def test_44h_complete_findings_payload_strict_json_serialization():
+    rec = copy.deepcopy(_VALID_RECORD)
+    rec["footprint_area_m2"] = math.inf
+    rec["estimated_height"] = math.nan
+    findings = validate_building(rec)
+    payload = [finding.to_dict() for finding in findings]
+    assert payload
+    json.dumps(payload, allow_nan=False)
+
+
 # ---------------------------------------------------------------------------
 # Additional edge cases
 # ---------------------------------------------------------------------------
@@ -959,6 +1055,66 @@ def test_unit_005_miami_missing_source_crs():
     }
     findings = validate_building(rec)
     assert _has_code(findings, "UNIT-005"), f"Expected UNIT-005 for wrong source CRS, got: {_codes(findings)}"
+
+
+def test_unit_005_conflicting_miami_declarations_are_ambiguous():
+    rec = _valid_metric_record()
+    conflicting_contract = dict(_VERIFIED_METRIC_CRS_CONTRACT)
+    conflicting_contract["source_crs"] = "EPSG:3857"
+    conflicting_contract["expected_source_horizontal_crs"] = "EPSG:6438"
+    findings = validate_building(rec, city_contract=conflicting_contract)
+    unit_005 = [f for f in findings if f.code == "UNIT-005"]
+    assert unit_005, f"Expected UNIT-005 for conflicting CRS declarations, got: {_codes(findings)}"
+    assert any(f.characteristic == "crs_contract_ambiguity" for f in unit_005)
+
+
+def test_unit_005_no_default_miami_metric_certification():
+    rec = _valid_metric_record()
+    findings = validate_building(rec)
+    unit_005 = [f for f in findings if f.code == "UNIT-005"]
+    assert unit_005, "Miami-like EPSG values must not certify metric output without a verified contract"
+    assert any(f.characteristic == "metric_crs_contract" for f in unit_005)
+
+
+def test_unit_005_explicitly_verified_city_contract_passes():
+    rec = _valid_metric_record()
+    findings = validate_building(rec, city_contract=_VERIFIED_METRIC_CRS_CONTRACT)
+    assert not _has_code(findings, "UNIT-005"), f"Verified contract should pass, got: {_codes(findings)}"
+
+
+def test_unit_005_non_miami_city_does_not_inherit_miami_crs():
+    rec = _valid_metric_record()
+    rec["source_horizontal_crs"] = "EPSG:2227"
+    rec["source_vertical_crs"] = "EPSG:5703"
+    rec["processed_crs"] = "EPSG:26910"
+    rec["horizontal_crs"] = "EPSG:26910"
+    rec["vertical_crs"] = "EPSG:5703"
+    rec["metric_normalization"]["source_horizontal_crs"] = "EPSG:2227"
+    rec["metric_normalization"]["source_vertical_crs"] = "EPSG:5703"
+    rec["metric_normalization"]["processed_crs"] = "EPSG:26910"
+    contract = {
+        "city_id": "oakland",
+        "crs_contract_verified": True,
+        "source_horizontal_crs": "EPSG:2227",
+        "source_vertical_crs": "EPSG:5703",
+        "processed_crs": "EPSG:26910",
+        "horizontal_crs": "EPSG:26910",
+        "vertical_crs": "EPSG:5703",
+    }
+    findings = validate_building(rec, city_contract=contract)
+    assert not _has_code(findings, "UNIT-005"), f"Non-Miami verified contract should pass, got: {_codes(findings)}"
+
+
+def test_unit_005_source_versus_processed_crs_distinction():
+    rec = _valid_metric_record()
+    rec["source_horizontal_crs"] = "EPSG:32617"
+    rec["processed_crs"] = "EPSG:6438"
+    rec["metric_normalization"]["source_horizontal_crs"] = "EPSG:32617"
+    rec["metric_normalization"]["processed_crs"] = "EPSG:6438"
+    findings = validate_building(rec, city_contract=_VERIFIED_METRIC_CRS_CONTRACT)
+    unit_005_characteristics = {f.characteristic for f in findings if f.code == "UNIT-005"}
+    assert "source_horizontal_crs" in unit_005_characteristics
+    assert "processed_crs" in unit_005_characteristics
 
 
 def test_validate_dataset_single_valid_record():
