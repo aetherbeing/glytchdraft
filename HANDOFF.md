@@ -134,3 +134,95 @@ These two files have local changes that are intentionally uncommitted. Leave the
 6. Confirm emitted provenance contains exactly one Z conversion stage.
 7. Only then consider a controlled isolated `/tmp` smoke run.
 8. Do not proceed directly to full Miami regeneration.
+
+---
+
+## 2026-06-29 — T7 evidence, license-gate, and geospatial-environment release
+
+**Canonical repository:** aetherbeing/glytchdraft
+
+### Canonical baseline
+
+| | SHA |
+|---|---|
+| Previous baseline | `c9b9ca222072a2a56e22c8d3a17d2809dcbc485f` |
+| Current origin/master | `91314666e552474aa2bf35cce7ff50e95d8eb6c0` |
+
+### Merged PRs (in order)
+
+| PR | Title | Approved head | Merge commit | Merged (UTC) |
+|---|---|---|---|---|
+| #14 | docs: verify canonical Miami T7 source tiles | `1507bcfbf149949b937e1ed0101aa18e8ebf166a` | `783c08aa256b1779b2c16ded0ca48832f6d3f660` | 2026-06-29T16:27:42Z |
+| #15 | fix: fail closed on unconfirmed footprint licenses | `9a1ad37f56d3563b3244fbd349b354cc8e8a8ac4` | `63ce85a944ac95a319ad71e4d54aa6bb03b72af0` | 2026-06-29T16:30:17Z |
+| #16 | build: declare supported geospatial Conda environment | `bf7e75a1e76e17b8854f42045c6e2c4662babd78` | `d0659ca632770ff31f91fecb484a160e85acbd82` | 2026-06-29T16:32:09Z |
+| #17 | docs: independently review T7 and environment hardening | review source: `d2b4684317a33fdd01ce550dfa2b6fa81f1c6edd` / PR head: `17ea9e85dd0126c657db7ee4a78db6b4b8b3258f` | `91314666e552474aa2bf35cce7ff50e95d8eb6c0` | 2026-06-29T16:37:24Z |
+
+### T7 tile evidence
+
+- Canonical tiles 318155 and 318455 were located on `/mnt/t7` (mounted read-only).
+- Both exact SHA-256 hashes were reproduced:
+  - `318155`: `0b770a89deb58b1ab0ed2c75848e401d6bd8b1aea72dfe63b272747bf1f40095`
+  - `318455`: `dfa514ff43232c5a9914a08e30cec111c3e7cadab1216576107d30fb5ace8816`
+- Both tiles declare horizontal EPSG:6438 and vertical EPSG:6360.
+- XY and Z units are US survey feet.
+- No writes to `/mnt/t7` occurred.
+
+### Environment
+
+- Supported geospatial environment declared in `environment.yml`.
+- Uses conda-forge channel and Python 3.11.
+- A libmamba dry-run solve succeeded during independent review.
+- `pyproj` is available in `pdal_env`; `test_pipeline_hardening.py` collects and runs in full.
+
+### License-gate hardening
+
+- Missing, null, non-string, and governed unconfirmed footprint licenses fail closed.
+- Miami remains blocked (unconfirmed license).
+- Detroit remains blocked (unconfirmed license).
+- New Orleans remains production-ready.
+
+### Validation
+
+- Final merged-state: **125/125 tests passed** in `pdal_env` from clean worktree.
+- `phase_common` and `phase_06_footprints` import successfully in `pdal_env`.
+
+### Safety and readiness state
+
+- `REAL_DATA_EXECUTION_ENABLED` remains `False`.
+- `--execute` remains hard-refused.
+- No real two-tile smoke was executed.
+- No production assets were regenerated.
+- No city readiness classification changed.
+- Historical Miami outputs remain uncertified.
+
+### Next milestone — Miami source contract correction and controlled smoke preparation
+
+1. **Correct Miami LAZ configuration and provenance** so the source contract reflects verified EPSG:6438 horizontal, EPSG:6360 vertical, and US survey foot units.
+
+2. **Keep address-source CRS separate from LAZ-source CRS.** Do not replace an address EPSG:3857 declaration unless evidence specifically governs that source.
+
+3. **Define the metric-normalization contract:**
+   - source XY: US survey foot
+   - source Z: US survey foot
+   - processed horizontal CRS: EPSG:32617
+   - processed XY: meters
+   - Z conversion factor: `0.3048006096012192`
+   - apply Z conversion exactly once, before metric HAG/range semantics
+   - prohibit double conversion
+
+4. **Prepare a narrowly scoped controlled smoke revision** for only these exact files:
+   - `318155`: `/mnt/t7/miami/data_raw/laz/USGS_LPC_FL_MiamiDade_D23_LID2024_318155_0901.laz`
+     SHA-256: `0b770a89deb58b1ab0ed2c75848e401d6bd8b1aea72dfe63b272747bf1f40095`
+   - `318455`: `/mnt/t7/miami/data_raw/laz/USGS_LPC_FL_MiamiDade_D23_LID2024_318455_0901.laz`
+     SHA-256: `dfa514ff43232c5a9914a08e30cec111c3e7cadab1216576107d30fb5ace8816`
+
+5. **The controlled smoke revision must require:**
+   - isolated `/tmp` outputs
+   - no writes to `/mnt/t7`
+   - exact source hash verification before processing
+   - explicit stage provenance
+   - one Z conversion stage only
+   - validator and QA outputs
+   - independent review before execution
+
+6. **Do not enable or run the real smoke** until all of the above are satisfied and independently reviewed.
