@@ -36,6 +36,7 @@ from phase_common import (
     BLOCKED_PRODUCTION_FOOTPRINT_TYPES,
     CITY_STATUS_VALUES,
     FOOTPRINT_PROVENANCE_LABELS,
+    build_runtime_from_agnostic_config,
     city_certification_status,
     footprint_provenance_from_source_type,
     load_city,
@@ -191,6 +192,48 @@ def test_production_gate_blocks_unconfirmed_license():
     city = _city_with_fp({"type": "open_county", "license": "unconfirmed", "production_allowed": True})
     errors, _ = validate_footprint_production(city)
     assert any("license" in e for e in errors)
+
+
+def test_production_gate_blocks_mixed_case_unconfirmed_license():
+    city = _city_with_fp({"type": "open_county", "license": "Unconfirmed", "production_allowed": True})
+    errors, _ = validate_footprint_production(city)
+    assert any("license" in e for e in errors)
+
+
+def test_production_gate_blocks_whitespace_unconfirmed_license():
+    city = _city_with_fp({"type": "open_county", "license": "  unconfirmed  ", "production_allowed": True})
+    errors, _ = validate_footprint_production(city)
+    assert any("license" in e for e in errors)
+
+
+def test_production_gate_blocks_unconfirmed_license_status_suffix():
+    city = _city_with_fp({
+        "type": "open_county",
+        "license": "open_data_terms_unconfirmed",
+        "production_allowed": True,
+    })
+    errors, _ = validate_footprint_production(city)
+    assert any("license" in e for e in errors)
+
+
+def test_production_gate_does_not_substring_match_unconfirmed():
+    city = _city_with_fp({
+        "type": "open_county",
+        "license": "not_unconfirmed_but_reviewed",
+        "production_allowed": True,
+    })
+    errors, _ = validate_footprint_production(city)
+    assert errors == []
+
+
+def test_production_gate_rejects_structured_license_value():
+    city = _city_with_fp({
+        "type": "open_county",
+        "license": {"status": "confirmed"},
+        "production_allowed": True,
+    })
+    errors, _ = validate_footprint_production(city)
+    assert any("license" in e and "string" in e for e in errors)
 
 
 def test_production_gate_blocks_production_allowed_false():
@@ -552,11 +595,34 @@ def test_nola_config_footprint_source_is_production_ready():
 def test_detroit_config_footprint_source_is_blocked():
     city = load_city(str(REPO_ROOT / "configs" / "cities" / "detroit.json"))
     errors, _ = validate_footprint_production(city)
-    assert any("microsoft_ml" in e for e in errors), "Detroit Microsoft footprints must be blocked"
+    assert any("license" in e for e in errors), "Detroit unconfirmed license must block production"
+    assert any("production_allowed" in e for e in errors), "Detroit production_allowed=false must block production"
 
 
-def test_miami_config_footprint_source_license_unconfirmed():
-    city = load_city(str(REPO_ROOT / "configs" / "cities" / "miami.json"))
+def test_miami_config_footprint_source_license_unconfirmed(tmp_path):
+    config = json.loads((REPO_ROOT / "configs" / "cities" / "miami.json").read_text(encoding="utf-8"))
+    paths_local = {
+        "machine": "test-machine",
+        "source_roots": {
+            "miami_lidar": str(tmp_path / "laz"),
+            "miami_footprints": str(tmp_path / "footprints.geojson"),
+            "miami_addresses": str(tmp_path / "addresses.geojson"),
+        },
+        "output_root": str(tmp_path / "output"),
+    }
+    resolved_sources = {
+        "laz": str(tmp_path / "laz"),
+        "footprints": str(tmp_path / "footprints.geojson"),
+        "addresses": str(tmp_path / "addresses.geojson"),
+        "terrain": None,
+        "streets": None,
+    }
+    city = build_runtime_from_agnostic_config(
+        city_config=config,
+        paths_local=paths_local,
+        resolved_sources=resolved_sources,
+        requested_city="miami",
+    )
     errors, _ = validate_footprint_production(city)
     assert any("license" in e for e in errors), "Miami unconfirmed license must block production"
 

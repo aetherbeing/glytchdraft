@@ -94,6 +94,22 @@ def footprint_provenance_from_source_type(source_type: str | None) -> str:
     return _PROVENANCE_BY_SOURCE_TYPE.get(str(source_type).lower(), "unknown_unsafe_source")
 
 
+def _license_status_is_unconfirmed(license_value: str) -> bool:
+    """
+    Return True when a license string explicitly declares unconfirmed status.
+
+    Governed configs encode unconfirmed licenses either as the exact status
+    "unconfirmed" or as a source/license label with a separated unconfirmed
+    suffix, such as "open_data_terms_unconfirmed".
+    """
+    normalized = license_value.strip().lower()
+    return normalized == "unconfirmed" or normalized.endswith((
+        "_unconfirmed",
+        "-unconfirmed",
+        " unconfirmed",
+    ))
+
+
 def validate_footprint_production(city: "CityRuntime") -> tuple[list[str], list[str]]:
     """
     Check production-readiness requirements for the footprint source.
@@ -118,7 +134,15 @@ def validate_footprint_production(city: "CityRuntime") -> tuple[list[str], list[
         errors.append(
             "footprint_source.type is missing; source is unknown and blocked from production"
         )
-    if not fp_license or fp_license == "unconfirmed":
+    if not fp_license:
+        errors.append(
+            f"footprint_source.license={fp_license!r}; license must be confirmed for production"
+        )
+    elif not isinstance(fp_license, str):
+        errors.append(
+            f"footprint_source.license={fp_license!r}; license must be a confirmed string for production"
+        )
+    elif _license_status_is_unconfirmed(fp_license):
         errors.append(
             f"footprint_source.license={fp_license!r}; license must be confirmed for production"
         )
