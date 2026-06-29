@@ -1,0 +1,17 @@
+name: pdal_env
+channels:
+  - conda-forge
+dependencies:
+  - python=3.11
+  - gdal
+  - geopandas
+  - jsonschema
+  - laspy
+  - numpy
+  - pdal
+  - pytest
+  - pyproj
+  - rasterio
+  - scikit-learn
+  - scipy
+  - shapely
