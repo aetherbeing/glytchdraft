@@ -35,6 +35,8 @@ CITY_CONFIG_DIR = REPO_ROOT / "configs" / "cities"
 PHASE_STATUS_DIRNAME = "status"
 LOG_DIRNAME = "logs"
 CATALOG_ENV_VAR = "GLITCHOS_LAZ_CATALOG"
+MIAMI_Z_TO_METERS_FACTOR = 0.3048006096012192
+MIAMI_Z_ASSIGN_STAGE = "filters.assign: Z = Z * 0.3048006096012192"
 
 PHASE_NAMES = {
     "00": "validate_config",
@@ -802,7 +804,105 @@ def validate_city_config_against_schema(
         path_str = " > ".join(str(p) for p in err.path) if err.path else "root"
         errors.append(f"Schema violation at {path_str}: {err.message}")
 
+    errors.extend(validate_laz_source_contract_payload(data))
+
     return errors, warnings
+
+
+def validate_laz_source_contract_payload(city_config: dict[str, Any]) -> list[str]:
+    """Fail closed on governed Miami LAZ source-contract ambiguity."""
+    if city_config.get("city_id") != "miami":
+        return []
+
+    errors: list[str] = []
+    contract = city_config.get("laz_source_contract")
+    if not isinstance(contract, dict):
+        return ["Miami laz_source_contract is missing or not an object"]
+
+    expected = {
+        "source_horizontal_crs": "EPSG:6438",
+        "source_vertical_crs": "EPSG:6360",
+        "source_xy_units": "US survey foot",
+        "source_z_units": "US survey foot",
+        "processed_horizontal_crs": "EPSG:32617",
+        "processed_xy_units": "meters",
+        "processed_z_units": "meters",
+    }
+    for key, value in expected.items():
+        actual = contract.get(key)
+        if actual != value:
+            errors.append(f"Miami laz_source_contract.{key}={actual!r}; expected {value!r}")
+
+    if city_config.get("source_crs") != contract.get("source_horizontal_crs"):
+        errors.append(
+            "Miami top-level source_crs must match laz_source_contract.source_horizontal_crs; "
+            "address CRS belongs under pipeline_tunables.address_source_detail.input_crs"
+        )
+    if city_config.get("output_crs") != contract.get("processed_horizontal_crs"):
+        errors.append(
+            "Miami top-level output_crs must match laz_source_contract.processed_horizontal_crs"
+        )
+
+    factor = contract.get("z_to_meters_factor")
+    if factor != MIAMI_Z_TO_METERS_FACTOR:
+        errors.append(
+            f"Miami laz_source_contract.z_to_meters_factor={factor!r}; "
+            f"expected {MIAMI_Z_TO_METERS_FACTOR!r}"
+        )
+
+    stage_order = contract.get("normalization_stage_order")
+    if not isinstance(stage_order, list):
+        errors.append("Miami laz_source_contract.normalization_stage_order is missing or not a list")
+        stage_order = []
+    assign_indexes = [i for i, stage in enumerate(stage_order) if stage == MIAMI_Z_ASSIGN_STAGE]
+    if len(assign_indexes) != 1:
+        errors.append(
+            "Miami normalization_stage_order must declare exactly one "
+            f"{MIAMI_Z_ASSIGN_STAGE!r} stage"
+        )
+    required_order = ["filters.reprojection", MIAMI_Z_ASSIGN_STAGE, "filters.hag_nn", "filters.range"]
+    for stage in required_order:
+        if stage not in stage_order:
+            errors.append(f"Miami normalization_stage_order is missing {stage!r}")
+    if all(stage in stage_order for stage in required_order):
+        if not (
+            stage_order.index("filters.reprojection")
+            < stage_order.index(MIAMI_Z_ASSIGN_STAGE)
+            < stage_order.index("filters.hag_nn")
+            < stage_order.index("filters.range")
+        ):
+            errors.append(
+                "Miami Z conversion must occur after reprojection and before HAG/range metric Z semantics"
+            )
+
+    z_conversion = contract.get("z_conversion")
+    if not isinstance(z_conversion, dict):
+        errors.append("Miami laz_source_contract.z_conversion is missing or not an object")
+    else:
+        if z_conversion.get("required") is not True:
+            errors.append("Miami z_conversion.required must be true")
+        if z_conversion.get("occurs_exactly_once") is not True:
+            errors.append("Miami z_conversion.occurs_exactly_once must be true")
+        if z_conversion.get("stage_value") != "Z = Z * 0.3048006096012192":
+            errors.append("Miami z_conversion.stage_value has wrong Z conversion expression")
+
+    provenance = contract.get("conversion_provenance")
+    if not isinstance(provenance, dict):
+        errors.append("Miami laz_source_contract.conversion_provenance is missing or not an object")
+    else:
+        required_provenance = {
+            "source_profile_field": "normalize_z_to_meters",
+            "source_factor_field": "z_to_meters_factor",
+            "source_unit_field": "source_vertical_unit",
+            "target_unit_field": "target_vertical_unit",
+            "already_converted_field": "z_values_metric",
+            "normalization_version": "miami_metric_normalization_v1",
+        }
+        for key, value in required_provenance.items():
+            if provenance.get(key) != value:
+                errors.append(f"Miami conversion_provenance.{key}={provenance.get(key)!r}; expected {value!r}")
+
+    return errors
 
 
 def load_paths_local(
@@ -933,6 +1033,12 @@ def build_runtime_from_agnostic_config(
     city_id: str = city_config["city_id"]
     city_name: str = city_config["city_name"]
     tunables: dict[str, Any] = city_config.get("pipeline_tunables") or {}
+    contract_errors = validate_laz_source_contract_payload(city_config)
+    if contract_errors:
+        raise SystemExit(
+            "City LAZ source contract failed validation:\n  "
+            + "\n  ".join(contract_errors)
+        )
 
     # output_root is required — all artifact paths derive from it.
     output_root_str = paths_local.get("output_root")
@@ -1008,6 +1114,7 @@ def build_runtime_from_agnostic_config(
         COUNTY_FP_PATH=resolve_cross_platform_path(Path(tunables["county_footprints_path"])) if tunables.get("county_footprints_path") else None,
         BOUNDARY_GEOJSON=resolve_cross_platform_path(Path(tunables["boundary_geojson"])) if tunables.get("boundary_geojson") else None,
         FOOTPRINT_SOURCE=tunables.get("footprint_source_detail") or None,
+        LAZ_SOURCE_CONTRACT=city_config.get("laz_source_contract"),
         LIDAR_FALLBACK_ON_EMPTY_TILE=bool(tunables.get("lidar_fallback_on_empty_tile", False)),
     )
 

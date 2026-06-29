@@ -112,6 +112,9 @@ def test_new_format_miami_constructs_city_runtime(tmp_path: Path):
     assert runtime.out_epsg == 32617
     assert runtime.bbox_4326 == miami_config["bbox_4326"]
     assert runtime.requested_city == "miami"
+    assert runtime.raw_config.LAZ_SOURCE_CONTRACT["source_horizontal_crs"] == "EPSG:6438"
+    assert runtime.raw_config.LAZ_SOURCE_CONTRACT["source_vertical_crs"] == "EPSG:6360"
+    assert runtime.raw_config.LAZ_SOURCE_CONTRACT["z_to_meters_factor"] == 0.3048006096012192
 
 
 # ── test 2 ────────────────────────────────────────────────────────────────────
@@ -133,6 +136,67 @@ def test_resolved_source_paths_map_to_runtime_fields(tmp_path: Path):
     assert runtime.laz_dir == laz_dir
     assert runtime.address_source is not None
     assert runtime.address_source["path"] == str(addr_path)
+
+
+def test_miami_runtime_keeps_address_crs_separate_from_laz_contract(tmp_path: Path):
+    miami_config = json.loads(MIAMI_CONFIG_PATH.read_text(encoding="utf-8"))
+    pl = {
+        "machine": "fixture",
+        "source_roots": {
+            "miami_lidar": str(tmp_path / "laz"),
+            "miami_footprints": str(tmp_path / "footprints.geojson"),
+            "miami_addresses": str(tmp_path / "addresses.geojson"),
+        },
+        "output_root": str(tmp_path / "miami_output"),
+    }
+    res = {
+        "laz": str(tmp_path / "laz"),
+        "footprints": str(tmp_path / "footprints.geojson"),
+        "addresses": str(tmp_path / "addresses.geojson"),
+        "terrain": None,
+        "streets": None,
+    }
+
+    runtime = build_runtime_from_agnostic_config(
+        city_config=miami_config,
+        paths_local=pl,
+        resolved_sources=res,
+        requested_city="miami",
+    )
+
+    assert runtime.raw_config.LAZ_SOURCE_CONTRACT["source_horizontal_crs"] == "EPSG:6438"
+    assert runtime.address_source is not None
+    assert runtime.address_source["input_crs"] == "EPSG:3857"
+    assert runtime.address_source["input_crs"] != runtime.raw_config.LAZ_SOURCE_CONTRACT["source_horizontal_crs"]
+
+
+def test_miami_runtime_rejects_broken_laz_contract(tmp_path: Path):
+    miami_config = json.loads(MIAMI_CONFIG_PATH.read_text(encoding="utf-8"))
+    miami_config["laz_source_contract"]["z_conversion"]["occurs_exactly_once"] = False
+    pl = {
+        "machine": "fixture",
+        "source_roots": {
+            "miami_lidar": str(tmp_path / "laz"),
+            "miami_footprints": str(tmp_path / "footprints.geojson"),
+            "miami_addresses": str(tmp_path / "addresses.geojson"),
+        },
+        "output_root": str(tmp_path / "miami_output"),
+    }
+    res = {
+        "laz": str(tmp_path / "laz"),
+        "footprints": str(tmp_path / "footprints.geojson"),
+        "addresses": str(tmp_path / "addresses.geojson"),
+        "terrain": None,
+        "streets": None,
+    }
+
+    with pytest.raises(SystemExit, match="LAZ source contract"):
+        build_runtime_from_agnostic_config(
+            city_config=miami_config,
+            paths_local=pl,
+            resolved_sources=res,
+            requested_city="miami",
+        )
 
 
 # ── test 3 ────────────────────────────────────────────────────────────────────

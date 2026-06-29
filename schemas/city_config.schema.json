@@ -4,11 +4,27 @@
   "type": "object",
   "required": ["city_id","city_name","source_crs","output_crs","bbox_4326","source_ids","provenance"],
   "additionalProperties": false,
+  "allOf": [
+    {
+      "if": {
+        "properties": { "city_id": { "const": "miami" } },
+        "required": ["city_id"]
+      },
+      "then": {
+        "required": ["laz_source_contract"],
+        "properties": {
+          "source_crs": { "const": "EPSG:6438" },
+          "output_crs": { "const": "EPSG:32617" }
+        }
+      }
+    }
+  ],
   "properties": {
     "city_id": { "type": "string", "pattern": "^[a-z0-9_]+$" },
     "city_name": { "type": "string" },
     "source_crs": { "type": "string" },
     "output_crs": { "type": "string" },
+    "laz_source_contract": { "$ref": "#/definitions/laz_source_contract" },
     "bbox_4326": { "type": "object", "required": ["xmin","ymin","xmax","ymax"], "additionalProperties": false,
       "properties": { "xmin": {"type":"number"}, "ymin": {"type":"number"}, "xmax": {"type":"number"}, "ymax": {"type":"number"} } },
     "source_ids": { "type": "object", "required": ["laz","footprints","addresses"], "additionalProperties": false,
@@ -18,5 +34,91 @@
       "properties": { "lidar_source": {"type":"string"}, "footprint_source": {"type":"string"}, "address_source": {"type":"string"}, "license_notes": {"type":"string"} } },
     "phase_toggles": { "type": "object", "additionalProperties": {"type":"boolean"} },
     "pipeline_tunables": { "type": "object" }
+  },
+  "definitions": {
+    "laz_source_contract": {
+      "type": "object",
+      "required": [
+        "source_horizontal_crs",
+        "source_vertical_crs",
+        "source_xy_units",
+        "source_z_units",
+        "processed_horizontal_crs",
+        "processed_xy_units",
+        "processed_z_units",
+        "z_to_meters_factor",
+        "normalization_stage_order",
+        "z_conversion",
+        "conversion_provenance"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "source_horizontal_crs": { "const": "EPSG:6438" },
+        "source_vertical_crs": { "const": "EPSG:6360" },
+        "source_xy_units": { "const": "US survey foot" },
+        "source_z_units": { "const": "US survey foot" },
+        "processed_horizontal_crs": { "const": "EPSG:32617" },
+        "processed_xy_units": { "const": "meters" },
+        "processed_z_units": { "const": "meters" },
+        "z_to_meters_factor": { "const": 0.3048006096012192 },
+        "normalization_stage_order": {
+          "type": "array",
+          "minItems": 4,
+          "items": { "type": "string" },
+          "contains": { "const": "filters.assign: Z = Z * 0.3048006096012192" }
+        },
+        "z_conversion": {
+          "type": "object",
+          "required": [
+            "required",
+            "occurs_exactly_once",
+            "stage",
+            "stage_value",
+            "after_stage",
+            "before_metric_z_semantics"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "required": { "const": true },
+            "occurs_exactly_once": { "const": true },
+            "stage": { "const": "filters.assign" },
+            "stage_value": { "const": "Z = Z * 0.3048006096012192" },
+            "after_stage": { "const": "filters.reprojection" },
+            "before_metric_z_semantics": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "enum": [
+                  "filters.hag_nn",
+                  "filters.range",
+                  "height_range_filters",
+                  "mass_height_fields"
+                ]
+              }
+            }
+          }
+        },
+        "conversion_provenance": {
+          "type": "object",
+          "required": [
+            "source_profile_field",
+            "source_factor_field",
+            "source_unit_field",
+            "target_unit_field",
+            "already_converted_field",
+            "normalization_version"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "source_profile_field": { "const": "normalize_z_to_meters" },
+            "source_factor_field": { "const": "z_to_meters_factor" },
+            "source_unit_field": { "const": "source_vertical_unit" },
+            "target_unit_field": { "const": "target_vertical_unit" },
+            "already_converted_field": { "const": "z_values_metric" },
+            "normalization_version": { "const": "miami_metric_normalization_v1" }
+          }
+        }
+      }
+    }
   }
 }

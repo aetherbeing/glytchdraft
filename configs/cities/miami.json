@@ -1,8 +1,47 @@
 {
   "city_id": "miami",
   "city_name": "City of Miami",
-  "source_crs": "EPSG:3857",
+  "source_crs": "EPSG:6438",
   "output_crs": "EPSG:32617",
+  "laz_source_contract": {
+    "source_horizontal_crs": "EPSG:6438",
+    "source_vertical_crs": "EPSG:6360",
+    "source_xy_units": "US survey foot",
+    "source_z_units": "US survey foot",
+    "processed_horizontal_crs": "EPSG:32617",
+    "processed_xy_units": "meters",
+    "processed_z_units": "meters",
+    "z_to_meters_factor": 0.3048006096012192,
+    "normalization_stage_order": [
+      "readers.las",
+      "filters.reprojection",
+      "filters.assign: Z = Z * 0.3048006096012192",
+      "filters.hag_nn",
+      "filters.range",
+      "later processing"
+    ],
+    "z_conversion": {
+      "required": true,
+      "occurs_exactly_once": true,
+      "stage": "filters.assign",
+      "stage_value": "Z = Z * 0.3048006096012192",
+      "after_stage": "filters.reprojection",
+      "before_metric_z_semantics": [
+        "filters.hag_nn",
+        "filters.range",
+        "height_range_filters",
+        "mass_height_fields"
+      ]
+    },
+    "conversion_provenance": {
+      "source_profile_field": "normalize_z_to_meters",
+      "source_factor_field": "z_to_meters_factor",
+      "source_unit_field": "source_vertical_unit",
+      "target_unit_field": "target_vertical_unit",
+      "already_converted_field": "z_values_metric",
+      "normalization_version": "miami_metric_normalization_v1"
+    }
+  },
   "bbox_4326": {
     "xmin": -80.2659,
     "ymin": 25.709,
@@ -17,7 +56,7 @@
     "streets": null
   },
   "provenance": {
-    "lidar_source": "USGS LPC FL Miami-Dade D23 LID2024 — tile IDs USGS_LPC_FL_MiamiDade_D23_LID2024_*. Source CRS EPSG:3857 per hero-tile manifest; verify against full collection metadata.",
+    "lidar_source": "USGS LPC FL Miami-Dade D23 LID2024 — tile IDs USGS_LPC_FL_MiamiDade_D23_LID2024_*. Raw LAZ horizontal CRS EPSG:6438, vertical CRS EPSG:6360, XY/Z units US survey foot. Processed outputs reproject XY to EPSG:32617 meters and convert Z to meters exactly once before metric HAG/height semantics.",
     "footprint_source": "Miami-Dade County GIS — Building Footprints (open_county). Portal: gis-mdc.opendata.arcgis.com. SOURCE field: P=photogrammetry, L=LiDAR, null=unknown.",
     "address_source": "Miami-Dade GeoAddress. Input CRS EPSG:3857. Key fields: HSE_NUM (house number), SNAME (street), MUNIC_NAME (city), ZIP (postcode).",
     "license_notes": "UNVERIFIED. Footprint license listed as open_data_terms_unconfirmed — commercial-use terms must be manually verified at gis-mdc.opendata.arcgis.com before license_status can be set to confirmed. Address terms not yet reviewed. See configs/miami.status.json."
