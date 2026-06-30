@@ -1,0 +1,187 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "glytchos.gcp_batch_tile_task.v1",
+  "title": "GCP Batch Tile Task Manifest",
+  "description": "Schema for a single-tile GCP Batch task manifest. One tile = one task. No wildcard tile selection, no city-wide execution by default, no mutable execution identity.",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "run_id",
+    "tile_id",
+    "tile_scope",
+    "input_object_uri",
+    "input_sha256",
+    "source_contract_uri",
+    "source_contract_digest",
+    "repository_commit_sha",
+    "container_image_digest",
+    "output_prefix",
+    "execution_mode",
+    "real_data_execution_enabled",
+    "attempt_number",
+    "max_attempts",
+    "expected_processed_crs",
+    "expected_processed_units",
+    "created_at"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "const": "glytchos.gcp_batch_tile_task.v1",
+      "description": "Pinned schema version. Must be this exact value."
+    },
+    "run_id": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9\\-]{3,62}[a-z0-9]$",
+      "description": "Unique, stable run identifier. Used in output_prefix and reducer. Must not be 'latest', 'current', or any other mutable alias."
+    },
+    "tile_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[a-zA-Z0-9_\\-]+$",
+      "description": "Single tile identifier. This field is a string — array or wildcard values are not permitted. Each task manifest governs exactly one tile."
+    },
+    "tile_scope": {
+      "type": "object",
+      "required": ["explicit_single_tile", "tile_id_confirmation"],
+      "additionalProperties": false,
+      "description": "Explicit single-tile scope assertion. Must match tile_id. Tasks must never process more than one tile.",
+      "properties": {
+        "explicit_single_tile": {
+          "const": true,
+          "description": "Must be true. Asserts that this manifest governs exactly one tile."
+        },
+        "tile_id_confirmation": {
+          "type": "string",
+          "description": "Must equal the top-level tile_id field exactly."
+        },
+        "city_wide_execution": {
+          "const": false,
+          "description": "Must be false. City-wide execution is not permitted from a per-tile task manifest."
+        }
+      }
+    },
+    "input_object_uri": {
+      "type": "string",
+      "pattern": "^gs://[a-z0-9][a-z0-9\\-\\.]{0,61}[a-z0-9]/.+\\.la[sz]$",
+      "description": "gs:// URI for the immutable, content-addressed input LAZ file. Must end in .laz or .las. Must not be 'latest.laz' or any mutable alias."
+    },
+    "input_sha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$",
+      "description": "SHA-256 hex digest of the input object at input_object_uri. Must be verified before processing begins. No missing or placeholder hashes permitted."
+    },
+    "source_contract_uri": {
+      "type": "string",
+      "minLength": 1,
+      "description": "URI or identifier of the authoritative LAZ source contract document. Must be immutable and content-addressed. References the contract defining CRS, units, Z factor, and normalization stage order."
+    },
+    "source_contract_digest": {
+      "type": "string",
+      "pattern": "^sha256:[a-f0-9]{64}$",
+      "description": "SHA-256 digest of the source contract document, prefixed with 'sha256:'. Must match the contract content at source_contract_uri."
+    },
+    "repository_commit_sha": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{40}$",
+      "description": "Full 40-character git commit SHA of the repository state that produced this task. Links output to exact pipeline code."
+    },
+    "container_image_digest": {
+      "type": "string",
+      "pattern": "^sha256:[a-f0-9]{64}$",
+      "description": "Content-addressable digest of the container image used for execution, prefixed with 'sha256:'. Human-readable tags alone are not accepted as execution identity. The container entrypoint must verify this digest at startup."
+    },
+    "container_image_ref": {
+      "type": "string",
+      "description": "Optional human-readable image reference (tag form). Not used as execution identity. The container_image_digest field is the authoritative execution identity."
+    },
+    "output_prefix": {
+      "type": "string",
+      "pattern": "^gs://[a-z0-9][a-z0-9\\-\\.]{0,61}[a-z0-9]/.+/tiles/[a-zA-Z0-9_\\-]+/$",
+      "description": "gs:// prefix for all outputs from this task. Must include run_id and tile_id path components. Must end with '/'. Must not be a bucket root. The task may only write beneath this prefix."
+    },
+    "execution_mode": {
+      "type": "string",
+      "enum": ["NO_OP", "DRY_RUN", "REAL_DATA_CONTROLLED"],
+      "description": "Controls what the entrypoint actually does. NO_OP: emits a synthetic result manifest, does no processing. DRY_RUN: validates all inputs and contracts without invoking PDAL. REAL_DATA_CONTROLLED: requires independent authorization review before use."
+    },
+    "real_data_execution_enabled": {
+      "type": "boolean",
+      "description": "Compile-time execution lock mirroring REAL_DATA_EXECUTION_ENABLED in run_tile_miami.py. Must be false for NO_OP and DRY_RUN modes. Setting to true requires independent review and is not authorized by default."
+    },
+    "attempt_number": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 10,
+      "description": "Current attempt number for this task (1-indexed). Combined with run_id and tile_id to form an attempt-specific output path."
+    },
+    "max_attempts": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 3,
+      "description": "Maximum number of attempts permitted for this task. Capped at 3 for the initial benchmark."
+    },
+    "expected_processed_crs": {
+      "type": "string",
+      "description": "CRS expected for all processed outputs. For Miami: EPSG:32617 (WGS 84 / UTM Zone 17N).",
+      "examples": ["EPSG:32617"]
+    },
+    "expected_processed_units": {
+      "type": "string",
+      "description": "Units expected for all processed metric outputs.",
+      "examples": ["meters"]
+    },
+    "created_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO 8601 UTC timestamp when this manifest was created."
+    },
+    "source_contract_fields": {
+      "type": "object",
+      "description": "Embedded copy of key source contract fields for inline verification without fetching the contract URI. Values must match source_contract_digest content.",
+      "properties": {
+        "source_horizontal_crs": { "type": "string" },
+        "source_vertical_crs": { "type": "string" },
+        "source_z_units": { "type": "string" },
+        "z_to_meters_factor": { "type": "number" },
+        "processed_horizontal_crs": { "type": "string" }
+      }
+    },
+    "labels": {
+      "type": "object",
+      "description": "GCP resource labels applied to this task and its Batch job for cost attribution and filtering.",
+      "additionalProperties": { "type": "string" }
+    },
+    "notes": {
+      "type": "string",
+      "description": "Optional human-readable notes. Does not affect execution."
+    }
+  },
+  "allOf": [
+    {
+      "description": "NO_OP mode: real_data_execution_enabled must be false.",
+      "if": {
+        "properties": { "execution_mode": { "const": "NO_OP" } },
+        "required": ["execution_mode"]
+      },
+      "then": {
+        "properties": {
+          "real_data_execution_enabled": { "const": false }
+        }
+      }
+    },
+    {
+      "description": "DRY_RUN mode: real_data_execution_enabled must be false.",
+      "if": {
+        "properties": { "execution_mode": { "const": "DRY_RUN" } },
+        "required": ["execution_mode"]
+      },
+      "then": {
+        "properties": {
+          "real_data_execution_enabled": { "const": false }
+        }
+      }
+    }
+  ]
+}
