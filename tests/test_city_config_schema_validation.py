@@ -25,6 +25,7 @@ sys.path.insert(0, str(PHASES_DIR))
 from phase_common import (
     load_paths_local,
     resolve_source_ids,
+    validate_laz_source_contract_payload,
     validate_city_config_against_schema,
 )
 
@@ -42,6 +43,101 @@ def test_miami_city_config_validates_against_schema():
     miami_config = REPO_ROOT / "configs" / "cities" / "miami.json"
     errors, warnings = validate_city_config_against_schema(miami_config, schema_dir=SCHEMAS_DIR)
     assert errors == [], f"miami.json failed schema validation: {errors}"
+
+
+def test_miami_laz_source_contract_values_are_canonical():
+    miami_config = json.loads((REPO_ROOT / "configs" / "cities" / "miami.json").read_text(encoding="utf-8"))
+    contract = miami_config["laz_source_contract"]
+
+    assert miami_config["source_crs"] == "EPSG:6438"
+    assert contract["source_horizontal_crs"] == "EPSG:6438"
+    assert contract["source_vertical_crs"] == "EPSG:6360"
+    assert contract["source_xy_units"] == "US survey foot"
+    assert contract["source_z_units"] == "US survey foot"
+    assert contract["processed_horizontal_crs"] == "EPSG:32617"
+    assert contract["processed_xy_units"] == "meters"
+    assert contract["processed_z_units"] == "meters"
+    assert contract["z_to_meters_factor"] == 0.3048006096012192
+
+
+def test_miami_address_crs_remains_separate_from_laz_crs():
+    miami_config = json.loads((REPO_ROOT / "configs" / "cities" / "miami.json").read_text(encoding="utf-8"))
+
+    assert miami_config["source_crs"] == "EPSG:6438"
+    assert miami_config["laz_source_contract"]["source_horizontal_crs"] == "EPSG:6438"
+    assert miami_config["pipeline_tunables"]["address_source_detail"]["input_crs"] == "EPSG:3857"
+    assert miami_config["pipeline_tunables"]["address_source_detail"]["input_crs"] != miami_config["source_crs"]
+
+
+def _miami_contract_config() -> dict:
+    return json.loads((REPO_ROOT / "configs" / "cities" / "miami.json").read_text(encoding="utf-8"))
+
+
+def test_miami_laz_contract_missing_horizontal_crs_fails_closed():
+    config = _miami_contract_config()
+    del config["laz_source_contract"]["source_horizontal_crs"]
+
+    errors = validate_laz_source_contract_payload(config)
+    assert any("source_horizontal_crs" in error for error in errors)
+
+
+def test_miami_laz_contract_missing_vertical_crs_fails_closed():
+    config = _miami_contract_config()
+    del config["laz_source_contract"]["source_vertical_crs"]
+
+    errors = validate_laz_source_contract_payload(config)
+    assert any("source_vertical_crs" in error for error in errors)
+
+
+def test_miami_laz_contract_unsupported_units_fail_closed():
+    config = _miami_contract_config()
+    config["laz_source_contract"]["source_z_units"] = "meters"
+
+    errors = validate_laz_source_contract_payload(config)
+    assert any("source_z_units" in error for error in errors)
+
+
+def test_miami_laz_contract_conflicting_processed_crs_fails_closed():
+    config = _miami_contract_config()
+    config["laz_source_contract"]["processed_horizontal_crs"] = "EPSG:3857"
+
+    errors = validate_laz_source_contract_payload(config)
+    assert any("processed_horizontal_crs" in error or "output_crs" in error for error in errors)
+
+
+def test_miami_laz_contract_wrong_conversion_factor_fails_closed():
+    config = _miami_contract_config()
+    config["laz_source_contract"]["z_to_meters_factor"] = 0.3048
+
+    errors = validate_laz_source_contract_payload(config)
+    assert any("z_to_meters_factor" in error for error in errors)
+
+
+def test_miami_laz_contract_duplicate_z_conversion_fails_closed():
+    config = _miami_contract_config()
+    config["laz_source_contract"]["normalization_stage_order"].insert(
+        3,
+        "filters.assign: Z = Z * 0.3048006096012192",
+    )
+
+    errors = validate_laz_source_contract_payload(config)
+    assert any("exactly one" in error for error in errors)
+
+
+def test_miami_laz_contract_ambiguous_conversion_provenance_fails_closed():
+    config = _miami_contract_config()
+    del config["laz_source_contract"]["conversion_provenance"]["already_converted_field"]
+
+    errors = validate_laz_source_contract_payload(config)
+    assert any("already_converted_field" in error for error in errors)
+
+
+def test_miami_laz_contract_rejects_address_crs_as_laz_crs():
+    config = _miami_contract_config()
+    config["source_crs"] = "EPSG:3857"
+
+    errors = validate_laz_source_contract_payload(config)
+    assert any("address CRS" in error for error in errors)
 
 
 # ── test 2 ────────────────────────────────────────────────────────────────────

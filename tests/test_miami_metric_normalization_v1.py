@@ -103,6 +103,22 @@ def test_enabled_gate_inserts_exactly_one_z_conversion_after_reprojection_before
     assert types.index("filters.assign") < types.index("filters.range")
 
 
+def test_source_inspection_reports_canonical_laz_crs_units_and_processed_contract(monkeypatch: pytest.MonkeyPatch):
+    _, s01 = _fresh_modules(monkeypatch, gate=True)
+    with patch("subprocess.run") as mock_run:
+        mock_run.return_value = MagicMock(stdout=_fake_pdal_metadata("US survey foot"))
+        profile = s01.inspect_source_units([Path("USGS_LPC_FL_MiamiDade_D23_LID2024_318455_0901.laz")])
+
+    assert profile["source_horizontal_crs"] == "EPSG:6438"
+    assert profile["source_vertical_crs"] == "EPSG:6360"
+    assert profile["source_horizontal_units"] == ["US survey foot"]
+    assert profile["source_vertical_unit"] == "US survey foot"
+    assert profile["target_horizontal_unit"] == "meters"
+    assert profile["target_vertical_unit"] == "meters"
+    assert profile["z_to_meters_factor"] == 0.3048006096012192
+    assert profile["normalization_version"] == "miami_metric_normalization_v1"
+
+
 def test_exact_factor_constant():
     sys.path.insert(0, str(MIAMI_DIR))
     metric = importlib.import_module("metric_normalization_v1")
