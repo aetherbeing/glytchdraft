@@ -70,6 +70,101 @@ assert CFG.PRESERVE_RAW_LAZ, (
 
 CRS_TAG = {"type": "name", "properties": {"name": "urn:ogc:def:crs:EPSG::32617"}}
 
+# ── Z normalization source contract ──────────────────────────────────────────
+# EPSG:6438 horizontal, EPSG:6360 vertical, US survey foot.
+# XY reprojection to EPSG:32617 corrects horizontal coordinates only.
+# Z must be converted explicitly before HAG and all metric height semantics.
+_MIAMI_SOURCE_HORIZONTAL_CRS: str = CFG.SOURCE_HORIZONTAL_CRS
+_MIAMI_SOURCE_VERTICAL_CRS: str   = CFG.SOURCE_VERTICAL_CRS
+_MIAMI_SOURCE_Z_UNITS: str        = CFG.SOURCE_Z_UNITS
+_Z_TO_METERS_FACTOR: float        = CFG.Z_TO_METERS_FACTOR
+
+# Fail closed if the constant has been corrupted
+assert _Z_TO_METERS_FACTOR == 0.3048006096012192, (
+    f"Z_TO_METERS_FACTOR mismatch: {_Z_TO_METERS_FACTOR!r}. "
+    "Miami source contract requires exactly 0.3048006096012192 "
+    "(US survey foot to metres, EPSG:6360)."
+)
+
+
+def _validate_source_contract(
+    source_horizontal_crs: str,
+    source_vertical_crs: str,
+    source_z_units: str,
+    z_to_meters_factor: float,
+) -> None:
+    """Validate Miami LAZ source contract fields. Raises RuntimeError on mismatch."""
+    if source_horizontal_crs != "EPSG:6438":
+        raise RuntimeError(
+            f"Incorrect source horizontal CRS: {source_horizontal_crs!r}; "
+            "Miami LAZ requires EPSG:6438."
+        )
+    if source_vertical_crs != "EPSG:6360":
+        raise RuntimeError(
+            f"Incorrect source vertical CRS: {source_vertical_crs!r}; "
+            "Miami LAZ requires EPSG:6360."
+        )
+    if source_z_units != "US survey foot":
+        raise RuntimeError(
+            f"Incorrect source Z units: {source_z_units!r}; "
+            "Miami LAZ requires 'US survey foot'."
+        )
+    if abs(z_to_meters_factor - 0.3048006096012192) > 1e-15:
+        raise RuntimeError(
+            f"Incorrect Z conversion factor: {z_to_meters_factor!r}; "
+            "Miami source contract requires exactly 0.3048006096012192."
+        )
+
+
+def _z_normalization_steps() -> list[dict]:
+    """Return the Z-conversion PDAL stage for Miami LAZ source.
+
+    Converts Z from US survey feet to metres exactly once per pipeline,
+    after filters.reprojection and before filters.hag_nn and metric filters.range.
+    Source: EPSG:6438/6360, US survey foot. Factor: 0.3048006096012192.
+    """
+    return [{"type": "filters.assign", "value": f"Z = Z * {_Z_TO_METERS_FACTOR}"}]
+
+
+def _validate_pipeline_z_normalization(steps: list[dict]) -> None:
+    """Raise RuntimeError if Z normalization is absent, duplicated, mispositioned, or has wrong factor."""
+    types = [s["type"] for s in steps]
+    assign_count = sum(1 for t in types if t == "filters.assign")
+    if assign_count == 0:
+        raise RuntimeError(
+            "Z normalization stage (filters.assign) missing from Miami pipeline. "
+            "Source Z is in US survey feet; all metric operations will be incorrect."
+        )
+    if assign_count > 1:
+        raise RuntimeError(
+            f"Duplicate Z normalization stages ({assign_count}) in Miami pipeline. "
+            "Z must be converted exactly once."
+        )
+    assign_idx = types.index("filters.assign")
+    if "filters.reprojection" in types:
+        reproj_idx = types.index("filters.reprojection")
+        if reproj_idx >= assign_idx:
+            raise RuntimeError(
+                "Z normalization must appear after filters.reprojection "
+                "(XY reprojection does not normalize Z)."
+            )
+    if "filters.hag_nn" in types:
+        hag_idx = types.index("filters.hag_nn")
+        if assign_idx >= hag_idx:
+            raise RuntimeError(
+                "Z normalization must appear before filters.hag_nn "
+                "(HAG computation requires metric Z values)."
+            )
+    assign_step = steps[assign_idx]
+    value = assign_step.get("value", "")
+    expected_value = f"Z = Z * {_Z_TO_METERS_FACTOR}"
+    if value != expected_value:
+        raise RuntimeError(
+            f"Z normalization value mismatch: expected {expected_value!r}, "
+            f"found {value!r}."
+        )
+
+
 _PLY_TYPES: dict[str, tuple[str, str]] = {
     "X":                 ("double", "<f8"),
     "Y":                 ("double", "<f8"),
@@ -86,6 +181,7 @@ def _building_steps(laz_path: Path, spacing_m: float) -> list[dict]:
     return [
         {"type": "readers.las", "filename": str(laz_path)},
         {"type": "filters.reprojection", "out_srs": f"EPSG:{CFG.OUT_EPSG}"},
+        *_z_normalization_steps(),
         {"type": "filters.hag_nn"},
         {
             "type":   "filters.range",
@@ -102,6 +198,7 @@ def _ground_steps(laz_path: Path, spacing_m: float) -> list[dict]:
     return [
         {"type": "readers.las", "filename": str(laz_path)},
         {"type": "filters.reprojection", "out_srs": f"EPSG:{CFG.OUT_EPSG}"},
+        *_z_normalization_steps(),
         {"type": "filters.range", "limits": f"Classification[{CFG.GROUND_CLASS}:{CFG.GROUND_CLASS}]"},
         {"type": "filters.sample", "radius": spacing_m},
     ]
@@ -112,6 +209,7 @@ def _vegetation_steps(laz_path: Path, spacing_m: float) -> list[dict]:
     return [
         {"type": "readers.las", "filename": str(laz_path)},
         {"type": "filters.reprojection", "out_srs": f"EPSG:{CFG.OUT_EPSG}"},
+        *_z_normalization_steps(),
         {"type": "filters.range", "limits": f"Classification[{vmin}:{vmax}]"},
         {"type": "filters.sample", "radius": spacing_m},
     ]
