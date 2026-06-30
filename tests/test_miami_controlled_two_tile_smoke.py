@@ -1028,3 +1028,154 @@ def test_run_tile_miami_reprojection_does_not_substitute_for_z_normalization():
         "filters.assign must exist as the explicit Z normalization stage; "
         "reprojection alone does not convert Z from US survey feet to metres"
     )
+
+
+# ─── production harness runtime-proof gate ────────────────────────────────────
+#
+# These tests exercise the harness gate itself (validate_runtime_pipeline_normalization
+# called from build_controlled_smoke_preflight) via monkeypatched step builders.
+# No pdal import is required: the step builders return plain Python dicts.
+# Each test drives harness.main() and asserts on the manifest — proving that
+# authorization is blocked and the reason is recorded in preflight output.
+
+_REPROJECTION_STEP = {"type": "filters.reprojection", "out_srs": "EPSG:32617"}
+_HAG_STEP = {"type": "filters.hag_nn"}
+_RANGE_STEP = {"type": "filters.range", "limits": "Classification[6:6],HeightAboveGround[2.5:300]"}
+_ASSIGN_CORRECT = {"type": "filters.assign", "value": "Z = Z * 0.3048006096012192"}
+_ASSIGN_WRONG_FACTOR = {"type": "filters.assign", "value": "Z = Z * 0.3048"}
+_READERS_LAS = {"type": "readers.las", "filename": "dummy.laz"}
+
+
+def _inject_step_builders(monkeypatch, building, ground=None, vegetation=None):
+    """Monkeypatch validate_runtime_pipeline_normalization to use explicit step lists."""
+    ground = ground if ground is not None else building
+    vegetation = vegetation if vegetation is not None else building
+
+    def _gate(**_):
+        errors = []
+        for mode, steps in [("building", building), ("ground", ground), ("vegetation", vegetation)]:
+            errors.extend(harness._validate_step_builder_normalization(mode, steps))
+        return errors
+
+    monkeypatch.setattr(harness, "validate_runtime_pipeline_normalization", _gate)
+
+
+def _run_dry_smoke(tmp_path, monkeypatch, allowlist=None):
+    """Run controlled smoke dry-run and return (code, manifest)."""
+    if allowlist is None:
+        allowlist, _ = _make_allowlist(tmp_path)
+        monkeypatch.setattr(harness, "CONTROLLED_SMOKE_ALLOWLIST", allowlist)
+    monkeypatch.setattr(harness, "check_t7_read_only", _t7_ro_mock)
+    out = tmp_path / "out"
+    code = harness.main(["--controlled-smoke", "--output-root", str(out), *_tile_flags(allowlist)])
+    return code, _manifest_at(out)
+
+
+def test_harness_runtime_gate_refuses_absent_assign(tmp_path, monkeypatch):
+    """Harness preflight records and flags absent filters.assign as a normalization error.
+
+    When filters.assign is missing from the building pipeline, controlled smoke
+    cannot be authorized because the subprocess would apply HAG/range to foot-valued Z.
+    """
+    bad_steps = [_READERS_LAS, _REPROJECTION_STEP, _HAG_STEP, _RANGE_STEP]
+    _inject_step_builders(monkeypatch, bad_steps)
+
+    code, m = _run_dry_smoke(tmp_path, monkeypatch)
+
+    preflight = m["controlled_smoke"]["preflight"]
+    errors = preflight["runtime_normalization_errors"]
+    assert errors, "harness must record normalization errors when assign is absent"
+    assert not preflight["all_clear"]
+    assert any("absent" in e for e in errors), f"expected 'absent' in errors: {errors}"
+    assert code == 0  # dry-run; runtime gate recorded but does not affect exit code
+
+
+def test_harness_runtime_gate_refuses_duplicate_assign(tmp_path, monkeypatch):
+    """Harness preflight records duplicate filters.assign as a normalization error.
+
+    Two assign stages would double the Z conversion, producing height values ~2× too large.
+    """
+    dup_steps = [_READERS_LAS, _REPROJECTION_STEP, _ASSIGN_CORRECT, _ASSIGN_CORRECT, _HAG_STEP, _RANGE_STEP]
+    _inject_step_builders(monkeypatch, dup_steps)
+
+    code, m = _run_dry_smoke(tmp_path, monkeypatch)
+
+    preflight = m["controlled_smoke"]["preflight"]
+    errors = preflight["runtime_normalization_errors"]
+    assert errors
+    assert not preflight["all_clear"]
+    assert any("2" in e or "duplicate" in e.lower() or "exactly once" in e.lower() for e in errors), \
+        f"expected duplicate-assign error: {errors}"
+
+
+def test_harness_runtime_gate_refuses_wrong_factor(tmp_path, monkeypatch):
+    """Harness preflight records wrong Z conversion factor as a normalization error.
+
+    0.3048 (international foot) differs from 0.3048006096012192 (US survey foot / EPSG:6360);
+    the error accumulates over large coordinates.
+    """
+    bad_steps = [_READERS_LAS, _REPROJECTION_STEP, _ASSIGN_WRONG_FACTOR, _HAG_STEP, _RANGE_STEP]
+    _inject_step_builders(monkeypatch, bad_steps)
+
+    code, m = _run_dry_smoke(tmp_path, monkeypatch)
+
+    preflight = m["controlled_smoke"]["preflight"]
+    errors = preflight["runtime_normalization_errors"]
+    assert errors
+    assert not preflight["all_clear"]
+    assert any("0.3048" in e for e in errors), f"expected factor mismatch error: {errors}"
+
+
+def test_harness_runtime_gate_refuses_assign_after_hag(tmp_path, monkeypatch):
+    """Harness preflight records assign-after-HAG as a normalization ordering error.
+
+    HAG computation (filters.hag_nn) requires metric Z values. Normalizing after HAG
+    means HAG receives foot-valued Z and produces incorrect HeightAboveGround values.
+    """
+    bad_steps = [_READERS_LAS, _REPROJECTION_STEP, _HAG_STEP, _ASSIGN_CORRECT, _RANGE_STEP]
+    _inject_step_builders(monkeypatch, bad_steps)
+
+    code, m = _run_dry_smoke(tmp_path, monkeypatch)
+
+    preflight = m["controlled_smoke"]["preflight"]
+    errors = preflight["runtime_normalization_errors"]
+    assert errors
+    assert not preflight["all_clear"]
+    assert any("hag_nn" in e.lower() or "hag" in e.lower() for e in errors), \
+        f"expected HAG ordering error: {errors}"
+
+
+def test_harness_runtime_gate_refuses_assign_after_range(tmp_path, monkeypatch):
+    """Harness preflight records assign-after-range as a normalization ordering error.
+
+    filters.range applies metric height thresholds (e.g. 2.5–300 m). Normalizing after
+    range means the filter sees foot-valued Z and discards nearly all building points.
+    """
+    bad_steps = [_READERS_LAS, _REPROJECTION_STEP, _RANGE_STEP, _ASSIGN_CORRECT]
+    _inject_step_builders(monkeypatch, bad_steps)
+
+    code, m = _run_dry_smoke(tmp_path, monkeypatch)
+
+    preflight = m["controlled_smoke"]["preflight"]
+    errors = preflight["runtime_normalization_errors"]
+    assert errors
+    assert not preflight["all_clear"]
+    assert any("range" in e.lower() for e in errors), f"expected range ordering error: {errors}"
+
+
+def test_harness_runtime_gate_passes_correct_pipeline(tmp_path, monkeypatch):
+    """Harness preflight records no normalization errors for the correctly ordered pipeline.
+
+    Correct order: readers.las → reprojection → assign (0.3048006096012192) → hag_nn → range.
+    This is the repaired run_tile_miami.py step sequence. all_clear reflects this.
+    """
+    good_steps = [_READERS_LAS, _REPROJECTION_STEP, _ASSIGN_CORRECT, _HAG_STEP, _RANGE_STEP]
+    _inject_step_builders(monkeypatch, good_steps)
+
+    code, m = _run_dry_smoke(tmp_path, monkeypatch)
+
+    preflight = m["controlled_smoke"]["preflight"]
+    assert preflight["runtime_normalization_errors"] == [], \
+        f"valid pipeline should produce no errors: {preflight['runtime_normalization_errors']}"
+    assert preflight["all_clear"]
+    assert code == 0

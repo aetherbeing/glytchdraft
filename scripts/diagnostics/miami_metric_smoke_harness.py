@@ -49,6 +49,10 @@ _EXPECTED_SOURCE_UNIT = "US survey foot"
 _EXPECTED_PROCESSED_HORIZONTAL_CRS = "EPSG:32617"
 _EXPECTED_Z_FACTOR = 0.3048006096012192
 
+# Runtime pipeline normalization constants — must match run_tile_miami.py exactly.
+_RUNTIME_ASSIGN_TYPE = "filters.assign"
+_RUNTIME_ASSIGN_VALUE = "Z = Z * 0.3048006096012192"
+
 CANONICAL_OUTPUT_ROOTS = (
     T7_MOUNT,
     Path("/mnt/t7/miami/data_processed"),
@@ -334,6 +338,114 @@ def check_t7_read_only(
     return errors
 
 
+def _validate_step_builder_normalization(mode: str, steps: list[dict]) -> list[str]:
+    """Validate Z normalization correctness in one PDAL step sequence.
+
+    Checks: exactly one filters.assign, exact factor, positioned after
+    filters.reprojection and before filters.hag_nn and filters.range.
+
+    Returns error strings; empty list means valid.
+    """
+    errors: list[str] = []
+    types = [s.get("type", "") for s in steps]
+
+    assign_count = types.count(_RUNTIME_ASSIGN_TYPE)
+    if assign_count == 0:
+        errors.append(
+            f"run_tile_miami {mode}: filters.assign Z normalization stage is absent — "
+            "source Z is US survey feet and all metric operations will be incorrect"
+        )
+        return errors
+    if assign_count > 1:
+        errors.append(
+            f"run_tile_miami {mode}: {assign_count} filters.assign stages found — "
+            "Z must be converted exactly once"
+        )
+        return errors
+
+    assign_idx = types.index(_RUNTIME_ASSIGN_TYPE)
+    value = steps[assign_idx].get("value", "")
+    if value != _RUNTIME_ASSIGN_VALUE:
+        errors.append(
+            f"run_tile_miami {mode}: filters.assign value {value!r} != "
+            f"expected {_RUNTIME_ASSIGN_VALUE!r}"
+        )
+
+    if "filters.reprojection" in types:
+        reproj_idx = types.index("filters.reprojection")
+        if reproj_idx >= assign_idx:
+            errors.append(
+                f"run_tile_miami {mode}: filters.assign must appear after "
+                "filters.reprojection — horizontal reprojection does not normalize Z"
+            )
+
+    if "filters.hag_nn" in types:
+        hag_idx = types.index("filters.hag_nn")
+        if assign_idx >= hag_idx:
+            errors.append(
+                f"run_tile_miami {mode}: filters.assign must appear before "
+                "filters.hag_nn — HAG computation requires metric Z values"
+            )
+
+    if "filters.range" in types:
+        rng_idx = types.index("filters.range")
+        if assign_idx >= rng_idx:
+            errors.append(
+                f"run_tile_miami {mode}: filters.assign must appear before "
+                "filters.range — range filter applies metric Z thresholds"
+            )
+
+    return errors
+
+
+def validate_runtime_pipeline_normalization(
+    *,
+    _step_builders: dict | None = None,
+) -> list[str]:
+    """Import run_tile_miami and validate Z normalization in all three PDAL step builders.
+
+    This is the process-boundary gate: it inspects the same module and functions
+    that the harness subprocess commands target, proving at the harness level that
+    the actual runtime pipeline is correctly normalized before authorization is granted.
+
+    Returns error strings; empty list means validation passed.
+
+    _step_builders is a testing seam: a dict mapping 'building'/'ground'/'vegetation'
+    to zero-arg callables that return step-dict lists. When None (the default),
+    the real run_tile_miami module is imported from scripts/miami/.
+    """
+    if _step_builders is None:
+        try:
+            import importlib
+            miami_dir = str(REPO_ROOT / "scripts" / "miami")
+            if miami_dir not in sys.path:
+                sys.path.insert(0, miami_dir)
+            for name in ("run_tile_miami", "miami_city_config"):
+                sys.modules.pop(name, None)
+            rtm = importlib.import_module("run_tile_miami")
+        except ImportError as exc:
+            return [
+                f"cannot import run_tile_miami for runtime pipeline validation ({exc}); "
+                "controlled smoke cannot be authorized without runtime proof"
+            ]
+        dummy = Path("__dummy__.laz")
+        _step_builders = {
+            "building": lambda: rtm._building_steps(dummy, 1.0),
+            "ground": lambda: rtm._ground_steps(dummy, 1.0),
+            "vegetation": lambda: rtm._vegetation_steps(dummy, 1.0),
+        }
+
+    errors: list[str] = []
+    for mode, builder in sorted(_step_builders.items()):
+        try:
+            steps = builder()
+        except Exception as exc:
+            errors.append(f"run_tile_miami {mode} step builder raised: {exc}")
+            continue
+        errors.extend(_validate_step_builder_normalization(mode, steps))
+    return errors
+
+
 def build_controlled_smoke_preflight(
     inputs: dict[str, Path],
     output_root: Path,
@@ -342,6 +454,7 @@ def build_controlled_smoke_preflight(
     al = CONTROLLED_SMOKE_ALLOWLIST
     input_errors = validate_controlled_smoke_inputs(inputs)
     t7_errors = check_t7_read_only()
+    runtime_errors = validate_runtime_pipeline_normalization()
     return {
         "allowlist_tile_ids": sorted(al.keys()),
         "allowlist_canonical_paths": {
@@ -350,7 +463,8 @@ def build_controlled_smoke_preflight(
         "t7_mount": str(T7_MOUNT),
         "input_errors": input_errors,
         "t7_errors": t7_errors,
-        "all_clear": not input_errors and not t7_errors,
+        "runtime_normalization_errors": runtime_errors,
+        "all_clear": not input_errors and not t7_errors and not runtime_errors,
     }
 
 
@@ -693,6 +807,16 @@ def execute_if_released(args: argparse.Namespace, manifest: dict[str, Any]) -> i
                 + "; ".join(preflight["t7_errors"]),
                 file=sys.stderr,
             )
+            return 2
+        if preflight.get("runtime_normalization_errors"):
+            print(
+                "REFUSING: runtime pipeline normalization validation failed — "
+                "the subprocess target (run_tile_miami.py) does not have correct "
+                "Z normalization in one or more PDAL step builders:",
+                file=sys.stderr,
+            )
+            for err in preflight["runtime_normalization_errors"]:
+                print(f"  {err}", file=sys.stderr)
             return 2
     if REAL_DATA_EXECUTION_ENABLED is not True:
         print("REFUSING: real-data execution is disabled for this harness revision", file=sys.stderr)
