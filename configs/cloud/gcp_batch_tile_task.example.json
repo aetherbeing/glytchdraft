@@ -1,0 +1,41 @@
+{
+  "_NOTICE": "SYNTHETIC NO-OP EXAMPLE — NOT FOR EXECUTION. All bucket names, hashes, and URIs are placeholders. This file does not reference real LAZ data, real Miami tile IDs, real Cloud Storage buckets, or real credentials. execution_mode=NO_OP and real_data_execution_enabled=false are required to remain set as shown.",
+  "schema_version": "glytchos.gcp_batch_tile_task.v1",
+  "run_id": "noop-bench-2026-01-01-001",
+  "tile_id": "SYNTHETIC_TILE_0000",
+  "tile_scope": {
+    "explicit_single_tile": true,
+    "tile_id_confirmation": "SYNTHETIC_TILE_0000",
+    "city_wide_execution": false
+  },
+  "input_object_uri": "gs://<PLACEHOLDER_INPUT_BUCKET>/synthetic/laz/SYNTHETIC_TILE_0000/<PLACEHOLDER_SHA256>.laz",
+  "input_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+  "source_contract_uri": "gs://<PLACEHOLDER_INPUT_BUCKET>/contracts/miami_laz_source_contract_v1.json@sha256:<PLACEHOLDER_CONTRACT_SHA256>",
+  "source_contract_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+  "repository_commit_sha": "0000000000000000000000000000000000000000",
+  "container_image_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+  "container_image_ref": "<PLACEHOLDER_REGION>-docker.pkg.dev/<PLACEHOLDER_PROJECT>/glytchdraft/tile-processor:noop-candidate",
+  "output_prefix": "gs://<PLACEHOLDER_RUN_BUCKET>/synthetic/runs/noop-bench-2026-01-01-001/tiles/SYNTHETIC_TILE_0000/",
+  "execution_mode": "NO_OP",
+  "real_data_execution_enabled": false,
+  "attempt_number": 1,
+  "max_attempts": 2,
+  "expected_processed_crs": "EPSG:32617",
+  "expected_processed_units": "meters",
+  "created_at": "2026-01-01T00:00:00Z",
+  "source_contract_fields": {
+    "source_horizontal_crs": "EPSG:6438",
+    "source_vertical_crs": "EPSG:6360",
+    "source_z_units": "US survey foot",
+    "z_to_meters_factor": 0.3048006096012192,
+    "processed_horizontal_crs": "EPSG:32617"
+  },
+  "labels": {
+    "city": "synthetic",
+    "pipeline": "glytchdraft",
+    "run-id": "noop-bench-2026-01-01-001",
+    "tile-id": "synthetic-tile-0000",
+    "execution-mode": "no-op"
+  },
+  "notes": "Synthetic no-op example only. Replace all <PLACEHOLDER_*> values with real, verified values before any authorized execution. execution_mode and real_data_execution_enabled must not be changed without independent review."
+}

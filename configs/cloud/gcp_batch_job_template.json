@@ -1,0 +1,109 @@
+{
+  "_NOTICE": "NO-OP TEMPLATE — NOT SUBMITTABLE. This template uses synthetic placeholders throughout. It does not contain real bucket names, real credentials, real Miami LAZ URIs, real image digests, or any executable authorization. The no-op command cannot reach Cloud Storage or /mnt/t7. Do not run 'gcloud batch jobs submit' with this template without replacing ALL placeholders and completing independent review.",
+  "_CLOUD_EXECUTION_STATUS": "NO-GO. Cloud execution is not authorized. See docs/diagnostics/GCP_PARALLEL_TILE_COMPUTE_STRATEGY.md.",
+  "_REAL_DATA_EXECUTION_ENABLED": false,
+
+  "taskGroups": [
+    {
+      "taskSpec": {
+        "runnables": [
+          {
+            "container": {
+              "imageUri": "<PLACEHOLDER_REGION>-docker.pkg.dev/<PLACEHOLDER_PROJECT>/<PLACEHOLDER_REPO>/tile-processor@sha256:<PLACEHOLDER_IMAGE_DIGEST_64HEX>",
+              "commands": [
+                "python3",
+                "/app/entrypoint.py",
+                "--manifest", "/task/manifest.json",
+                "--execution-mode", "NO_OP",
+                "--validate-only"
+              ],
+              "entrypoint": ""
+            }
+          }
+        ],
+        "volumes": [
+          {
+            "mountPath": "/task",
+            "gcs": {
+              "remotePath": "<PLACEHOLDER_RUN_BUCKET>/synthetic/runs/<PLACEHOLDER_RUN_ID>/task-manifests/<PLACEHOLDER_TILE_ID>/"
+            }
+          }
+        ],
+        "computeResource": {
+          "cpuMilli": 4000,
+          "memoryMib": 16384,
+          "bootDiskMib": 51200
+        },
+        "maxRetryCount": 1,
+        "maxRunDuration": "3600s",
+        "environment": {
+          "variables": {
+            "GLYTCHDRAFT_EXECUTION_MODE": "NO_OP",
+            "REAL_DATA_EXECUTION_ENABLED": "false",
+            "GLYTCHDRAFT_CITY": "<PLACEHOLDER_CITY>",
+            "GLYTCHDRAFT_RUN_ID": "<PLACEHOLDER_RUN_ID>",
+            "GLYTCHDRAFT_OUTPUT_PREFIX": "gs://<PLACEHOLDER_RUN_BUCKET>/<PLACEHOLDER_CITY>/runs/<PLACEHOLDER_RUN_ID>/tiles/<PLACEHOLDER_TILE_ID>/",
+            "GLYTCHDRAFT_EXPECTED_CRS": "EPSG:32617",
+            "GLYTCHDRAFT_EXPECTED_UNITS": "meters"
+          }
+        }
+      },
+      "taskCount": 2,
+      "parallelism": 2,
+      "taskCountPerNode": 1
+    }
+  ],
+
+  "allocationPolicy": {
+    "instances": [
+      {
+        "policy": {
+          "machineType": "n2-standard-4",
+          "provisioningModel": "STANDARD",
+          "disks": [
+            {
+              "newDisk": {
+                "sizeGb": 50,
+                "type": "pd-ssd"
+              },
+              "deviceName": "boot"
+            }
+          ]
+        }
+      }
+    ],
+    "location": {
+      "allowedLocations": ["<PLACEHOLDER_REGION>"]
+    },
+    "serviceAccount": {
+      "email": "<PLACEHOLDER_BATCH_SERVICE_ACCOUNT>@<PLACEHOLDER_PROJECT>.iam.gserviceaccount.com"
+    },
+    "labels": {
+      "pipeline": "glytchdraft",
+      "execution-mode": "no-op",
+      "city": "<PLACEHOLDER_CITY>",
+      "run-id": "<PLACEHOLDER_RUN_ID>",
+      "authorized-for-real-data": "false"
+    }
+  },
+
+  "logsPolicy": {
+    "destination": "CLOUD_LOGGING"
+  },
+
+  "_design_notes": {
+    "taskCount": "Capped at 2 for the initial benchmark. Do not increase without scaling-progression approval (see strategy doc).",
+    "parallelism": "Capped at 2 to match taskCount for the initial benchmark.",
+    "machineType": "n2-standard-4 provides 4 vCPU / 16 GB RAM. n2-standard-8 (8 vCPU / 32 GB RAM) is the benchmark ceiling. No GPU.",
+    "provisioningModel": "STANDARD VMs only for the initial benchmark. Spot VMs require proven idempotency and partial-write detection first.",
+    "maxRetryCount": "1 on the task spec (plus the initial attempt = 2 total). See strategy doc for retry boundary rationale.",
+    "maxRunDuration": "3600s (1 hour) per task. Adjust after benchmark timing data is collected.",
+    "bootDiskMib": "51200 MiB (50 GB). Size must accommodate container image, single LAZ file, and intermediate outputs. Review after benchmark.",
+    "allowedLocations": "Single explicit region. Cross-region data transfer is not authorized.",
+    "serviceAccount": "Dedicated Batch service account. Least-privilege. See GCP_BATCH_IAM_DATA_BOUNDARY.md.",
+    "volumes": "Task manifests staged to an isolated GCS prefix. No persistent shared volume. No /mnt/t7 access.",
+    "REAL_DATA_EXECUTION_ENABLED": "Set to the string 'false'. The entrypoint must reject any value other than the authorized sentinel. The template must not contain execution credentials or authorization tokens.",
+    "image_identity": "The imageUri must include @sha256:<digest> — mutable tags alone are not permitted as execution identity.",
+    "no_real_miami_uris": "This template does not contain any canonical Miami LAZ paths, canonical tile SHA-256 hashes, or real Cloud Storage bucket names."
+  }
+}
