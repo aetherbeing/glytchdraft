@@ -207,7 +207,7 @@ JSON Schema draft: `draft-07` (consistent with all other schemas in `schemas/`)
 | `source_contract_digest` | string | `sha256:<hex64>` |
 | `repository_commit_sha` | string | 40 hex chars |
 | `container_image_digest` | string | `sha256:<hex64>` — must be this form; mutable tag alone rejected |
-| `output_prefix` | string | `gs://` URI, must include `/tiles/<tile-id>/`, must end in `/` |
+| `output_prefix` | string | `gs://<bucket>/<city>/runs/<run-id-segment>/tiles/<tile-id>/` — a distinct, non-empty run segment is required between `runs/` and `tiles/`; must end in `/` |
 | `execution_mode` | string | Enum: `NO_OP`, `DRY_RUN`, `REAL_DATA_CONTROLLED` |
 | `real_data_execution_enabled` | boolean | Must be `false` for `NO_OP` and `DRY_RUN` modes |
 | `attempt_number` | integer | 1–10 |
@@ -225,8 +225,20 @@ JSON Schema draft: `draft-07` (consistent with all other schemas in `schemas/`)
 | `real_data_execution_enabled: true` in `NO_OP` | Schema enforces `const: false` for this combination |
 | `container_image_digest` without `sha256:` prefix | Pattern rejects anything not matching `^sha256:[a-f0-9]{64}$` |
 | `output_prefix` as bucket root | Pattern requires `/tiles/<tile-id>/` in the path |
+| `output_prefix` with `runs/` immediately followed by `tiles/` (no run-id segment) | Pattern requires a distinct, non-empty segment between `runs/` and `tiles/`; otherwise two different runs of the same tile collide on the same prefix |
 | Missing hashes | All hash fields are `required`; schema rejects missing values |
 | `max_attempts > 3` | Schema enforces `maximum: 3` |
+
+### Output Prefix Run-Scoping (Schema Limitation)
+
+The `output_prefix` pattern requires a path segment between the literal `runs/` and `tiles/` components, which prevents the bucket-root and shared/unscoped prefix collisions described above. This is a structural check only.
+
+JSON Schema draft-07 has no cross-property regex backreferences, so the schema **cannot** assert that the run segment captured by `output_prefix` is byte-equal to the manifest's separate top-level `run_id` property. A manifest could, in principle, declare `run_id: "run-a"` while pointing `output_prefix` at a `runs/run-b/` segment, and the schema alone would still accept it.
+
+Closing that gap is a runtime obligation, not a schema obligation:
+
+- The future container entrypoint must, before writing any output, normalize `output_prefix` and verify it contains the exact `run_id` and exact `tile_id` from the same manifest. It must fail closed (exit non-zero, write nothing) if either does not match exactly.
+- The QA reducer must perform the same exact-match check independently when inventorying a run's outputs, and must not treat a tile as `SUCCESS` if its output prefix's run segment does not match the run being reduced.
 
 ### Example
 
@@ -575,6 +587,9 @@ Tests cover:
 - Schema rejects a manifest with missing `container_image_digest`
 - Schema rejects a mutable-tag-only container image (no `sha256:` prefix)
 - Schema rejects an unrestricted output prefix (bucket root without `/tiles/`)
+- Schema rejects an output prefix with no distinct run segment between `runs/` and `tiles/`
+- Schema rejects an output prefix that omits the `runs/<run-id>/` path component entirely
+- Schema accepts an output prefix with a distinct, non-empty run segment
 - Schema rejects `real_data_execution_enabled: true` in `NO_OP` mode
 - Schema rejects `max_attempts > 3`
 - Example manifest has `execution_mode == "NO_OP"`

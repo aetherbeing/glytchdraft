@@ -6,6 +6,9 @@ They validate:
   - The schema is valid JSON and loadable
   - The example manifest validates against the schema
   - The schema correctly rejects invalid manifests
+  - The schema rejects output_prefix values that lack a distinct run-id segment between
+    'runs/' and 'tiles/', which would otherwise let two different runs of the same tile
+    collide on the same output path
   - The example manifest and batch job template do not contain real Miami tile IDs or real execution authorization
   - The existing execution locks in run_tile_miami.py and miami_metric_smoke_harness.py remain False
 """
@@ -280,6 +283,45 @@ def test_schema_rejects_bucket_root_output_prefix(schema, valid_manifest):
     bad["output_prefix"] = "gs://my-run-bucket/"
     with pytest.raises(ValidationError):
         validate(instance=bad, schema=schema)
+
+
+@pytest.mark.skipif(not HAS_JSONSCHEMA, reason="jsonschema not installed")
+def test_schema_rejects_output_prefix_with_no_run_segment_before_tiles(schema, valid_manifest):
+    """output_prefix with 'runs/' immediately followed by 'tiles/' (no run-id segment) must be rejected.
+
+    Without a distinct run segment, two different runs of the same tile would
+    collide on the identical output_prefix.
+    """
+    bad = dict(valid_manifest)
+    bad["output_prefix"] = "gs://example-bucket/miami/runs/tiles/synthetic-tile/"
+    with pytest.raises(ValidationError):
+        validate(instance=bad, schema=schema)
+
+
+@pytest.mark.skipif(not HAS_JSONSCHEMA, reason="jsonschema not installed")
+def test_schema_rejects_output_prefix_missing_runs_segment_entirely(schema, valid_manifest):
+    """output_prefix that omits the 'runs/<run-id>/' path component entirely must be rejected."""
+    bad = dict(valid_manifest)
+    bad["output_prefix"] = "gs://example-bucket/miami/tiles/synthetic-tile/"
+    with pytest.raises(ValidationError):
+        validate(instance=bad, schema=schema)
+
+
+@pytest.mark.skipif(not HAS_JSONSCHEMA, reason="jsonschema not installed")
+def test_schema_rejects_output_prefix_with_shared_unscoped_prefix(schema, valid_manifest):
+    """output_prefix under a shared, non-run-scoped path must be rejected."""
+    bad = dict(valid_manifest)
+    bad["output_prefix"] = "gs://example-bucket/shared/tiles/synthetic-tile/"
+    with pytest.raises(ValidationError):
+        validate(instance=bad, schema=schema)
+
+
+@pytest.mark.skipif(not HAS_JSONSCHEMA, reason="jsonschema not installed")
+def test_schema_accepts_output_prefix_with_distinct_run_segment(schema, valid_manifest):
+    """output_prefix with a distinct, non-empty run segment between 'runs/' and 'tiles/' must validate."""
+    good = dict(valid_manifest)
+    good["output_prefix"] = "gs://test-run-bucket/synthetic/runs/test-bench-0001/tiles/SYNTHETIC_TILE_0000/"
+    validate(instance=good, schema=schema)
 
 
 @pytest.mark.skipif(not HAS_JSONSCHEMA, reason="jsonschema not installed")

@@ -137,6 +137,8 @@ The entrypoint must read `GLYTCHDRAFT_REPO_COMMIT` and include it in the `result
 
 If any step from 3 to 14 fails: exit non-zero immediately. Do not write partial outputs before `.partial` is present (step 8). Never delete `.partial` before `result_manifest.json` is written (step 21).
 
+**Output prefix run/tile match (part of step 3):** `gcp_batch_tile_task.schema.json` requires `output_prefix` to contain a distinct run segment between `runs/` and `tiles/`, but draft-07 cannot assert that segment is byte-equal to the manifest's `run_id` property. As part of manifest validation (step 3), the entrypoint must independently normalize `output_prefix` and confirm it contains the exact `run_id` and exact `tile_id` from the same manifest, failing closed (exit non-zero, write nothing) if either does not match exactly.
+
 ### Result Manifest (Written by Entrypoint)
 
 The `result_manifest.json` at `output_prefix/result_manifest.json` must include:

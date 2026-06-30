@@ -98,8 +98,8 @@
     },
     "output_prefix": {
       "type": "string",
-      "pattern": "^gs://[a-z0-9][a-z0-9\\-\\.]{0,61}[a-z0-9]/.+/tiles/[a-zA-Z0-9_\\-]+/$",
-      "description": "gs:// prefix for all outputs from this task. Must include run_id and tile_id path components. Must end with '/'. Must not be a bucket root. The task may only write beneath this prefix."
+      "pattern": "^gs://[a-z0-9][a-z0-9\\-\\.]{0,61}[a-z0-9]/[a-zA-Z0-9_\\-]+/runs/[a-zA-Z0-9_\\-]+/tiles/[a-zA-Z0-9_\\-]+/$",
+      "description": "gs:// prefix for all outputs from this task. Must follow gs://<bucket>/<city>/runs/<run-id-segment>/tiles/<tile-id>/ — a distinct, non-empty path segment is required between the literal 'runs/' and 'tiles/' components so that two different runs of the same tile cannot collide on the same prefix. Must end with '/'. Must not be a bucket root. The task may only write beneath this prefix. NOTE: JSON Schema draft-07 cannot assert that this run segment is byte-equal to the top-level run_id property (no cross-property regex backreferences) — that exact-equality check is a runtime obligation of the container entrypoint and QA reducer, not of this schema. See docs/diagnostics/GCP_PARALLEL_TILE_COMPUTE_STRATEGY.md."
     },
     "execution_mode": {
       "type": "string",

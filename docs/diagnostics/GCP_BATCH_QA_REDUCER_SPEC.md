@@ -73,6 +73,7 @@ For the winning attempt's `result_manifest.json`:
 - [ ] All output files in `result_manifest.output_files` resolve to paths under the task's approved `output_prefix`
 - [ ] No output file path resolves outside `output_prefix` (path traversal or cross-tile contamination)
 - [ ] No output file was written to a shared or non-isolated prefix
+- [ ] `output_prefix`'s run segment (between `runs/` and `tiles/`) is the exact `run_id` being reduced, and its tile segment is the exact expected `tile_id` — `gcp_batch_tile_task.schema.json` only enforces that a run segment is present, not that it is byte-equal to `run_id`; the reducer must perform that exact-match check itself and must not record a tile as `SUCCESS` if it fails
 
 ### 6. Processing Quality Checks
 
