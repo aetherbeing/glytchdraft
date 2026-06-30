@@ -1,0 +1,20 @@
+{
+  "source_contract_status": "CONDITIONAL_GO",
+  "source_horizontal_crs": "EPSG:6438",
+  "source_vertical_crs": "EPSG:6360",
+  "source_horizontal_unit": "US survey foot",
+  "source_vertical_unit": "US survey foot",
+  "processed_horizontal_crs": "EPSG:32617",
+  "processed_z_unit": "metre",
+  "xy_reprojection_stage": "filters.reprojection",
+  "z_conversion_stage": "filters.assign",
+  "z_conversion_factor": 0.3048006096012192,
+  "normalization_provenance": "USGS 3DEP FL_MiamiDade_D23_LID2024 LAZ; source horizontal CRS EPSG:6438 (Florida East NAD83(2011) US survey foot), source vertical CRS EPSG:6360 (NAVD 88 height, US survey foot), confirmed by controlled two-tile preflight at branch fix/miami-controlled-smoke-authorization-artifacts base commit 85ea6afdf3f4b0c7041178e14b5b2f33fd95dadb; Z conversion applies filters.assign value 'Z = Z * 0.3048006096012192' (US survey foot to metres) exactly once per pipeline, after filters.reprojection EPSG:6438->EPSG:32617 and before filters.hag_nn and filters.range; documented in docs/diagnostics/MIAMI_CRS_CONTRACT_RECONCILIATION.md and docs/diagnostics/MIAMI_METRIC_NORMALIZATION_V1_IMPLEMENTATION.md",
+  "z_not_already_converted_evidence": "Source vertical CRS EPSG:6360 (NAVD 88 height, US survey foot) is declared in the LAZ CompoundCRS header for the USGS 3DEP FL_MiamiDade_D23_LID2024 dataset; filters.reprojection EPSG:6438->EPSG:32617 is a horizontal-only transformation (Florida East 83/11 NAD83(2011) to WGS 84 UTM zone 17N) and carries no vertical datum shift parameter; Z coordinate values remain in US survey foot at entry to filters.assign; no prior Z conversion stage exists in the pipeline before filters.assign; canonical tile 318155 byte-verified at 136923600 bytes SHA-256 0b770a89deb58b1ab0ed2c75848e401d6bd8b1aea72dfe63b272747bf1f40095 and tile 318455 at 114641426 bytes SHA-256 dfa514ff43232c5a9914a08e30cec111c3e7cadab1216576107d30fb5ace8816 against T7 originals at controlled-preflight commit 85ea6afdf3f4b0c7041178e14b5b2f33fd95dadb",
+  "xy_reprojection_converts_z": false,
+  "possible_double_conversion": false,
+  "canonical_input_hashes": {
+    "318155": "0b770a89deb58b1ab0ed2c75848e401d6bd8b1aea72dfe63b272747bf1f40095",
+    "318455": "dfa514ff43232c5a9914a08e30cec111c3e7cadab1216576107d30fb5ace8816"
+  }
+}
