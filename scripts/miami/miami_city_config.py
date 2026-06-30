@@ -214,5 +214,8 @@ CITY_GLB_OFFSET_JSON = BLENDER_ROOT / "miami_city_glb_offset.json"
 # Z must be converted explicitly before HAG and any metric height semantics.
 SOURCE_HORIZONTAL_CRS: str = "EPSG:6438"
 SOURCE_VERTICAL_CRS: str   = "EPSG:6360"
+SOURCE_XY_UNITS: str       = "US survey foot"
 SOURCE_Z_UNITS: str        = "US survey foot"
 Z_TO_METERS_FACTOR: float  = 0.3048006096012192
+PROCESSED_HORIZONTAL_CRS: str = f"EPSG:{OUT_EPSG}"  # "EPSG:32617"
+PROCESSED_UNITS: str       = "meters"

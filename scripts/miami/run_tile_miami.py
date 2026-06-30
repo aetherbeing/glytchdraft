@@ -74,10 +74,33 @@ CRS_TAG = {"type": "name", "properties": {"name": "urn:ogc:def:crs:EPSG::32617"}
 # EPSG:6438 horizontal, EPSG:6360 vertical, US survey foot.
 # XY reprojection to EPSG:32617 corrects horizontal coordinates only.
 # Z must be converted explicitly before HAG and all metric height semantics.
-_MIAMI_SOURCE_HORIZONTAL_CRS: str = CFG.SOURCE_HORIZONTAL_CRS
-_MIAMI_SOURCE_VERTICAL_CRS: str   = CFG.SOURCE_VERTICAL_CRS
-_MIAMI_SOURCE_Z_UNITS: str        = CFG.SOURCE_Z_UNITS
-_Z_TO_METERS_FACTOR: float        = CFG.Z_TO_METERS_FACTOR
+_MIAMI_SOURCE_HORIZONTAL_CRS: str  = CFG.SOURCE_HORIZONTAL_CRS
+_MIAMI_SOURCE_VERTICAL_CRS: str    = CFG.SOURCE_VERTICAL_CRS
+_MIAMI_SOURCE_XY_UNITS: str        = CFG.SOURCE_XY_UNITS
+_MIAMI_SOURCE_Z_UNITS: str         = CFG.SOURCE_Z_UNITS
+_Z_TO_METERS_FACTOR: float         = CFG.Z_TO_METERS_FACTOR
+_MIAMI_PROCESSED_HORIZONTAL_CRS: str = CFG.PROCESSED_HORIZONTAL_CRS
+_MIAMI_PROCESSED_UNITS: str        = CFG.PROCESSED_UNITS
+
+# ── Direct runtime authorization ──────────────────────────────────────────────
+# REAL_DATA_EXECUTION_ENABLED: global execution lock. Must remain False.
+# Three-layer gate: --execute + controlled auth token + this flag.
+# Do NOT set to True without independent review and authorization.
+REAL_DATA_EXECUTION_ENABLED: bool = False
+_RUNTIME_CONTROLLED_AUTH_TOKEN: str = "MIAMI_CONTROLLED_SMOKE_AUTHORIZED"
+
+# ── Approved source roots and rejected output roots ────────────────────────────
+# Source LAZ files must reside under an approved root.
+# Output must not resolve under /mnt/t7 or any production output directory.
+_APPROVED_SOURCE_ROOTS: tuple[Path, ...] = (
+    Path("/mnt/t7/miami/data_raw/laz"),
+)
+_T7_MOUNT = Path("/mnt/t7")
+_REJECTED_OUTPUT_ROOTS: tuple[Path, ...] = (
+    _T7_MOUNT,
+    Path("/mnt/t7/miami/data_processed"),
+    Path("/mnt/t7/miami/data_processed/miami_city"),
+)
 
 # Fail closed if the constant has been corrupted
 assert _Z_TO_METERS_FACTOR == 0.3048006096012192, (
@@ -92,6 +115,8 @@ def _validate_source_contract(
     source_vertical_crs: str,
     source_z_units: str,
     z_to_meters_factor: float,
+    source_xy_units: str | None = None,
+    processed_horizontal_crs: str | None = None,
 ) -> None:
     """Validate Miami LAZ source contract fields. Raises RuntimeError on mismatch."""
     if source_horizontal_crs != "EPSG:6438":
@@ -113,6 +138,16 @@ def _validate_source_contract(
         raise RuntimeError(
             f"Incorrect Z conversion factor: {z_to_meters_factor!r}; "
             "Miami source contract requires exactly 0.3048006096012192."
+        )
+    if source_xy_units is not None and source_xy_units != "US survey foot":
+        raise RuntimeError(
+            f"Incorrect source XY units: {source_xy_units!r}; "
+            "Miami LAZ (EPSG:6438) requires 'US survey foot'."
+        )
+    if processed_horizontal_crs is not None and processed_horizontal_crs != "EPSG:32617":
+        raise RuntimeError(
+            f"Incorrect processed horizontal CRS: {processed_horizontal_crs!r}; "
+            "Miami pipeline must produce EPSG:32617 (WGS 84 / UTM Zone 17N)."
         )
 
 
@@ -155,6 +190,13 @@ def _validate_pipeline_z_normalization(steps: list[dict]) -> None:
                 "Z normalization must appear before filters.hag_nn "
                 "(HAG computation requires metric Z values)."
             )
+    if "filters.range" in types:
+        rng_idx = types.index("filters.range")
+        if assign_idx >= rng_idx:
+            raise RuntimeError(
+                "Z normalization must appear before filters.range "
+                "(metric range filter requires Z already in metres)."
+            )
     assign_step = steps[assign_idx]
     value = assign_step.get("value", "")
     expected_value = f"Z = Z * {_Z_TO_METERS_FACTOR}"
@@ -163,6 +205,168 @@ def _validate_pipeline_z_normalization(steps: list[dict]) -> None:
             f"Z normalization value mismatch: expected {expected_value!r}, "
             f"found {value!r}."
         )
+
+
+def _is_relative_to(path: Path, root: Path) -> bool:
+    try:
+        path.resolve().relative_to(root.resolve())
+        return True
+    except ValueError:
+        return False
+
+
+def _validate_runtime_builder_integrity(laz_path: Path) -> None:
+    """Inspect all three production PDAL step builders before any PDAL execution.
+
+    Verifies that _building_steps, _ground_steps, and _vegetation_steps:
+      - can be called without error
+      - each contain exactly one Z normalization stage with the correct factor
+      - each normalize Z after reprojection and before HAG/range
+      - the building pipeline targets the correct processed horizontal CRS
+
+    Raises RuntimeError listing all failures if any builder fails inspection.
+    """
+    errors: list[str] = []
+    all_steps: dict[str, list[dict]] = {}
+
+    for mode, builder in [
+        ("building", lambda: _building_steps(laz_path, 1.0)),
+        ("ground", lambda: _ground_steps(laz_path, 1.0)),
+        ("vegetation", lambda: _vegetation_steps(laz_path, 1.0)),
+    ]:
+        try:
+            steps = builder()
+            all_steps[mode] = steps
+        except Exception as exc:
+            errors.append(f"'{mode}' builder raised during inspection: {exc}")
+            continue
+        try:
+            _validate_pipeline_z_normalization(steps)
+        except RuntimeError as exc:
+            errors.append(f"'{mode}' builder stage-order: {exc}")
+
+    if "building" in all_steps:
+        bsteps = all_steps["building"]
+        reproj = next((s for s in bsteps if s.get("type") == "filters.reprojection"), None)
+        if reproj is None:
+            errors.append("building builder: filters.reprojection stage absent")
+        elif "32617" not in reproj.get("out_srs", ""):
+            errors.append(
+                f"building builder: reprojection out_srs={reproj.get('out_srs')!r} "
+                f"does not target {_MIAMI_PROCESSED_HORIZONTAL_CRS}"
+            )
+
+    if errors:
+        raise RuntimeError(
+            "Runtime builder integrity validation failed (pre-PDAL gate):\n"
+            + "\n".join(f"  [{i+1}] {e}" for i, e in enumerate(errors))
+        )
+
+
+def _validate_source_path(laz_path: Path) -> None:
+    """Validate LAZ source path safety before any PDAL invocation.
+
+    Checks: no path traversal, .laz/.las extension, no final-file symlink,
+    under an approved source root, not under production output paths.
+    Raises RuntimeError on any violation.
+    """
+    if ".." in laz_path.parts:
+        raise RuntimeError(
+            f"Source path contains path traversal component: {laz_path}"
+        )
+    if laz_path.suffix.lower() not in (".laz", ".las"):
+        raise RuntimeError(
+            f"Source path must have .laz or .las extension: {laz_path}"
+        )
+    if laz_path.is_symlink():
+        raise RuntimeError(
+            f"Source path is a final-file symlink: {laz_path}. "
+            "Canonical LAZ must be accessed directly without symlink indirection."
+        )
+    resolved = laz_path.resolve()
+    if not any(_is_relative_to(resolved, r) for r in _APPROVED_SOURCE_ROOTS):
+        raise RuntimeError(
+            f"Source path {str(laz_path)!r} is not under an approved LAZ source root. "
+            f"Approved roots: {[str(r) for r in _APPROVED_SOURCE_ROOTS]}"
+        )
+
+
+def _validate_output_path(out_dir: Path) -> None:
+    """Validate output path safety before any PDAL invocation.
+
+    Checks: not under /mnt/t7, not under production output directories,
+    not overlapping approved source LAZ roots.
+    Raises RuntimeError on any violation.
+    """
+    resolved = out_dir.expanduser().resolve()
+    if _is_relative_to(resolved, _T7_MOUNT):
+        raise RuntimeError(
+            f"Output path {str(out_dir)!r} resolves under {_T7_MOUNT}. "
+            "Writing to T7 is prohibited during direct runtime execution."
+        )
+    for prod_root in _REJECTED_OUTPUT_ROOTS:
+        if _is_relative_to(resolved, prod_root):
+            raise RuntimeError(
+                f"Output path {str(out_dir)!r} resolves to {resolved}, "
+                f"which is inside a rejected output root {prod_root}. "
+                "Direct runtime must not write to production or T7 paths."
+            )
+    for src_root in _APPROVED_SOURCE_ROOTS:
+        if _is_relative_to(resolved, src_root) or _is_relative_to(src_root.resolve(), resolved):
+            raise RuntimeError(
+                f"Output path {str(out_dir)!r} overlaps source LAZ directory {src_root}. "
+                "Output must not overlap source directories."
+            )
+
+
+def _validate_execution_authorization(controlled_auth_token: str | None) -> None:
+    """Validate controlled execution authorization. Both layers must pass.
+
+    Layer 1: controlled auth token (--controlled-execution-authorization TOKEN)
+    Layer 2: global execution lock (REAL_DATA_EXECUTION_ENABLED must be True)
+
+    Generic --execute alone is insufficient. Raises RuntimeError if either fails.
+    """
+    if controlled_auth_token != _RUNTIME_CONTROLLED_AUTH_TOKEN:
+        raise RuntimeError(
+            "Controlled execution authorization is absent or incorrect. "
+            f"Direct execution requires --controlled-execution-authorization "
+            f"{_RUNTIME_CONTROLLED_AUTH_TOKEN!r}. "
+            "Generic --execute alone is insufficient to authorize real-data processing."
+        )
+    if REAL_DATA_EXECUTION_ENABLED is not True:
+        raise RuntimeError(
+            "Global execution lock is disabled: REAL_DATA_EXECUTION_ENABLED = False. "
+            "This is a compile-time safety lock; do not enable without independent review."
+        )
+
+
+def _validate_pre_pdal(
+    laz_path: Path,
+    out_dir: Path,
+    controlled_auth_token: str | None,
+) -> None:
+    """Master pre-PDAL validation gate for direct runtime invocation.
+
+    All checks execute and must pass before PDAL processes any data. Order:
+      1. source contract  — CRS, XY units, Z units, conversion factor, processed CRS
+      2. builder integrity — all three step builders, stage ordering, processed CRS
+      3. source path safety — no traversal, no symlink, approved root
+      4. output path safety — not T7, not production, no source overlap
+      5. execution authorization — controlled token + global execution lock
+    """
+    _validate_source_contract(
+        _MIAMI_SOURCE_HORIZONTAL_CRS,
+        _MIAMI_SOURCE_VERTICAL_CRS,
+        _MIAMI_SOURCE_Z_UNITS,
+        _Z_TO_METERS_FACTOR,
+        source_xy_units=_MIAMI_SOURCE_XY_UNITS,
+        processed_horizontal_crs=_MIAMI_PROCESSED_HORIZONTAL_CRS,
+    )
+    _validate_runtime_builder_integrity(laz_path)
+    _validate_source_path(laz_path)
+    _validate_output_path(out_dir)
+    _validate_execution_authorization(controlled_auth_token)
 
 
 _PLY_TYPES: dict[str, tuple[str, str]] = {
@@ -878,6 +1082,8 @@ def main() -> int:
     laz_path = out_dir = None
     stages   = ALL_STAGES[:]
     resume   = "--resume" in args
+    execute  = "--execute" in args
+    controlled_auth_token: str | None = None
 
     i = 0
     while i < len(args):
@@ -890,15 +1096,60 @@ def main() -> int:
             i += 1
             while i < len(args) and not args[i].startswith("--"):
                 stages.append(args[i]); i += 1
+        elif args[i] == "--controlled-execution-authorization" and i + 1 < len(args):
+            controlled_auth_token = args[i + 1]; i += 2
         else:
             i += 1
 
     if not laz_path or not out_dir:
-        print("Usage: run_tile_miami.py --laz <path> --out <dir> [--stages ...] [--resume]")
+        print(
+            "Usage: run_tile_miami.py --laz <path> --out <dir>\n"
+            "  [--execute --controlled-execution-authorization TOKEN]\n"
+            "  [--stages ...] [--resume]\n"
+            "\n"
+            "Without --execute: dry-run (validates source contract and builders; no PDAL).\n"
+            "With --execute: requires controlled authorization token and "
+            "REAL_DATA_EXECUTION_ENABLED=True."
+        )
         return 1
+
+    if not execute:
+        # Dry-run: validate source contract and builder integrity without invoking PDAL.
+        # Source file need not exist for dry-run planning.
+        print(f"[dry-run] Miami tile runtime: {laz_path} -> {out_dir}")
+        print(f"[dry-run] stages: {stages}")
+        try:
+            _validate_source_contract(
+                _MIAMI_SOURCE_HORIZONTAL_CRS,
+                _MIAMI_SOURCE_VERTICAL_CRS,
+                _MIAMI_SOURCE_Z_UNITS,
+                _Z_TO_METERS_FACTOR,
+                source_xy_units=_MIAMI_SOURCE_XY_UNITS,
+                processed_horizontal_crs=_MIAMI_PROCESSED_HORIZONTAL_CRS,
+            )
+            _validate_runtime_builder_integrity(laz_path)
+        except RuntimeError as exc:
+            print(f"[dry-run] VALIDATION FAILURE: {exc}", file=sys.stderr)
+            return 1
+        print("[dry-run] Source contract OK. Builder integrity OK.")
+        print(
+            "[dry-run] Pass --execute with "
+            f"--controlled-execution-authorization {_RUNTIME_CONTROLLED_AUTH_TOKEN} "
+            "to process real data."
+        )
+        return 0
+
+    # Execute mode: file must exist before attempting pre-PDAL gate.
     if not laz_path.exists():
         print(f"ERROR: LAZ not found: {laz_path}", file=sys.stderr)
         return 1
+
+    # Pre-PDAL gate: all validators must pass before any PDAL processing.
+    try:
+        _validate_pre_pdal(laz_path, out_dir, controlled_auth_token)
+    except RuntimeError as exc:
+        print(f"REFUSING: {exc}", file=sys.stderr)
+        return 2
 
     return run_tile(laz_path, out_dir, stages, resume=resume)
 
