@@ -226,3 +226,88 @@ These two files have local changes that are intentionally uncommitted. Leave the
    - independent review before execution
 
 6. **Do not enable or run the real smoke** until all of the above are satisfied and independently reviewed.
+
+---
+
+## 2026-06-29 — Miami source contract, runtime Z-normalization, and controlled smoke harness release
+
+**Canonical repository:** aetherbeing/glytchdraft
+
+### Canonical baseline
+
+| | SHA |
+|---|---|
+| Previous baseline | `acd376a635ebe1488113d0f73d1667bc0050b5b5` |
+| Current origin/master | `1c9eec6edd99c870560f6cc0a4ee12e422556b85` |
+
+### Merged PRs (in order)
+
+| PR | Title | Approved head | Merge commit |
+|---|---|---|---|
+| #19 | fix: correct Miami LAZ source contract | `cd7c5a0c0b2bc56dfc50af8ceb5684688cdd1fb1` | `269c67c` |
+| #20 | fix: normalize Miami runtime Z before metric semantics | `8bfc0225d0d6aeb39b0df38924e0f64ecd0b794c` | `c5b7166` |
+| #21 | fix: prove Miami smoke runtime normalization | `ea0162901993d1060bfdd510188f8b6d97616fff` | `748ca25` |
+| #22 | docs: record Miami controlled smoke rereview | `507b058e61fa71316e67ce3cc0a653c8aa05ca09` | `1c9eec6` |
+
+### What merged
+
+**PR #19 — Miami LAZ source contract**
+
+- `configs/cities/miami.json`: source horizontal CRS corrected to EPSG:6438, vertical CRS EPSG:6360, XY/Z units US survey foot; explicit Z conversion factor 0.3048006096012192; normalization_stage_order declared. Address source CRS (EPSG:3857) preserved separately under pipeline_tunables.
+- `schemas/city_config.schema.json`: LAZ source contract fields added to city_config schema.
+- `scripts/phases/phase_common.py`: runtime validation of Miami source contract and stage order via validate_city_config_against_schema().
+- `tests/`: city config schema validation, runtime construction, and metric normalization v1 tests (426 insertions).
+
+**PR #20 — Runtime Z-normalization**
+
+- `scripts/miami/run_tile_miami.py`: exactly one `filters.assign` (Z = Z * 0.3048006096012192) inserted in building, ground, and vegetation PDAL builders after `filters.reprojection` and before HAG/range stages.
+- `scripts/miami/miami_city_config.py`: LAZ_SOURCE_CONTRACT declaration for runtime validators.
+- `tests/test_miami_runtime_z_normalization.py`: 327-line test suite (434 insertions).
+
+**PR #21 — Controlled smoke harness + runtime-proof gate**
+
+Three commits (012464a → 07d54fb → ea01629):
+- Controlled two-tile smoke harness with input allowlist, source hash verification, /tmp isolation, T7 read-only enforcement, authorization gate.
+- Schema uniqueItems, custom validator field checks, discover-root symlink handling, direct runtime builder tests.
+- Production runtime-proof gate: harness imports and validates actual run_tile_miami.py builders before authorizing execution; refuses when runtime_normalization_errors is non-empty. Authorization requires MIAMI_CONTROLLED_SMOKE_AUTHORIZED token, CONDITIONAL_GO/GO status, and REAL_DATA_EXECUTION_ENABLED=True (currently False).
+
+**PR #22 — Independent rereview**
+
+Second independent adversarial review by fresh Instance 4. Reviewed HEAD: ea01629.
+Decision: **GO with conditions** for controlled-smoke dry-run/harness hardening.
+- P0: None. Original NO-GO blocker (runtime builder path missing Z assign) is repaired.
+- P1-01 (open, non-blocking): Agnostic Phase 03 extraction ignores Miami Z contract; blocks Phase 03 real execution.
+- P2-01 (open, non-blocking): direct run_tile_miami.py invocation does not self-validate before PDAL.
+- Test result at review: 800 passed, 5 failed (NOLA environment-only).
+
+### Merged-state validation
+
+- 802 passed, 1 failed (NOLA boundary file missing — environment-specific, unchanged file).
+- Harness imports cleanly; REAL_DATA_EXECUTION_ENABLED confirmed False.
+- All four reviewed SHAs confirmed ancestors of origin/master.
+
+### Safety and readiness state
+
+- `REAL_DATA_EXECUTION_ENABLED` remains `False`.
+- `MIAMI_CONTROLLED_SMOKE_AUTHORIZED` is not set.
+- `--execute` still requires authorization token; dry-run path is available.
+- No real Miami smoke was executed.
+- No production assets were regenerated.
+- No city readiness classification changed.
+- Historical Miami/Bikini outputs remain uncertified.
+- No writes to `/mnt/t7`.
+
+### Open tracked items (non-blocking for this release)
+
+- **P1-01**: `scripts/phases/phase_03_extract.py` does not consume Miami LAZ Z contract; blocks agnostic Miami Phase 03 real execution. Requires separate tracked fix before Phase 03 Miami execution.
+- **P2-01**: `scripts/miami/run_tile_miami.py` production path does not call self-validators before PDAL; should be remediated before general or direct runtime invocation outside the harness gate.
+
+### Next milestone — Phase 03 Z-contract gap and footprint license resolution
+
+1. **Teach Phase 03 to consume `LAZ_SOURCE_CONTRACT`** for governed cities and insert/validate the same assign stage before metric-Z stages.
+
+2. **Confirm Miami footprint license status** to clear the production gate (`footprint_source_detail.license = open_data_terms_unconfirmed`, `production_allowed = false`).
+
+3. **Only after license confirmation and Phase 03 fix**, consider issuing the controlled smoke authorization token and enabling `REAL_DATA_EXECUTION_ENABLED`.
+
+4. **Controlled smoke remains dry-run-only** until explicit authorization is issued and independently reviewed.
