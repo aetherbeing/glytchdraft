@@ -21,7 +21,40 @@ GATE_ENV = "MIAMI_METRIC_NORMALIZATION_V1"
 SCHEMA_VERSION = "miami_metric_normalization_smoke.v1"
 REAL_DATA_EXECUTION_ENABLED = False
 
+T7_MOUNT = Path("/mnt/t7")
+
+# Second authorization gate — generic --execute alone is insufficient.
+# All of: exact tile allowlist, canonical paths, exact hashes, read-only T7,
+# isolated /tmp output, and this token must be satisfied before execution.
+CONTROLLED_SMOKE_AUTH_TOKEN = "MIAMI_CONTROLLED_SMOKE_AUTHORIZED"
+
+CONTROLLED_SMOKE_ALLOWLIST: dict[str, dict[str, Any]] = {
+    "318155": {
+        "canonical_path": Path(
+            "/mnt/t7/miami/data_raw/laz/USGS_LPC_FL_MiamiDade_D23_LID2024_318155_0901.laz"
+        ),
+        "sha256": "0b770a89deb58b1ab0ed2c75848e401d6bd8b1aea72dfe63b272747bf1f40095",
+    },
+    "318455": {
+        "canonical_path": Path(
+            "/mnt/t7/miami/data_raw/laz/USGS_LPC_FL_MiamiDade_D23_LID2024_318455_0901.laz"
+        ),
+        "sha256": "dfa514ff43232c5a9914a08e30cec111c3e7cadab1216576107d30fb5ace8816",
+    },
+}
+
+_EXPECTED_SOURCE_HORIZONTAL_CRS = "EPSG:6438"
+_EXPECTED_SOURCE_VERTICAL_CRS = "EPSG:6360"
+_EXPECTED_SOURCE_UNIT = "US survey foot"
+_EXPECTED_PROCESSED_HORIZONTAL_CRS = "EPSG:32617"
+_EXPECTED_Z_FACTOR = 0.3048006096012192
+
+# Runtime pipeline normalization constants — must match run_tile_miami.py exactly.
+_RUNTIME_ASSIGN_TYPE = "filters.assign"
+_RUNTIME_ASSIGN_VALUE = "Z = Z * 0.3048006096012192"
+
 CANONICAL_OUTPUT_ROOTS = (
+    T7_MOUNT,
     Path("/mnt/t7/miami/data_processed"),
     Path("/mnt/t7/miami/data_processed/miami_city"),
     Path("/mnt/t7/miami/data_processed/miami"),
@@ -184,6 +217,257 @@ def validate_path_safety(output_root: Path, inputs: dict[str, Path]) -> list[str
     return errors
 
 
+def _has_disallowed_symlink_component(
+    caller_path: Path,
+    canonical_path: Path,
+) -> str | None:
+    """
+    Walk every existing path component of caller_path checking for symlinks.
+
+    Symlinked components that appear at exactly the same prefix position in
+    canonical_path and are also symlinks there are permitted — they represent
+    shared filesystem-level mount symlinks (e.g. /mnt/t7) rather than
+    caller-introduced aliases.
+
+    Returns the first offending component as a string, or None if clean.
+    """
+    caller_parts = caller_path.parts
+    canonical_parts = canonical_path.parts
+
+    for depth in range(1, len(caller_parts) + 1):
+        component = Path(*caller_parts[:depth])
+        if not component.is_symlink():
+            continue
+        # A symlink exists at this depth in the caller path.
+        # Check whether the canonical path has the same prefix at this depth
+        # and that prefix is also a symlink (shared filesystem symlink — OK).
+        if (
+            depth <= len(canonical_parts)
+            and caller_parts[:depth] == canonical_parts[:depth]
+            and Path(*canonical_parts[:depth]).is_symlink()
+        ):
+            continue
+        return str(component)
+
+    return None
+
+
+def validate_controlled_smoke_inputs(
+    inputs: dict[str, Path],
+    *,
+    allowlist: dict[str, dict] | None = None,
+) -> list[str]:
+    """Enforce the controlled two-tile allowlist: IDs, canonical paths, presence, hashes."""
+    al: dict[str, dict] = allowlist if allowlist is not None else CONTROLLED_SMOKE_ALLOWLIST
+    errors: list[str] = []
+
+    allowed_ids = set(al.keys())
+    provided_ids = set(inputs.keys())
+    for tid in sorted(provided_ids - allowed_ids):
+        errors.append(f"tile not in controlled smoke allowlist: {tid!r}")
+    for tid in sorted(allowed_ids - provided_ids):
+        errors.append(f"allowlisted tile not provided: {tid!r}")
+    if errors:
+        return errors
+
+    for tile_id in sorted(inputs.keys()):
+        path = inputs[tile_id]
+        entry = al[tile_id]
+        canonical: Path = entry["canonical_path"]
+        expected_sha: str = entry["sha256"]
+
+        try:
+            resolved = path.resolve()
+        except Exception as exc:
+            errors.append(f"tile {tile_id}: cannot resolve path {path}: {exc}")
+            continue
+
+        canonical_resolved = canonical.resolve()
+        if resolved != canonical_resolved:
+            errors.append(
+                f"tile {tile_id}: path does not resolve to canonical source "
+                f"(expected {canonical_resolved}, got {resolved})"
+            )
+            continue
+
+        if not path.exists():
+            errors.append(f"tile {tile_id}: canonical source file not found: {path}")
+            continue
+
+        actual_sha = sha256_file(path)
+        if actual_sha != expected_sha:
+            errors.append(
+                f"tile {tile_id}: SHA-256 mismatch "
+                f"(expected {expected_sha}, got {actual_sha})"
+            )
+
+    return errors
+
+
+def check_t7_read_only(
+    t7_mount: Path = T7_MOUNT,
+    *,
+    _proc_mounts: Path | None = None,
+) -> list[str]:
+    """Return errors if /mnt/t7 is not mounted read-only or is absent."""
+    errors: list[str] = []
+    if not t7_mount.exists():
+        errors.append(f"T7 mount point not present: {t7_mount}")
+        return errors
+
+    proc_mounts = _proc_mounts if _proc_mounts is not None else Path("/proc/mounts")
+    try:
+        content = proc_mounts.read_text(encoding="utf-8")
+    except OSError as exc:
+        errors.append(f"cannot read {proc_mounts}: {exc}")
+        return errors
+
+    t7_str = str(t7_mount).rstrip("/")
+    for line in content.splitlines():
+        parts = line.split()
+        if len(parts) >= 4 and parts[1] == t7_str:
+            options = parts[3].split(",")
+            if "ro" in options:
+                return []
+            errors.append(
+                f"T7 mount {t7_mount} is not read-only (mount options: {parts[3]})"
+            )
+            return errors
+
+    errors.append(f"T7 mount {t7_mount} not found in {proc_mounts}")
+    return errors
+
+
+def _validate_step_builder_normalization(mode: str, steps: list[dict]) -> list[str]:
+    """Validate Z normalization correctness in one PDAL step sequence.
+
+    Checks: exactly one filters.assign, exact factor, positioned after
+    filters.reprojection and before filters.hag_nn and filters.range.
+
+    Returns error strings; empty list means valid.
+    """
+    errors: list[str] = []
+    types = [s.get("type", "") for s in steps]
+
+    assign_count = types.count(_RUNTIME_ASSIGN_TYPE)
+    if assign_count == 0:
+        errors.append(
+            f"run_tile_miami {mode}: filters.assign Z normalization stage is absent — "
+            "source Z is US survey feet and all metric operations will be incorrect"
+        )
+        return errors
+    if assign_count > 1:
+        errors.append(
+            f"run_tile_miami {mode}: {assign_count} filters.assign stages found — "
+            "Z must be converted exactly once"
+        )
+        return errors
+
+    assign_idx = types.index(_RUNTIME_ASSIGN_TYPE)
+    value = steps[assign_idx].get("value", "")
+    if value != _RUNTIME_ASSIGN_VALUE:
+        errors.append(
+            f"run_tile_miami {mode}: filters.assign value {value!r} != "
+            f"expected {_RUNTIME_ASSIGN_VALUE!r}"
+        )
+
+    if "filters.reprojection" in types:
+        reproj_idx = types.index("filters.reprojection")
+        if reproj_idx >= assign_idx:
+            errors.append(
+                f"run_tile_miami {mode}: filters.assign must appear after "
+                "filters.reprojection — horizontal reprojection does not normalize Z"
+            )
+
+    if "filters.hag_nn" in types:
+        hag_idx = types.index("filters.hag_nn")
+        if assign_idx >= hag_idx:
+            errors.append(
+                f"run_tile_miami {mode}: filters.assign must appear before "
+                "filters.hag_nn — HAG computation requires metric Z values"
+            )
+
+    if "filters.range" in types:
+        rng_idx = types.index("filters.range")
+        if assign_idx >= rng_idx:
+            errors.append(
+                f"run_tile_miami {mode}: filters.assign must appear before "
+                "filters.range — range filter applies metric Z thresholds"
+            )
+
+    return errors
+
+
+def validate_runtime_pipeline_normalization(
+    *,
+    _step_builders: dict | None = None,
+) -> list[str]:
+    """Import run_tile_miami and validate Z normalization in all three PDAL step builders.
+
+    This is the process-boundary gate: it inspects the same module and functions
+    that the harness subprocess commands target, proving at the harness level that
+    the actual runtime pipeline is correctly normalized before authorization is granted.
+
+    Returns error strings; empty list means validation passed.
+
+    _step_builders is a testing seam: a dict mapping 'building'/'ground'/'vegetation'
+    to zero-arg callables that return step-dict lists. When None (the default),
+    the real run_tile_miami module is imported from scripts/miami/.
+    """
+    if _step_builders is None:
+        try:
+            import importlib
+            miami_dir = str(REPO_ROOT / "scripts" / "miami")
+            if miami_dir not in sys.path:
+                sys.path.insert(0, miami_dir)
+            for name in ("run_tile_miami", "miami_city_config"):
+                sys.modules.pop(name, None)
+            rtm = importlib.import_module("run_tile_miami")
+        except ImportError as exc:
+            return [
+                f"cannot import run_tile_miami for runtime pipeline validation ({exc}); "
+                "controlled smoke cannot be authorized without runtime proof"
+            ]
+        dummy = Path("__dummy__.laz")
+        _step_builders = {
+            "building": lambda: rtm._building_steps(dummy, 1.0),
+            "ground": lambda: rtm._ground_steps(dummy, 1.0),
+            "vegetation": lambda: rtm._vegetation_steps(dummy, 1.0),
+        }
+
+    errors: list[str] = []
+    for mode, builder in sorted(_step_builders.items()):
+        try:
+            steps = builder()
+        except Exception as exc:
+            errors.append(f"run_tile_miami {mode} step builder raised: {exc}")
+            continue
+        errors.extend(_validate_step_builder_normalization(mode, steps))
+    return errors
+
+
+def build_controlled_smoke_preflight(
+    inputs: dict[str, Path],
+    output_root: Path,
+) -> dict[str, Any]:
+    """Collect all controlled smoke preflight results for manifest and gate checks."""
+    al = CONTROLLED_SMOKE_ALLOWLIST
+    input_errors = validate_controlled_smoke_inputs(inputs)
+    t7_errors = check_t7_read_only()
+    runtime_errors = validate_runtime_pipeline_normalization()
+    return {
+        "allowlist_tile_ids": sorted(al.keys()),
+        "allowlist_canonical_paths": {
+            tid: str(entry["canonical_path"]) for tid, entry in sorted(al.items())
+        },
+        "t7_mount": str(T7_MOUNT),
+        "input_errors": input_errors,
+        "t7_errors": t7_errors,
+        "runtime_normalization_errors": runtime_errors,
+        "all_clear": not input_errors and not t7_errors and not runtime_errors,
+    }
+
+
 def command_record(label: str, argv: list[str], *, runnable: bool) -> dict[str, Any]:
     return {
         "label": label,
@@ -227,16 +511,35 @@ def _contract_hashes(source_contract: dict[str, Any]) -> dict[str, str]:
 
 def provenance_findings(source_contract: dict[str, Any], input_records: list[dict[str, Any]] | None = None) -> list[dict[str, str]]:
     findings: list[dict[str, str]] = []
+    _absent = (None, "", "unknown", "unconfirmed")
     for key in REQUIRED_PROVENANCE_KEYS:
-        if source_contract.get(key) in (None, "", "unknown", "unconfirmed"):
+        if source_contract.get(key) in _absent:
             findings.append({"severity": "blocker", "code": "missing_provenance", "field": key})
+
     factor = source_contract.get("z_conversion_factor")
     if factor is not None:
         try:
-            if not math.isfinite(float(factor)):
+            fval = float(factor)
+            if not math.isfinite(fval):
                 findings.append({"severity": "blocker", "code": "invalid_z_conversion_factor", "field": "z_conversion_factor"})
+            elif fval != _EXPECTED_Z_FACTOR:
+                findings.append({"severity": "blocker", "code": "wrong_z_conversion_factor", "field": "z_conversion_factor"})
         except (TypeError, ValueError):
             findings.append({"severity": "blocker", "code": "invalid_z_conversion_factor", "field": "z_conversion_factor"})
+
+    # Validate exact expected values when field is present but not absent-sentinel
+    _crs_unit_checks = (
+        ("source_horizontal_crs", _EXPECTED_SOURCE_HORIZONTAL_CRS, "wrong_source_horizontal_crs"),
+        ("source_vertical_crs", _EXPECTED_SOURCE_VERTICAL_CRS, "wrong_source_vertical_crs"),
+        ("source_horizontal_unit", _EXPECTED_SOURCE_UNIT, "wrong_source_horizontal_unit"),
+        ("source_vertical_unit", _EXPECTED_SOURCE_UNIT, "wrong_source_vertical_unit"),
+        ("processed_horizontal_crs", _EXPECTED_PROCESSED_HORIZONTAL_CRS, "wrong_processed_horizontal_crs"),
+    )
+    for field, expected, code in _crs_unit_checks:
+        actual = source_contract.get(field)
+        if actual not in _absent and actual != expected:
+            findings.append({"severity": "blocker", "code": code, "field": field})
+
     if source_contract.get("xy_reprojection_converts_z") is not False:
         findings.append(
             {
@@ -314,7 +617,13 @@ def collect_output_hashes(output_root: Path, *, exclude: set[Path] | None = None
     return hashes
 
 
-def build_manifest(args: argparse.Namespace, inputs: dict[str, Path], output_root: Path) -> dict[str, Any]:
+def build_manifest(
+    args: argparse.Namespace,
+    inputs: dict[str, Path],
+    output_root: Path,
+    *,
+    controlled_smoke_preflight: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     source_contract = load_source_contract(args.source_contract)
     input_records = [
         {
@@ -373,6 +682,10 @@ def build_manifest(args: argparse.Namespace, inputs: dict[str, Path], output_roo
         ]
     )
     findings = provenance_findings(source_contract, input_records)
+    cs_active = bool(getattr(args, "controlled_smoke", False))
+    cs_auth_provided = (
+        getattr(args, "controlled_smoke_authorization", None) == CONTROLLED_SMOKE_AUTH_TOKEN
+    )
     return {
         "schema_version": SCHEMA_VERSION,
         "created_at": utc_now(),
@@ -386,6 +699,12 @@ def build_manifest(args: argparse.Namespace, inputs: dict[str, Path], output_roo
             "status": args.release_status,
             "real_data_execution_enabled": REAL_DATA_EXECUTION_ENABLED,
             "blocked_until": "Instance 1 and Instance 2 resolve the authoritative contract and return at least CONDITIONAL GO.",
+        },
+        "controlled_smoke": {
+            "active": cs_active,
+            "authorization_provided": cs_auth_provided,
+            "auth_token_name": CONTROLLED_SMOKE_AUTH_TOKEN,
+            "preflight": controlled_smoke_preflight,
         },
         "git": git_state(),
         "environment": selected_environment(),
@@ -467,6 +786,38 @@ def execute_if_released(args: argparse.Namespace, manifest: dict[str, Any]) -> i
     if manifest["provenance_findings"]:
         print("REFUSING: source contract provenance findings are unresolved", file=sys.stderr)
         return 2
+    # Controlled smoke second authorization gate.
+    # Generic --execute alone is insufficient; all conditions below must hold.
+    cs = manifest.get("controlled_smoke", {})
+    if cs.get("active"):
+        if not cs.get("authorization_provided"):
+            print(
+                f"REFUSING: --controlled-smoke-authorization {CONTROLLED_SMOKE_AUTH_TOKEN!r} "
+                "is required for controlled smoke execution; --execute alone is insufficient",
+                file=sys.stderr,
+            )
+            return 2
+        preflight = cs.get("preflight") or {}
+        if preflight.get("input_errors"):
+            print("REFUSING: controlled smoke input validation failed", file=sys.stderr)
+            return 2
+        if preflight.get("t7_errors"):
+            print(
+                "REFUSING: T7 mount is not read-only — "
+                + "; ".join(preflight["t7_errors"]),
+                file=sys.stderr,
+            )
+            return 2
+        if preflight.get("runtime_normalization_errors"):
+            print(
+                "REFUSING: runtime pipeline normalization validation failed — "
+                "the subprocess target (run_tile_miami.py) does not have correct "
+                "Z normalization in one or more PDAL step builders:",
+                file=sys.stderr,
+            )
+            for err in preflight["runtime_normalization_errors"]:
+                print(f"  {err}", file=sys.stderr)
+            return 2
     if REAL_DATA_EXECUTION_ENABLED is not True:
         print("REFUSING: real-data execution is disabled for this harness revision", file=sys.stderr)
         return 2
@@ -491,11 +842,60 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--release-status", default="BLOCKED", choices=["BLOCKED", "CONDITIONAL_GO", "GO"])
     parser.add_argument("--building-characteristics-validator", type=Path, default=REPO_ROOT / "scripts" / "diagnostics" / "building_characteristics_validator.py")
     parser.add_argument("--execute", action="store_true", help="Run real-data commands after all gates pass")
+    parser.add_argument(
+        "--controlled-smoke",
+        action="store_true",
+        help=(
+            "Activate controlled smoke mode: enforce exact two-tile allowlist "
+            "(318155, 318455), canonical paths, SHA-256 hashes, and T7 read-only check"
+        ),
+    )
+    parser.add_argument(
+        "--controlled-smoke-authorization",
+        default=None,
+        dest="controlled_smoke_authorization",
+        metavar="TOKEN",
+        help=(
+            f"Second authorization gate required for controlled smoke execution. "
+            f"Must equal {CONTROLLED_SMOKE_AUTH_TOKEN!r}. "
+            "Generic --execute alone is insufficient."
+        ),
+    )
     args = parser.parse_args(argv)
 
     try:
         if args.tile and args.tile_id:
             raise ValueError("use either explicit --tile mappings or --tile-id with --discover-root, not both")
+
+        # Controlled smoke: inspect every path component for symlinks before
+        # resolve_existing() follows them.  Symlinks shared with the canonical
+        # path (e.g. a filesystem-level /mnt/t7 mount symlink) are permitted;
+        # all other symlink components are caller-introduced aliases and are
+        # rejected regardless of where they ultimately resolve.
+        if args.controlled_smoke and args.tile:
+            al = CONTROLLED_SMOKE_ALLOWLIST
+            for tile_id, raw_path in args.tile:
+                canonical = al.get(tile_id, {}).get("canonical_path", Path("/nonexistent_canonical"))
+                offending = _has_disallowed_symlink_component(raw_path, canonical)
+                if offending is not None:
+                    raise ValueError(
+                        f"tile {tile_id}: caller-supplied path contains a symlink "
+                        f"component at {offending!r}; "
+                        "canonical source must be accessed directly without symlinks"
+                    )
+
+        if args.controlled_smoke and args.tile_id and args.discover_root:
+            al = CONTROLLED_SMOKE_ALLOWLIST
+            for tile_id in args.tile_id:
+                canonical = al.get(tile_id, {}).get("canonical_path", Path("/nonexistent_canonical"))
+                offending = _has_disallowed_symlink_component(Path(args.discover_root), canonical)
+                if offending is not None:
+                    raise ValueError(
+                        f"tile {tile_id}: --discover-root contains a symlink component "
+                        f"at {offending!r}; "
+                        "canonical source must be accessed directly without symlinks"
+                    )
+
         if args.tile_id:
             if not args.discover_root:
                 raise ValueError("--discover-root is required with --tile-id")
@@ -508,7 +908,17 @@ def main(argv: list[str] | None = None) -> int:
         safety_errors = validate_path_safety(output_root, inputs)
         if safety_errors:
             raise ValueError("; ".join(safety_errors))
-        manifest = build_manifest(args, inputs, output_root)
+
+        cs_preflight: dict[str, Any] | None = None
+        if args.controlled_smoke:
+            cs_preflight = build_controlled_smoke_preflight(inputs, output_root)
+            if cs_preflight["input_errors"]:
+                raise ValueError(
+                    "controlled smoke input validation failed: "
+                    + "; ".join(cs_preflight["input_errors"])
+                )
+
+        manifest = build_manifest(args, inputs, output_root, controlled_smoke_preflight=cs_preflight)
         code = execute_if_released(args, manifest)
         write_reports(manifest, output_root)
         print(strict_json({"output_root": str(output_root), "dry_run": not args.execute, "returncode": code}, indent=None))

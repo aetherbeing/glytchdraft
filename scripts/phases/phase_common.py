@@ -883,6 +883,10 @@ def validate_laz_source_contract_payload(city_config: dict[str, Any]) -> list[st
             errors.append("Miami z_conversion.required must be true")
         if z_conversion.get("occurs_exactly_once") is not True:
             errors.append("Miami z_conversion.occurs_exactly_once must be true")
+        if z_conversion.get("stage") != "filters.assign":
+            errors.append("Miami z_conversion.stage must be 'filters.assign'")
+        if z_conversion.get("after_stage") != "filters.reprojection":
+            errors.append("Miami z_conversion.after_stage must be 'filters.reprojection'")
         if z_conversion.get("stage_value") != "Z = Z * 0.3048006096012192":
             errors.append("Miami z_conversion.stage_value has wrong Z conversion expression")
 
