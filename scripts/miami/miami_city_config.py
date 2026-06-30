@@ -207,3 +207,12 @@ CITY_TERRAIN_PLY     = BLENDER_ROOT / "miami_terrain_1m.ply"
 CITY_VEGETATION_PLY  = BLENDER_ROOT / "miami_vegetation_1m.ply"
 CITY_GLB             = BLENDER_ROOT / "miami_city.glb"
 CITY_GLB_OFFSET_JSON = BLENDER_ROOT / "miami_city_glb_offset.json"
+
+# ── LAZ source Z normalization contract ──────────────────────────────────────
+# FL_MiamiDade_D23 LID2024: EPSG:6438 horizontal, EPSG:6360 vertical.
+# XY and Z are in US survey foot. Reprojection to EPSG:32617 corrects XY only.
+# Z must be converted explicitly before HAG and any metric height semantics.
+SOURCE_HORIZONTAL_CRS: str = "EPSG:6438"
+SOURCE_VERTICAL_CRS: str   = "EPSG:6360"
+SOURCE_Z_UNITS: str        = "US survey foot"
+Z_TO_METERS_FACTOR: float  = 0.3048006096012192
