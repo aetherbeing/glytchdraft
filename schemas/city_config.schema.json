@@ -64,6 +64,7 @@
         "normalization_stage_order": {
           "type": "array",
           "minItems": 4,
+          "uniqueItems": true,
           "items": { "type": "string" },
           "contains": { "const": "filters.assign: Z = Z * 0.3048006096012192" }
         },

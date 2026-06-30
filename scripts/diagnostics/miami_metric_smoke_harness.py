@@ -760,6 +760,18 @@ def main(argv: list[str] | None = None) -> int:
                         "canonical source must be accessed directly without symlinks"
                     )
 
+        if args.controlled_smoke and args.tile_id and args.discover_root:
+            al = CONTROLLED_SMOKE_ALLOWLIST
+            for tile_id in args.tile_id:
+                canonical = al.get(tile_id, {}).get("canonical_path", Path("/nonexistent_canonical"))
+                offending = _has_disallowed_symlink_component(Path(args.discover_root), canonical)
+                if offending is not None:
+                    raise ValueError(
+                        f"tile {tile_id}: --discover-root contains a symlink component "
+                        f"at {offending!r}; "
+                        "canonical source must be accessed directly without symlinks"
+                    )
+
         if args.tile_id:
             if not args.discover_root:
                 raise ValueError("--discover-root is required with --tile-id")

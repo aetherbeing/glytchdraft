@@ -11,6 +11,8 @@ import json
 import sys
 from pathlib import Path
 
+import pytest
+
 REPO_ROOT = Path(__file__).resolve().parents[1]
 DIAG_DIR = REPO_ROOT / "scripts" / "diagnostics"
 sys.path.insert(0, str(DIAG_DIR))
@@ -875,3 +877,154 @@ def test_controlled_smoke_exactly_one_318155_and_one_318455_passes_dry_run(tmp_p
     assert tile_ids == {"318155", "318455"}
     assert m["controlled_smoke"]["preflight"]["input_errors"] == []
     assert m["dry_run"] is True
+
+
+# ─── P2-02: --tile-id + --discover-root symlink rejection ────────────────────
+
+def test_controlled_smoke_discover_root_symlink_rejected(tmp_path, monkeypatch):
+    """--discover-root path with a caller-introduced symlink component is rejected in controlled
+    smoke mode. The pre-resolution symlink check must apply to the discovery root, not only
+    to explicit --tile paths."""
+    allowlist, _ = _make_allowlist(tmp_path)
+    monkeypatch.setattr(harness, "CONTROLLED_SMOKE_ALLOWLIST", allowlist)
+    monkeypatch.setattr(harness, "check_t7_read_only", _t7_ro_mock)
+
+    real_dir = allowlist["318155"]["canonical_path"].parent
+    sym_root = tmp_path / "sym_discover_root"
+    sym_root.symlink_to(real_dir)
+
+    code = harness.main([
+        "--controlled-smoke",
+        "--output-root", str(tmp_path / "out"),
+        "--tile-id", "318155",
+        "--tile-id", "318455",
+        "--discover-root", str(sym_root),
+    ])
+
+    assert code == 2
+
+
+# ─── process boundary: subprocess target pipeline validation ──────────────────
+
+_EXPECTED_ASSIGN_VALUE = "Z = Z * 0.3048006096012192"
+
+
+def _import_run_tile_miami():
+    """Import run_tile_miami fresh; requires pdal to be installed (pdal_env)."""
+    pytest.importorskip("pdal")
+    import importlib
+    miami_scripts = REPO_ROOT / "scripts" / "miami"
+    if str(miami_scripts) not in sys.path:
+        sys.path.insert(0, str(miami_scripts))
+    for name in ("run_tile_miami", "miami_city_config"):
+        sys.modules.pop(name, None)
+    return importlib.import_module("run_tile_miami")
+
+
+def test_harness_command_argv_targets_run_tile_miami(tmp_path, monkeypatch):
+    """Per-tile commands in the harness manifest target run_tile_miami.py, not s01_extract.py.
+
+    Verifies the process boundary: the harness must invoke the city pipeline
+    (run_tile_miami.py), which now contains the Z normalization stage, not the
+    Bikini s01_extract.py pipeline which has separate normalization logic.
+    """
+    allowlist, _ = _make_allowlist(tmp_path)
+    monkeypatch.setattr(harness, "CONTROLLED_SMOKE_ALLOWLIST", allowlist)
+    monkeypatch.setattr(harness, "check_t7_read_only", _t7_ro_mock)
+    out = tmp_path / "out"
+
+    harness.main(["--controlled-smoke", "--output-root", str(out), *_tile_flags(allowlist)])
+
+    m = _manifest_at(out)
+    tile_cmds = [c for c in m["commands"] if c["label"] == "run_tile_miami"]
+    assert len(tile_cmds) == 2
+    for cmd in tile_cmds:
+        argv_str = " ".join(cmd["argv"])
+        assert "run_tile_miami.py" in argv_str
+        assert "s01_extract" not in argv_str
+
+
+def test_run_tile_miami_building_steps_has_exactly_one_assign_with_correct_factor():
+    """_building_steps() has exactly one filters.assign with the exact US survey foot factor.
+
+    Fails closed if the stage is missing, duplicated, or uses the wrong conversion constant.
+    """
+    rtm = _import_run_tile_miami()
+    steps = rtm._building_steps(Path("tile.laz"), 1.0)
+    types = [s["type"] for s in steps]
+
+    assert types.count("filters.assign") == 1, f"assign count: {types}"
+    assign_idx = types.index("filters.assign")
+    assert steps[assign_idx]["value"] == _EXPECTED_ASSIGN_VALUE
+
+
+def test_run_tile_miami_building_steps_z_normalization_ordering():
+    """filters.assign is after filters.reprojection and before filters.hag_nn and filters.range.
+
+    Ordering is the runtime contract: horizontal reprojection does not convert Z units,
+    so the explicit assign stage must intervene before any metric Z semantics.
+    """
+    rtm = _import_run_tile_miami()
+    types = [s["type"] for s in rtm._building_steps(Path("tile.laz"), 1.0)]
+
+    rep = types.index("filters.reprojection")
+    asgn = types.index("filters.assign")
+    hag = types.index("filters.hag_nn")
+    rng = types.index("filters.range")
+
+    assert rep < asgn, "Z conversion must be after XY reprojection"
+    assert asgn < hag, "Z conversion must be before HAG (HAG requires metric Z)"
+    assert asgn < rng, "Z conversion must be before Z range filter"
+
+
+def test_run_tile_miami_ground_steps_has_assign_with_correct_factor():
+    """_ground_steps() has exactly one filters.assign with the correct factor after reprojection.
+
+    Ground Z must be metric for height estimation (h90 - ground_z); a foot-valued
+    ground_z paired with a metric building Z produces wrong height deltas.
+    """
+    rtm = _import_run_tile_miami()
+    steps = rtm._ground_steps(Path("tile.laz"), 1.0)
+    types = [s["type"] for s in steps]
+
+    assert types.count("filters.assign") == 1, f"assign count in ground steps: {types}"
+    asgn = types.index("filters.assign")
+    assert steps[asgn]["value"] == _EXPECTED_ASSIGN_VALUE
+    assert types.index("filters.reprojection") < asgn
+
+
+def test_run_tile_miami_vegetation_steps_has_assign_with_correct_factor():
+    """_vegetation_steps() has exactly one filters.assign with the correct factor after reprojection.
+
+    Vegetation Z must be metric for completeness and future range-filter correctness.
+    """
+    rtm = _import_run_tile_miami()
+    steps = rtm._vegetation_steps(Path("tile.laz"), 1.0)
+    types = [s["type"] for s in steps]
+
+    assert types.count("filters.assign") == 1, f"assign count in vegetation steps: {types}"
+    asgn = types.index("filters.assign")
+    assert steps[asgn]["value"] == _EXPECTED_ASSIGN_VALUE
+    assert types.index("filters.reprojection") < asgn
+
+
+def test_run_tile_miami_reprojection_does_not_substitute_for_z_normalization():
+    """filters.reprojection targets horizontal EPSG:32617 only; filters.assign is the
+    exclusive Z normalization mechanism.
+
+    Horizontal reprojection between EPSG:6438 and EPSG:32617 does not convert Z units.
+    Both stages must co-exist: reprojection for XY, assign for Z.
+    """
+    rtm = _import_run_tile_miami()
+    steps = rtm._building_steps(Path("tile.laz"), 1.0)
+
+    rep_step = next(s for s in steps if s["type"] == "filters.reprojection")
+    assert "32617" in rep_step.get("out_srs", ""), (
+        f"reprojection must target UTM 17N (EPSG:32617), got {rep_step.get('out_srs')!r}"
+    )
+
+    types = [s["type"] for s in steps]
+    assert "filters.assign" in types, (
+        "filters.assign must exist as the explicit Z normalization stage; "
+        "reprojection alone does not convert Z from US survey feet to metres"
+    )
