@@ -327,6 +327,7 @@ Exact future command shape (`<FRESH_UTC_TIMESTAMP>` is the only unresolved value
 resolved by Step 9 into `$OUTPUT_ROOT`):
 
 ```bash
+MIAMI_METRIC_NORMALIZATION_V1=1 \
 /home/gytchdrafter/miniconda3/envs/pdal_env/bin/python \
   scripts/diagnostics/miami_metric_smoke_harness.py \
   --controlled-smoke \
@@ -344,18 +345,9 @@ Step 11's authorization wording must reproduce exactly, with
 `<FRESH_UTC_TIMESTAMP>` resolved to the concrete value from Step 9. Constructing,
 printing, or reviewing this command does not grant permission to run it.
 
-**Known precondition gap — read before relying on this command shape.** As of the
-canonical SHA recorded in this runbook, `execute_if_released()` in
-`scripts/diagnostics/miami_metric_smoke_harness.py` unconditionally refuses
-`--execute` (`return 2`) unless the environment variable
-`MIAMI_METRIC_NORMALIZATION_V1=1` is set, independent of `--controlled-smoke`. The
-command shape above does not set that variable. A future operator must re-check
-`execute_if_released()` and `manifest["feature_gate"]["enabled"]` at execution time
-and resolve this gap (for example, confirming with the user whether the env var
-should be prefixed onto the command, or whether the gate has since been removed)
-before assuming this exact command shape will succeed. This is recorded as an
-unresolved blocker in the final report below; it is not silently corrected here
-because the mission for this document fixes the command shape verbatim.
+`MIAMI_METRIC_NORMALIZATION_V1=1` is required and must remain prefixed on the
+authorized command. A command that omits this environment variable is not the
+reviewed controlled-smoke command and must not be executed.
 
 Record start and end timestamps (UTC) immediately before invoking and immediately
 after the process exits:
