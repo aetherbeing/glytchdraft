@@ -1,0 +1,187 @@
+{
+  "_NOTICE": "SYNTHETIC EXAMPLE ONLY — NOT REAL DATA. All city/tile/run identifiers, hashes, URIs, registry refs, and point counts are placeholders. This file does not reference real T7 paths, real Miami LAZ files, or restricted footprint data. It exists to validate against schemas/atlantid_tile_asset_manifest.schema.json. contract_status is CANDIDATE: this contract has not completed a controlled smoke test or determinism comparison and must not be treated as frozen. production_allowed is false and hard-locked while CANDIDATE.",
+  "schema_version": "glytchos.atlantid_tile_asset_manifest.v1",
+  "atlantid_contract_version": "v1",
+  "contract_status": "CANDIDATE",
+  "city_id": "synthetic_demo_city",
+  "tile_id": "SYNTHETIC_TILE_0000",
+  "tile_scope": {
+    "explicit_single_tile": true,
+    "tile_id_confirmation": "SYNTHETIC_TILE_0000",
+    "city_wide_scope": false
+  },
+  "run_id": "atlantid-demo-2026-01-01-001",
+  "repository_commit_sha": "000000000000000000000000000000000000000a",
+  "pipeline_version": "atlantid_demo_pipeline_v1",
+  "created_at": "2026-01-01T00:00:00Z",
+  "registries": {
+    "source_registry": {
+      "uri": "synthetic/registries/source_registry.json",
+      "sha256": "111111111111111111111111111111111111111111111111111111111111111a"
+    },
+    "method_registry": {
+      "uri": "synthetic/registries/method_registry.json",
+      "sha256": "222222222222222222222222222222222222222222222222222222222222222b"
+    },
+    "validation_registry": {
+      "uri": "synthetic/registries/validation_registry.json",
+      "sha256": "333333333333333333333333333333333333333333333333333333333333333c"
+    },
+    "license_registry": {
+      "uri": "synthetic/registries/license_registry.json",
+      "sha256": "444444444444444444444444444444444444444444444444444444444444444d"
+    },
+    "runtime_registry": {
+      "uri": "synthetic/registries/runtime_registry.json",
+      "sha256": "555555555555555555555555555555555555555555555555555555555555555e"
+    }
+  },
+  "source": {
+    "laz": {
+      "uri": "synthetic/laz/SYNTHETIC_TILE_0000/aaaa1111aaaa1111aaaa1111aaaa1111aaaa1111aaaa1111aaaa1111aaaa1111.laz",
+      "sha256": "aaaa1111aaaa1111aaaa1111aaaa1111aaaa1111aaaa1111aaaa1111aaaa1111",
+      "size_bytes": 104857600,
+      "point_count": 12500000,
+      "knowledge": {
+        "knowledge_status": "measured",
+        "method_ref": { "registry": "method_registry", "ref_id": "sha256_file_digest_v1" },
+        "evidence_refs": [{ "registry": "validation_registry", "ref_id": "laz_checksum_verified_v1" }],
+        "confidence": {
+          "scoring_model_ref": { "registry": "method_registry", "ref_id": "checksum_match_binary_v1" },
+          "score": 1.0,
+          "evidence_inputs": ["sha256_recompute_match"],
+          "calibration_status": "not_applicable",
+          "limitations": ["Binary match only; does not attest to upstream LiDAR survey accuracy."]
+        }
+      }
+    },
+    "crs_contract": {
+      "source_horizontal_crs": "EPSG:6438",
+      "source_vertical_crs": "EPSG:6360",
+      "source_xy_units": "US survey foot",
+      "source_z_units": "US survey foot",
+      "processed_horizontal_crs": "EPSG:32617",
+      "processed_xy_units": "meters",
+      "processed_z_units": "meters",
+      "z_conversion": {
+        "required": true,
+        "occurs_exactly_once": true,
+        "stage": "filters.assign",
+        "z_to_meters_factor": 0.3048006096012192,
+        "normalization_version": "atlantid_demo_normalization_v1"
+      }
+    },
+    "processing_bounds": {
+      "min": [500000.0, 2860000.0, -5.0],
+      "max": [500500.0, 2860500.0, 85.0]
+    },
+    "origin_strategy": {
+      "mode": "tile_local",
+      "local_origin": { "x": 500000.0, "y": 2860000.0, "z": 0.0 }
+    },
+    "data_sources": {
+      "lidar_only": false,
+      "footprints_contributed": true,
+      "addresses_contributed": false,
+      "footprint_source_ref": { "registry": "source_registry", "ref_id": "synthetic_open_city_footprint_v1" },
+      "address_source_ref": null
+    }
+  },
+  "outputs": {
+    "glb": {
+      "uri": "synthetic/runs/atlantid-demo-2026-01-01-001/tiles/SYNTHETIC_TILE_0000/bbbb2222bbbb2222bbbb2222bbbb2222bbbb2222bbbb2222bbbb2222bbbb2222.glb",
+      "sha256": "bbbb2222bbbb2222bbbb2222bbbb2222bbbb2222bbbb2222bbbb2222bbbb2222",
+      "size_bytes": 20480000,
+      "knowledge": {
+        "knowledge_status": "derived",
+        "method_ref": { "registry": "method_registry", "ref_id": "phase08_pack_glb_v1" },
+        "evidence_refs": [{ "registry": "validation_registry", "ref_id": "glb_checksum_verified_v1" }],
+        "confidence": {
+          "scoring_model_ref": { "registry": "method_registry", "ref_id": "checksum_match_binary_v1" },
+          "score": 1.0,
+          "evidence_inputs": ["sha256_recompute_match"],
+          "calibration_status": "not_applicable",
+          "limitations": ["Confirms output identity only, not visual/geometric correctness. See viewer_valid in publication."]
+        }
+      }
+    },
+    "companion_feature_table": {
+      "uri": "synthetic/runs/atlantid-demo-2026-01-01-001/tiles/SYNTHETIC_TILE_0000/structures_enriched.geojson",
+      "sha256": "cccc3333cccc3333cccc3333cccc3333cccc3333cccc3333cccc3333cccc3333",
+      "format": "geojson",
+      "building_count": 42,
+      "knowledge": {
+        "knowledge_status": "derived",
+        "method_ref": { "registry": "method_registry", "ref_id": "phase09_enrich_v1" },
+        "evidence_refs": [{ "registry": "validation_registry", "ref_id": "feature_table_checksum_verified_v1" }],
+        "confidence": {
+          "scoring_model_ref": { "registry": "method_registry", "ref_id": "checksum_match_binary_v1" },
+          "score": 1.0,
+          "evidence_inputs": ["sha256_recompute_match"],
+          "calibration_status": "not_applicable",
+          "limitations": ["Confirms output identity only; per-building footprint_provenance is recorded in the feature table itself, not restated here."]
+        }
+      }
+    },
+    "building_attribution": {
+      "building_id_namespace": "glytchdraft.phase06_building.v1",
+      "building_id_field": "building_id",
+      "glb_mapping_strategy": {
+        "strategy": "node_name_equals_building_id",
+        "building_id_field": "building_id",
+        "node_name_pattern": "bld_{tile_id}_{building_id}"
+      }
+    },
+    "point_counts": {
+      "ground": 4200000,
+      "building": 3100000,
+      "vegetation": 1800000
+    }
+  },
+  "transformation_lineage": [
+    {
+      "step": "filters.reprojection: source_horizontal_crs -> processed_horizontal_crs",
+      "method_ref": { "registry": "method_registry", "ref_id": "pdal_filters_reprojection_v1" },
+      "occurs_exactly_once": true
+    },
+    {
+      "step": "filters.assign: Z = Z * 0.3048006096012192",
+      "method_ref": { "registry": "method_registry", "ref_id": "atlantid_demo_normalization_v1" },
+      "occurs_exactly_once": true
+    },
+    {
+      "step": "phase08_pack_glb: tile mass export",
+      "method_ref": { "registry": "method_registry", "ref_id": "phase08_pack_glb_v1" },
+      "occurs_exactly_once": true
+    }
+  ],
+  "validation_results": [
+    {
+      "check_ref": { "registry": "validation_registry", "ref_id": "laz_checksum_verified_v1" },
+      "result": "pass",
+      "evidence_refs": [{ "registry": "source_registry", "ref_id": "synthetic_laz_input_v1" }]
+    },
+    {
+      "check_ref": { "registry": "validation_registry", "ref_id": "glb_node_building_id_identity_v1" },
+      "result": "pass",
+      "evidence_refs": [{ "registry": "method_registry", "ref_id": "phase08_pack_glb_v1" }]
+    }
+  ],
+  "qa": {
+    "status": "pass",
+    "warnings": []
+  },
+  "publication": {
+    "license_status": "needs_review",
+    "license_evidence_refs": [],
+    "engineering_valid": true,
+    "viewer_valid": false,
+    "publication_allowed": false,
+    "commercial_use_allowed": false,
+    "production_allowed": false,
+    "auto_publish_enabled": false,
+    "manual_publication_approved": false,
+    "manual_publication_approved_by": null,
+    "manual_publication_approved_at": null
+  }
+}
