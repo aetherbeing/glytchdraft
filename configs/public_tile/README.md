@@ -12,9 +12,9 @@ gate evidence.
 The actual GlitchOS viewer belongs in the separate `glytchOS` repository. This
 repository prepares the static artifacts and receipts that GlitchOS will consume.
 
-After the controlled smoke, determinism run, contract integration, and
-publication gates pass, insert the approved tile outputs into a package root and
-run:
+After the controlled smoke, determinism run, and publication gates pass, insert
+the approved tile outputs and the schema-valid
+`manifest/atlantid_tile_asset_manifest.json` into a package root and run:
 
 ```bash
 python scripts/validate_public_tile_package.py \

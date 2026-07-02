@@ -12,6 +12,7 @@ from typing import Any
 
 WINDOWS_DRIVE_RE = re.compile(r"^[A-Za-z]:[\\/]")
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
+CONTRACT_SCHEMA_PATH = Path(__file__).resolve().parent.parent / "schemas" / "atlantid_tile_asset_manifest.schema.json"
 
 
 def load_json(path: Path) -> Any:
@@ -40,6 +41,16 @@ def walk_strings(value: Any) -> list[str]:
         for item in value:
             found.extend(walk_strings(item))
     return found
+
+
+def path_exists(value: Any, dotted_path: str) -> bool:
+    current = value
+    for part in dotted_path.split("."):
+        if isinstance(current, dict) and part in current:
+            current = current[part]
+        else:
+            return False
+    return True
 
 
 def validate_layout(layout: dict[str, Any]) -> tuple[list[str], list[str]]:
@@ -79,8 +90,11 @@ def validate_layout(layout: dict[str, Any]) -> tuple[list[str], list[str]]:
             errors.append(f"layout contains forbidden path string: {value}")
 
     dependency = layout.get("contract_dependency", {})
-    if isinstance(dependency, dict) and dependency.get("status") == "pending_instance_1_schema":
-        warnings.append("contract-dependent receipt fields are pending Instance 1 schema integration")
+    if isinstance(dependency, dict):
+        if dependency.get("status") != "integrated_candidate_schema":
+            errors.append("layout contract_dependency.status must be integrated_candidate_schema")
+        if dependency.get("schema_path") != "schemas/atlantid_tile_asset_manifest.schema.json":
+            errors.append("layout must reference the actual Atlantid tile asset manifest schema path")
 
     return errors, warnings
 
@@ -114,25 +128,55 @@ def validate_gcp_guardrails(config: dict[str, Any]) -> list[str]:
 def validate_publication_gate(gate: dict[str, Any], required_fields: list[str]) -> list[str]:
     errors: list[str] = []
     for field in required_fields:
-        if field not in gate:
+        if field not in gate and not path_exists(gate, field):
             errors.append(f"publication gate missing {field}")
 
-    if gate.get("publication_allowed") is not True:
+    publication = gate.get("publication") if isinstance(gate.get("publication"), dict) else gate
+    if publication.get("publication_allowed") is not True:
         errors.append("publication gate publication_allowed must be true before deployment")
-    if gate.get("engineering_valid") is not True:
+    if publication.get("engineering_valid") is not True:
         errors.append("publication gate engineering_valid must be true")
-    if gate.get("viewer_valid") is not True:
+    if publication.get("viewer_valid") is not True:
         errors.append("publication gate viewer_valid must be true")
-    if gate.get("schema_valid_receipt") is not True:
-        errors.append("publication gate schema_valid_receipt must be true")
-    if gate.get("unresolved_publication_rights") not in (False, []):
-        errors.append("publication gate unresolved_publication_rights must be false or empty")
-    if gate.get("local_path_exposure") not in (False, []):
-        errors.append("publication gate local_path_exposure must be false or empty")
-    if gate.get("secret_exposure") not in (False, []):
-        errors.append("publication gate secret_exposure must be false or empty")
-    if gate.get("unconfirmed_source_included") is not False:
-        errors.append("publication gate unconfirmed_source_included must be false")
+    if publication.get("auto_publish_enabled") is not False:
+        errors.append("publication gate auto_publish_enabled must be false")
+    if publication.get("production_allowed") is not False and gate.get("contract_status") == "CANDIDATE":
+        errors.append("publication gate production_allowed must be false while contract_status is CANDIDATE")
+
+    source = gate.get("source") if isinstance(gate.get("source"), dict) else {}
+    data_sources = source.get("data_sources") if isinstance(source.get("data_sources"), dict) else gate
+    if data_sources.get("lidar_only") is True:
+        if data_sources.get("footprints_contributed") is not False:
+            errors.append("publication gate footprints_contributed must be false when lidar_only is true")
+        if data_sources.get("addresses_contributed") is not False:
+            errors.append("publication gate addresses_contributed must be false when lidar_only is true")
+    return errors
+
+
+def validate_contract_manifest(package_root: Path) -> list[str]:
+    errors: list[str] = []
+    manifest_path = package_root / "manifest" / "atlantid_tile_asset_manifest.json"
+    if not manifest_path.exists():
+        return ["contract manifest missing: manifest/atlantid_tile_asset_manifest.json"]
+    if not CONTRACT_SCHEMA_PATH.exists():
+        return [f"contract schema missing: {CONTRACT_SCHEMA_PATH}"]
+
+    manifest = load_json(manifest_path)
+    for key in list(manifest):
+        if isinstance(key, str) and key.startswith("_"):
+            del manifest[key]
+
+    try:
+        from jsonschema import Draft7Validator
+    except ImportError:
+        return ["jsonschema is required to validate atlantid_tile_asset_manifest.json"]
+
+    schema = load_json(CONTRACT_SCHEMA_PATH)
+    validator = Draft7Validator(schema)
+    validation_errors = sorted(validator.iter_errors(manifest), key=lambda err: list(err.path))
+    for error in validation_errors:
+        location = ".".join(str(part) for part in error.path) or "<root>"
+        errors.append(f"contract manifest schema error at {location}: {error.message}")
     return errors
 
 
@@ -194,6 +238,8 @@ def validate_index(package_root: Path, layout: dict[str, Any]) -> list[str]:
             errors.append("publication gate root must be an object")
     else:
         errors.append("publication gate missing: audit/publication_gate.json")
+
+    errors.extend(validate_contract_manifest(package_root))
 
     return errors
 

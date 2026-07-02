@@ -59,10 +59,10 @@ public-tile/
   index.json
   manifest/
     viewer_manifest.json
-    asset_manifest.json
+    atlantid_tile_asset_manifest.json
   receipts/
     tile_receipt.json
-    objects/<object_id>.json
+    objects/<building_id>.json
   geometry/
     tiles/<tile_id>.glb
   metadata/
@@ -116,35 +116,42 @@ values without converting them into confirmed language.
 
 ## Receipt Panel Candidate Mapping
 
-Instance 1 owns the candidate Atlantid evidence contract. No final schema is
-available in this branch at the time of this staging work. Until that schema is
-merged, these fields are an adapter target, not a frozen contract.
+The actual candidate contract is
+`schemas/atlantid_tile_asset_manifest.schema.json`, with `$id`
+`glytchos.atlantid_tile_asset_manifest.v1`. The package must include a
+schema-valid `manifest/atlantid_tile_asset_manifest.json`. Do not duplicate the
+schema into the package template; validate against the repository schema.
 
 Minimum visible fields:
 
 | Viewer label | Expected receipt source |
 |---|---|
-| Artifact ID | `artifact_id` |
 | Tile ID | `tile_id` |
-| Building or object ID | `object_id` or contract selection identity |
-| Geometry method | method envelope for the selected geometry |
-| LiDAR-only status | included-source inventory and method envelope |
-| External footprints contributed | included-source inventory |
-| Source publisher | LiDAR source identity |
-| Source dataset | LiDAR source identity |
-| Acquisition or collection date | LiDAR source identity, explicitly `Unknown` if absent |
-| License status | included-source license envelope |
-| Validation status | publication/audit gate result |
-| Verification or confidence status | evidence envelope status |
-| Confidence model identifier | confidence model metadata, `Unknown` if absent |
-| Evidence completeness | evidence envelope completeness |
-| Fallback status | method/fallback envelope |
-| Audit timestamp | audit report timestamp |
-| Generating Git commit | pipeline commit identity |
+| Run ID | `run_id` |
+| Generating Git commit | `repository_commit_sha` |
+| Pipeline version | `pipeline_version` |
+| Manifest timestamp | `created_at` |
+| Source LAZ identity | `source.laz.uri`, `source.laz.sha256` |
+| Geometry asset identity | `outputs.glb.uri`, `outputs.glb.sha256`, `outputs.glb.size_bytes` |
+| Companion feature table | `outputs.companion_feature_table.uri`, `outputs.companion_feature_table.sha256`, `outputs.companion_feature_table.format`, `outputs.companion_feature_table.building_count` |
+| Building attribution | `outputs.building_attribution.building_id_namespace`, `outputs.building_attribution.building_id_field`, `outputs.building_attribution.glb_mapping_strategy.strategy` |
+| LiDAR-only status | `source.data_sources.lidar_only` |
+| External footprints contributed | `source.data_sources.footprints_contributed`, `source.data_sources.footprint_source_ref` |
+| External addresses contributed | `source.data_sources.addresses_contributed`, `source.data_sources.address_source_ref` |
+| CRS and units | `source.crs_contract.*` |
+| Bounds and origin | `source.processing_bounds`, `source.origin_strategy` |
+| Point counts | `outputs.point_counts` |
+| Source/method/validation/license/runtime registries | `registries.*` |
+| Knowledge status | `source.laz.knowledge.knowledge_status`, `outputs.glb.knowledge.knowledge_status`, `outputs.companion_feature_table.knowledge.knowledge_status` |
+| Confidence model | `*.knowledge.confidence.scoring_model_ref`, `*.knowledge.confidence.calibration_status`, `*.knowledge.confidence.limitations` |
+| Validation status | `validation_results[]`, `qa.status`, `qa.warnings` |
+| License status | `publication.license_status`, `publication.license_evidence_refs` |
+| Publication gates | `publication.engineering_valid`, `publication.viewer_valid`, `publication.publication_allowed`, `publication.commercial_use_allowed`, `publication.production_allowed`, `publication.auto_publish_enabled`, `publication.manual_publication_approved` |
 
-Technical details may include source file hash, output asset hash, runtime
-identity, CRS, horizontal units, vertical units, bounds, Z range, point counts,
-validation references, method references, warnings, and determinism status.
+Technical details may include registry document hashes, source file hash, output
+asset hash, runtime registry reference, CRS, horizontal units, vertical units,
+bounds, Z range, point counts, validation references, method references, warnings,
+and determinism status.
 
 Do not show arbitrary percentages. Until a calibrated score exists with a model,
 inputs, scale, calibration status, and limitations, the UI should use language
@@ -154,24 +161,33 @@ Unknown attributes must render as `Unknown`, not disappear.
 
 ## Publication Gates
 
-The package is not publishable unless a computed or auditable gate file records:
+The package is not publishable unless the schema-valid
+`manifest/atlantid_tile_asset_manifest.json` and any derived
+`audit/publication_gate.json` record:
 
 - `engineering_valid = true`;
 - `viewer_valid = true`;
 - `publication_allowed = true`;
-- commercial-use status is explicitly evaluated;
-- schema-valid receipt;
-- exact included-source inventory;
-- no included source with unresolved publication rights;
+- `commercial_use_allowed` is explicitly evaluated;
+- `production_allowed` remains governed by the contract and may remain false;
+- `auto_publish_enabled = false`;
+- `manual_publication_approved` is explicit;
+- a schema-valid tile asset manifest;
+- exact included-source inventory through `source.data_sources.*`;
+- no included source with unresolved publication rights in
+  `publication.license_status` / `publication.license_evidence_refs`;
 - deterministic output comparison or a documented reason it is not deterministic;
-- exact output hashes;
+- exact output hashes in `outputs.glb.sha256` and
+  `outputs.companion_feature_table.sha256`;
 - no secret or local filesystem path exposed;
 - no personal or operational data that has not been approved for publication;
 - no hidden third-party assets;
 - no unconfirmed footprint-derived geometry or metadata;
 - `No unconfirmed source is included in this artifact.`
 
-`production_allowed` may remain false. It is not changed by this lane.
+`contract_status` remains `CANDIDATE` until controlled smoke and determinism
+review complete. While it is `CANDIDATE`, the contract hard-locks
+`publication.production_allowed = false`.
 
 ## GCP Guardrails
 
@@ -207,13 +223,14 @@ cache hit assumptions, CDN behavior, egress assumptions, and log retention.
 
 ## Inserting The Future Smoke-Validated Tile
 
-After Instance 2 reports a passing controlled smoke and determinism result, and
-after Instance 1's contract is available:
+After Instance 2 reports a passing controlled smoke and determinism result:
 
 1. Copy only the smoke-approved, publication-gated tile outputs into a staging
    package root using the layout above.
 2. Generate `index.json` and checksums from actual files.
-3. Validate receipts against the merged contract schema.
+3. Write `manifest/atlantid_tile_asset_manifest.json` using the actual contract
+   fields and validate it against
+   `schemas/atlantid_tile_asset_manifest.schema.json`.
 4. Run local package validation:
 
    ```bash
@@ -228,9 +245,10 @@ after Instance 1's contract is available:
 
 Deployment remains blocked until:
 
-- Instance 1's candidate contract is merged or otherwise available;
-- receipt mapping validates against that contract;
 - Instance 2's controlled smoke passes;
 - the determinism run is complete;
+- the candidate contract is advanced only through the required independent
+  review process;
+- the tile asset manifest validates against the actual contract;
 - the exact public artifact passes publication gates;
 - Charles explicitly authorizes deployment.
