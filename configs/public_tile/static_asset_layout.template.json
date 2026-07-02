@@ -1,0 +1,144 @@
+{
+  "schema_version": "atlantid.public_tile_layout.candidate.v1",
+  "status": "template_only",
+  "deployment_enabled": false,
+  "contract_dependency": {
+    "status": "pending_instance_1_schema",
+    "notes": "Receipt fields are adapter targets until the candidate Atlantid evidence contract is available."
+  },
+  "package_root_name": "public-tile",
+  "entrypoint": "index.json",
+  "required_directories": [
+    "manifest",
+    "receipts",
+    "geometry",
+    "metadata",
+    "audit",
+    "checksums"
+  ],
+  "required_files": [
+    {
+      "relative_path": "index.json",
+      "media_type": "application/json",
+      "logical_role": "package_index",
+      "cache_policy": "no-store"
+    },
+    {
+      "relative_path": "manifest/viewer_manifest.json",
+      "media_type": "application/json",
+      "logical_role": "viewer_manifest",
+      "cache_policy": "no-cache"
+    },
+    {
+      "relative_path": "manifest/asset_manifest.json",
+      "media_type": "application/json",
+      "logical_role": "asset_manifest",
+      "cache_policy": "no-cache"
+    },
+    {
+      "relative_path": "receipts/tile_receipt.json",
+      "media_type": "application/json",
+      "logical_role": "tile_receipt",
+      "cache_policy": "no-cache"
+    },
+    {
+      "relative_path": "metadata/structures_enriched.geojson",
+      "media_type": "application/geo+json",
+      "logical_role": "selectable_metadata",
+      "cache_policy": "no-cache"
+    },
+    {
+      "relative_path": "audit/publication_gate.json",
+      "media_type": "application/json",
+      "logical_role": "publication_gate",
+      "cache_policy": "no-store"
+    },
+    {
+      "relative_path": "audit/audit_summary.md",
+      "media_type": "text/markdown; charset=utf-8",
+      "logical_role": "human_audit_summary",
+      "cache_policy": "no-store"
+    },
+    {
+      "relative_path": "checksums/SHA256SUMS",
+      "media_type": "text/plain; charset=utf-8",
+      "logical_role": "checksum_manifest",
+      "cache_policy": "no-store"
+    }
+  ],
+  "optional_file_patterns": [
+    {
+      "relative_glob": "geometry/tiles/*.glb",
+      "media_type": "model/gltf-binary",
+      "logical_role": "tile_geometry",
+      "cache_policy": "public, max-age=31536000, immutable"
+    },
+    {
+      "relative_glob": "metadata/tile_metadata/*.json",
+      "media_type": "application/json",
+      "logical_role": "tile_metadata",
+      "cache_policy": "no-cache"
+    },
+    {
+      "relative_glob": "receipts/objects/*.json",
+      "media_type": "application/json",
+      "logical_role": "object_receipt",
+      "cache_policy": "no-cache"
+    },
+    {
+      "relative_glob": "audit/*.json",
+      "media_type": "application/json",
+      "logical_role": "audit_evidence",
+      "cache_policy": "no-store"
+    }
+  ],
+  "index_entry_required_fields": [
+    "relative_path",
+    "media_type",
+    "byte_size",
+    "sha256",
+    "logical_role",
+    "source_artifact_ref",
+    "cache_policy"
+  ],
+  "receipt_panel_required_visible_fields": [
+    "artifact_id",
+    "tile_id",
+    "object_id",
+    "geometry_method",
+    "lidar_only",
+    "external_footprints_contributed",
+    "source_publisher",
+    "source_dataset",
+    "collection_date",
+    "license_status",
+    "validation_status",
+    "verification_status",
+    "confidence_model_id",
+    "evidence_completeness",
+    "fallback_status",
+    "audit_timestamp",
+    "generating_git_commit"
+  ],
+  "publication_gate_required_fields": [
+    "engineering_valid",
+    "viewer_valid",
+    "publication_allowed",
+    "commercial_use_allowed",
+    "schema_valid_receipt",
+    "included_source_inventory",
+    "unresolved_publication_rights",
+    "output_hashes",
+    "determinism_status",
+    "local_path_exposure",
+    "secret_exposure",
+    "unapproved_personal_or_operational_data",
+    "hidden_third_party_assets",
+    "unconfirmed_source_included"
+  ],
+  "source_boundary": {
+    "intended_public_artifact": "lidar_derived_geometry_only",
+    "required_statement": "No unconfirmed source is included in this artifact.",
+    "footprint_license_lane": "parked"
+  }
+}
