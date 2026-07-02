@@ -1,0 +1,192 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "glytchdraft.atlantid_single_run_evidence.v1",
+  "title": "Atlantid Single-Run Smoke Evidence Bundle",
+  "description": "Output of scripts/diagnostics/atlantid_single_run_evidence_packager.py. Evaluates one completed controlled-smoke output root independently and reports a PASS/FAIL classification without fabricating unavailable evidence. This schema fixes the top-level structural contract so a later two-run determinism comparator (Instance 3) can consume this bundle safely; it does not attempt to lock down every nested free-form field (e.g. environment variable maps, passthrough source_contract/manifest content) with additionalProperties:false, since those are pass-through evidence from the harness manifest, not fields this packager itself defines.",
+  "type": "object",
+  "required": [
+    "report_schema",
+    "packager_version",
+    "generated_at",
+    "run_root",
+    "evidence_output_root",
+    "expected_tile_set",
+    "observed_tile_set",
+    "run_state",
+    "classification",
+    "classification_display",
+    "classification_reasons",
+    "harness_manifest",
+    "tile_findings",
+    "source_evidence",
+    "output_inventory",
+    "excluded_from_hashing",
+    "contract_manifest_validation",
+    "geospatial_evidence",
+    "validation_evidence",
+    "runtime_evidence",
+    "release_gates",
+    "containment_checks",
+    "findings",
+    "limitations"
+  ],
+  "properties": {
+    "report_schema": { "const": "glytchdraft.atlantid_single_run_evidence.v1" },
+    "packager_version": { "type": "string", "minLength": 1 },
+    "generated_at": { "type": "string", "format": "date-time", "description": "Operational metadata: varies run to run even for a semantically identical run root." },
+    "run_root": { "type": "string", "minLength": 1 },
+    "evidence_output_root": { "type": "string", "minLength": 1 },
+    "expected_tile_set": { "type": "array", "items": { "type": "string" } },
+    "observed_tile_set": { "type": "array", "items": { "type": "string" } },
+    "run_state": {
+      "enum": [
+        "COMPLETED_SUCCESS",
+        "COMPLETED_WITH_FINDINGS",
+        "PROCESSING_FAILED",
+        "PRE_EXECUTION_REFUSAL",
+        "INCOMPLETE",
+        "INVALID_EVIDENCE"
+      ]
+    },
+    "classification": { "enum": ["PASS", "PASS_WITH_NON_BLOCKING_FINDINGS", "FAIL"] },
+    "classification_display": { "enum": ["PASS", "PASS WITH NON-BLOCKING FINDINGS", "FAIL"] },
+    "classification_reasons": { "type": "array", "items": { "type": "string" } },
+    "harness_manifest": {
+      "type": "object",
+      "required": ["found", "relative_path", "parse_error", "schema_version", "schema_version_supported", "dry_run"],
+      "properties": {
+        "found": { "type": "boolean" },
+        "relative_path": { "type": ["string", "null"] },
+        "parse_error": { "type": ["string", "null"] },
+        "schema_version": { "type": ["string", "null"] },
+        "schema_version_supported": { "type": ["boolean", "null"] },
+        "dry_run": { "type": ["boolean", "null"] },
+        "release_status": { "type": ["string", "null"] },
+        "controlled_smoke_active": { "type": ["boolean", "null"] },
+        "controlled_smoke_authorization_provided": { "type": ["boolean", "null"] },
+        "controlled_smoke_all_clear": { "type": ["boolean", "null"] },
+        "real_data_execution_enabled_at_run": { "type": ["boolean", "null"] },
+        "commands_total_count": { "type": ["integer", "null"] },
+        "commands_started_count": { "type": ["integer", "null"] },
+        "commands_failed": { "type": "array" },
+        "provenance_findings": { "type": "array" }
+      }
+    },
+    "tile_findings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["tile_id", "expected", "observed_in_manifest", "required_outputs_present", "missing_required_outputs"],
+        "properties": {
+          "tile_id": { "type": "string" },
+          "expected": { "type": "boolean" },
+          "observed_in_manifest": { "type": "boolean" },
+          "required_outputs_present": { "type": "boolean" },
+          "missing_required_outputs": { "type": "array", "items": { "type": "string" } }
+        }
+      }
+    },
+    "source_evidence": {
+      "type": "object",
+      "required": ["internal_only_note", "entries"],
+      "properties": {
+        "internal_only_note": { "type": "string" },
+        "entries": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["tile_id", "internal", "publishable", "contract_hash_match"],
+            "properties": {
+              "tile_id": { "type": "string" },
+              "internal": { "type": "object", "description": "Absolute local paths. Must never be copied into a public-facing package." },
+              "publishable": { "type": "object" },
+              "contract_hash_match": {}
+            }
+          }
+        }
+      }
+    },
+    "output_inventory": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["relative_path", "status", "logical_role", "media_type", "byte_size", "sha256", "associated_tile"],
+        "properties": {
+          "relative_path": { "type": "string" },
+          "status": { "enum": ["required", "conditional", "optional", "unexpected", "prohibited"] },
+          "logical_role": { "type": "string" },
+          "media_type": { "type": "string" },
+          "byte_size": { "type": ["integer", "null"] },
+          "sha256": { "type": ["string", "null"], "pattern": "^[a-f0-9]{64}$|^$" },
+          "associated_tile": { "type": ["string", "null"] }
+        }
+      }
+    },
+    "excluded_from_hashing": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["relative_path", "reason", "policy"],
+        "properties": {
+          "relative_path": { "type": "string" },
+          "reason": { "type": "string" },
+          "policy": { "type": "string" }
+        }
+      }
+    },
+    "contract_manifest_validation": {
+      "type": "object",
+      "required": ["discovered", "candidate_paths", "ambiguous", "relative_path", "schema_path", "schema_valid", "schema_errors"],
+      "properties": {
+        "discovered": { "type": "boolean" },
+        "candidate_paths": { "type": "array", "items": { "type": "string" } },
+        "ambiguous": { "type": "boolean" },
+        "relative_path": { "type": ["string", "null"] },
+        "schema_path": { "type": "string" },
+        "schema_valid": { "type": ["boolean", "null"] },
+        "schema_errors": { "type": "array", "items": { "type": "string" } },
+        "contract_status": { "type": ["string", "null"] },
+        "production_allowed": { "type": ["boolean", "null"] },
+        "glb_mapping_strategy": { "type": ["string", "null"] }
+      }
+    },
+    "geospatial_evidence": { "type": "object" },
+    "validation_evidence": { "type": "object" },
+    "runtime_evidence": { "type": "object" },
+    "release_gates": {
+      "type": "object",
+      "required": ["engineering_valid", "viewer_valid", "publication_allowed", "commercial_use_allowed", "production_allowed", "source"],
+      "properties": {
+        "engineering_valid": {},
+        "viewer_valid": {},
+        "publication_allowed": {},
+        "commercial_use_allowed": {},
+        "production_allowed": {},
+        "source": { "type": "string" }
+      }
+    },
+    "containment_checks": {
+      "type": "object",
+      "required": ["filesystem_anomalies", "path_traversal_references_detected", "manifest_output_root_matches_run_root"],
+      "properties": {
+        "filesystem_anomalies": { "type": "array", "description": "Symlink escapes, broken symlinks, unreadable directories, and non-regular files (FIFO/socket/device) detected during the safe walk of the run root." },
+        "path_traversal_references_detected": { "type": "array" },
+        "manifest_output_root_matches_run_root": { "type": ["boolean", "null"] }
+      }
+    },
+    "findings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["severity", "code", "message", "evidence_ref"],
+        "properties": {
+          "severity": { "enum": ["blocker", "warn", "info"] },
+          "code": { "type": "string" },
+          "message": { "type": "string" },
+          "evidence_ref": { "type": ["string", "null"] }
+        }
+      }
+    },
+    "limitations": { "type": "array", "items": { "type": "string" } }
+  }
+}
