@@ -1,0 +1,161 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "glytchos.atlantid_determinism_report.v1",
+  "title": "Atlantid Determinism Comparison Report",
+  "description": "Machine-readable output of scripts/diagnostics/atlantid_determinism_comparator.py, comparing two completed Miami controlled-smoke output roots. This report does not authorize execution, does not prove licensing, does not set production_allowed, and does not convert unknown evidence into confirmed evidence. Producing this report has no effect on schemas/atlantid_tile_asset_manifest.schema.json contract_status, which remains CANDIDATE until a controlled smoke test and an independently reviewed determinism comparison have both completed.",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "comparator_script",
+    "comparator_commit",
+    "comparison_timestamp",
+    "run_a",
+    "run_b",
+    "authorized_tile_ids",
+    "tolerances",
+    "allow_different_commits",
+    "allowed_file_patterns",
+    "inventory_comparison",
+    "counts_and_geospatial_evidence_availability",
+    "normalization_policy",
+    "findings",
+    "classification",
+    "classification_reasons",
+    "notice"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": { "const": "glytchos.atlantid_determinism_report.v1" },
+    "comparator_script": { "type": "string", "minLength": 1, "description": "Repo-relative path to the comparator script that produced this report." },
+    "comparator_commit": { "type": "string", "minLength": 1, "description": "git rev-parse HEAD of the glytchdraft repository at comparison time, or 'unknown' if it could not be determined." },
+    "comparison_timestamp": { "type": "string", "format": "date-time" },
+    "run_a": { "$ref": "#/definitions/run_identity" },
+    "run_b": { "$ref": "#/definitions/run_identity" },
+    "authorized_tile_ids": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 },
+      "minItems": 1,
+      "description": "The exact authorized tile set for this comparison, e.g. ['318155','318455'] for the Miami controlled two-tile smoke."
+    },
+    "tolerances": {
+      "type": "object",
+      "required": ["count", "z_m"],
+      "additionalProperties": false,
+      "properties": {
+        "count": { "type": "number", "minimum": 0, "description": "Exact-by-default integer tolerance applied to count fields (n_clusters, n_footprints, point counts, etc)." },
+        "z_m": { "type": "number", "minimum": 0, "description": "Exact-by-default meter tolerance applied to Z-related metric values." }
+      }
+    },
+    "allow_different_commits": { "type": "boolean", "description": "Whether a pipeline-commit mismatch was explicitly accepted as a supported non-equivalent-runtime comparison rather than refused." },
+    "allowed_file_patterns": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Relative-path globs explicitly approved as legitimate only-in-one-run file exclusions. Empty means no exclusions were configured."
+    },
+    "inventory_comparison": {
+      "type": "object",
+      "required": ["only_in_run_a", "only_in_run_b", "present_in_both", "per_file", "symlink_escapes_run_a", "symlink_escapes_run_b"],
+      "additionalProperties": false,
+      "properties": {
+        "only_in_run_a": { "type": "array", "items": { "type": "string" } },
+        "only_in_run_b": { "type": "array", "items": { "type": "string" } },
+        "present_in_both": { "type": "array", "items": { "type": "string" } },
+        "per_file": {
+          "type": "object",
+          "description": "Keyed by relative path present in both runs.",
+          "additionalProperties": {
+            "type": "object",
+            "required": ["status", "normalization_events"],
+            "properties": {
+              "status": { "enum": ["byte_identical", "normalized_equal", "different"] },
+              "normalization_events": { "type": "array", "items": { "type": "object" } },
+              "reason": { "type": "string" },
+              "diffs": { "type": "array", "items": { "type": "object" } }
+            }
+          }
+        },
+        "symlink_escapes_run_a": { "type": "array", "items": { "type": "string" } },
+        "symlink_escapes_run_b": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "counts_and_geospatial_evidence_availability": {
+      "type": "object",
+      "description": "Per-category availability of geospatial/count evidence actually found in the run roots. Absent evidence is represented explicitly rather than invented.",
+      "additionalProperties": { "type": "string" }
+    },
+    "normalization_policy": {
+      "type": "object",
+      "required": ["mechanisms"],
+      "additionalProperties": false,
+      "properties": {
+        "mechanisms": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["name", "description"],
+            "properties": {
+              "name": { "type": "string" },
+              "description": { "type": "string" },
+              "keys": { "type": "array", "items": { "type": "string" } }
+            }
+          }
+        }
+      }
+    },
+    "findings": {
+      "type": "array",
+      "items": { "$ref": "#/definitions/finding" }
+    },
+    "classification": { "enum": ["PASS", "PASS WITH NON-BLOCKING FINDINGS", "FAIL"] },
+    "classification_reasons": { "type": "array", "items": { "type": "string" } },
+    "notice": { "type": "string", "minLength": 1 }
+  },
+  "definitions": {
+    "run_identity": {
+      "type": "object",
+      "required": ["root", "tile_ids"],
+      "additionalProperties": false,
+      "properties": {
+        "root": { "type": "string", "minLength": 1 },
+        "tile_ids": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "finding": {
+      "type": "object",
+      "required": ["severity", "code", "message", "field"],
+      "additionalProperties": false,
+      "properties": {
+        "severity": { "enum": ["blocker", "warning", "info"] },
+        "code": { "type": "string", "minLength": 1 },
+        "message": { "type": "string", "minLength": 1 },
+        "field": { "type": ["string", "null"] }
+      }
+    }
+  },
+  "allOf": [
+    {
+      "description": "A FAIL classification must be backed by at least one blocker-severity finding.",
+      "if": { "properties": { "classification": { "const": "FAIL" } }, "required": ["classification"] },
+      "then": {
+        "properties": {
+          "findings": {
+            "type": "array",
+            "contains": { "type": "object", "properties": { "severity": { "const": "blocker" } }, "required": ["severity"] }
+          }
+        }
+      }
+    },
+    {
+      "description": "A PASS classification must not contain any blocker-severity finding.",
+      "if": { "properties": { "classification": { "const": "PASS" } }, "required": ["classification"] },
+      "then": {
+        "properties": {
+          "findings": {
+            "type": "array",
+            "not": { "contains": { "type": "object", "properties": { "severity": { "const": "blocker" } }, "required": ["severity"] } }
+          }
+        }
+      }
+    }
+  ]
+}
