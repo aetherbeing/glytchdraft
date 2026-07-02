@@ -156,10 +156,20 @@ def write_tile_outputs(run_root: Path, tile_id: str, *, glb: bool = True, manife
         )
 
 
-def write_building_qa(run_root: Path, *, status: str = "pass") -> None:
+def write_building_qa(run_root: Path, *, buildings_with_errors: int = 0, relationship_diagnostics: list | None = None) -> None:
+    """Matches the real shape scripts/validation/building_characteristics_qa.py
+    actually writes (no top-level "status" key exists in the real report;
+    the authoritative pass/fail signal is that script's own process exit
+    code, driven by validation_findings_summary.buildings_with_errors and
+    relationship_diagnostics under --strict, which the harness always passes).
+    """
     out = run_root / "qa" / "building_characteristics_validator"
     out.mkdir(parents=True, exist_ok=True)
-    (out / "building_characteristics_qa.json").write_text(json.dumps({"status": status}), encoding="utf-8")
+    report = {
+        "validation_findings_summary": {"buildings_with_errors": buildings_with_errors},
+        "relationship_diagnostics": relationship_diagnostics or [],
+    }
+    (out / "building_characteristics_qa.json").write_text(json.dumps(report), encoding="utf-8")
     (out / "building_characteristics_qa.md").write_text("# QA\n", encoding="utf-8")
 
 
@@ -511,7 +521,7 @@ def test_symlink_escape_is_reported_and_fails(tmp_path: Path):
     assert evidence["classification"] == "FAIL"
     codes = {f["code"] for f in evidence["findings"]}
     assert "symlink_escape" in codes
-    assert len(evidence["containment_checks"]["symlink_escapes"]) >= 1
+    assert len(evidence["containment_checks"]["filesystem_anomalies"]) >= 1
 
 
 # ── 14. unexpected file is reported (not silently dropped) ──────────────────
@@ -551,8 +561,20 @@ def test_missing_optional_evidence_remains_explicit(tmp_path: Path):
 
 
 def test_tile_scoped_glb_mapping_reported_honestly(tmp_path: Path):
+    # A contract manifest is only credible when its declared tile_id and
+    # output hashes/sizes actually correspond to what is on disk under the
+    # run root (see test_contract_manifest_tile_id_unauthorized_fails and
+    # test_contract_manifest_output_hash_not_in_run_root_fails) — so this
+    # fixture points the synthetic contract manifest at the real TILE_A
+    # outputs instead of the example file's placeholder identifiers.
     run_root = build_complete_run_root(tmp_path)
-    manifest = synthetic_contract_manifest()
+    glb_path = run_root / "tiles" / TILE_A / "blender_ready" / f"{TILE_A}.glb"
+    feature_table_path = run_root / "tiles" / TILE_A / "footprints" / f"{TILE_A}_footprints_convex_32617.geojson"
+    manifest = synthetic_contract_manifest(tile_id=TILE_A)
+    manifest["tile_scope"]["tile_id_confirmation"] = TILE_A
+    manifest["outputs"]["glb"]["sha256"] = hashlib.sha256(glb_path.read_bytes()).hexdigest()
+    manifest["outputs"]["glb"]["size_bytes"] = glb_path.stat().st_size
+    manifest["outputs"]["companion_feature_table"]["sha256"] = hashlib.sha256(feature_table_path.read_bytes()).hexdigest()
     manifest["outputs"]["building_attribution"]["glb_mapping_strategy"] = {
         "strategy": "tile_scoped_no_per_building_nodes",
         "building_id_field": "building_id",
@@ -678,6 +700,262 @@ def test_refuses_t7_run_root(tmp_path: Path):
     assert result.returncode == 2
     assert "REFUSING" in result.stderr
     assert "unsafe" in result.stderr
+
+
+# ── adversarial-review regressions (PR #39 review) ───────────────────────────
+
+
+def test_command_started_with_missing_returncode_cannot_pass(tmp_path: Path):
+    """A started command with returncode missing/null (e.g. a crashed process
+    that never recorded an exit code) must never be silently treated as a
+    success — it must fail the same as a nonzero returncode.
+    """
+    run_root = tmp_path / "missing_returncode"
+    run_root.mkdir(parents=True)
+    manifest = base_manifest(run_root, tiles=[TILE_A, TILE_B], dry_run=False)
+    manifest["commands"] = [
+        command_record("run_tile_miami", run_root / "tiles" / TILE_A, started=True, returncode=0),
+        command_record("run_tile_miami", run_root / "tiles" / TILE_B, started=True, returncode=0),
+        command_record("miami_processed_qa_json", None, started=True, returncode=0),
+        # started, but returncode was never recorded — must not pass silently.
+        command_record("building_characteristics_validator", None, started=True, returncode=None),
+    ]
+    write_manifest(run_root, manifest)
+    write_qa_shell(run_root)
+    write_building_qa(run_root)
+    for tid in [TILE_A, TILE_B]:
+        write_tile_outputs(run_root, tid)
+    output_root = tmp_path / "evidence"
+
+    result = run_packager("--run-root", str(run_root), "--output-root", str(output_root))
+
+    assert result.returncode == 1
+    evidence = load_evidence(output_root)
+    assert evidence["run_state"] == "PROCESSING_FAILED"
+    assert evidence["classification"] == "FAIL"
+
+
+def test_unauthorized_tile_directory_not_in_manifest_fails(tmp_path: Path):
+    """A rogue tile directory that exists on disk but was never declared in
+    the harness manifest's inputs must not be silently inventoried as
+    'required' evidence — the manifest is not the sole source of truth for
+    which tiles were touched.
+    """
+    run_root = build_complete_run_root(tmp_path)
+    rogue_tile = "999999"
+    (run_root / "tiles" / rogue_tile / "blender_ready").mkdir(parents=True)
+    (run_root / "tiles" / rogue_tile / "blender_ready" / f"{rogue_tile}.glb").write_bytes(b"ROGUE")
+    output_root = tmp_path / "evidence"
+
+    result = run_packager("--run-root", str(run_root), "--output-root", str(output_root))
+
+    assert result.returncode == 1
+    evidence = load_evidence(output_root)
+    assert evidence["classification"] == "FAIL"
+    codes = {f["code"] for f in evidence["findings"]}
+    assert "unauthorized_tile_directory" in codes
+    assert "tile_directory_not_in_manifest" in codes
+    # And it must never have been silently inventoried as required evidence.
+    rogue_entry = next(
+        e for e in evidence["output_inventory"] if e["relative_path"] == f"tiles/{rogue_tile}/blender_ready/{rogue_tile}.glb"
+    )
+    assert rogue_entry["associated_tile"] == rogue_tile
+
+
+def test_non_regular_file_is_reported_not_silently_dropped(tmp_path: Path):
+    """A FIFO/socket/device entry under the run root must never hang the
+    packager and must never silently vanish from the evidence.
+    """
+    import os
+
+    run_root = build_complete_run_root(tmp_path)
+    fifo_path = run_root / "tiles" / TILE_A / "suspicious.fifo"
+    try:
+        os.mkfifo(fifo_path)
+    except (AttributeError, OSError):
+        pytest.skip("FIFOs not supported on this platform")
+    output_root = tmp_path / "evidence"
+
+    result = run_packager("--run-root", str(run_root), "--output-root", str(output_root))
+
+    assert result.returncode == 1
+    evidence = load_evidence(output_root)
+    assert evidence["classification"] == "FAIL"
+    codes = {f["code"] for f in evidence["findings"]}
+    assert "non_regular_file" in codes
+    anomaly_paths = {a["path"] for a in evidence["containment_checks"]["filesystem_anomalies"]}
+    assert f"tiles/{TILE_A}/suspicious.fifo" in anomaly_paths
+    # Never appears as a hashed, "passing" inventory entry.
+    assert not any(e["relative_path"].endswith("suspicious.fifo") for e in evidence["output_inventory"])
+
+
+def test_building_characteristics_qa_with_errors_is_surfaced_not_fabricated(tmp_path: Path):
+    """building_characteristics_qa.json has no top-level 'status' field in the
+    real validator's output; this must never be fabricated. The real signal
+    (buildings_with_errors / relationship_diagnostics) must be read and
+    reported, and the harness's own --strict-driven nonzero returncode (not a
+    guessed status string) is what actually gates PROCESSING_FAILED.
+    """
+    run_root = tmp_path / "qa_errors"
+    run_root.mkdir(parents=True)
+    manifest = base_manifest(run_root, tiles=[TILE_A, TILE_B], dry_run=False)
+    manifest["commands"] = [
+        command_record("run_tile_miami", run_root / "tiles" / TILE_A, started=True, returncode=0),
+        command_record("run_tile_miami", run_root / "tiles" / TILE_B, started=True, returncode=0),
+        command_record("miami_processed_qa_json", None, started=True, returncode=0),
+        # --strict: the real validator returns 2 when buildings_with_errors is non-empty.
+        command_record("building_characteristics_validator", None, started=True, returncode=2),
+    ]
+    write_manifest(run_root, manifest)
+    write_qa_shell(run_root)
+    write_building_qa(run_root, buildings_with_errors=3)
+    for tid in [TILE_A, TILE_B]:
+        write_tile_outputs(run_root, tid)
+    output_root = tmp_path / "evidence"
+
+    result = run_packager("--run-root", str(run_root), "--output-root", str(output_root))
+
+    assert result.returncode == 1
+    evidence = load_evidence(output_root)
+    assert evidence["run_state"] == "PROCESSING_FAILED"
+    assert evidence["classification"] == "FAIL"
+    bq = evidence["validation_evidence"]["building_characteristics_qa"]
+    assert bq["buildings_with_errors"] == 3
+    assert "status" not in bq
+
+
+def test_manifest_with_wrong_typed_fields_fails_closed_without_crashing(tmp_path: Path):
+    """A malformed manifest where 'inputs' is a string instead of a list must
+    never crash the packager (which would write no evidence bundle at all
+    and could be mistaken for a transient error) — it must classify as
+    INVALID_EVIDENCE / FAIL with an evidence bundle explaining why.
+    """
+    run_root = tmp_path / "wrong_types"
+    run_root.mkdir(parents=True)
+    manifest = base_manifest(run_root, tiles=[TILE_A, TILE_B], dry_run=False)
+    manifest["inputs"] = "not-a-list"
+    manifest["commands"] = "also-not-a-list"
+    write_manifest(run_root, manifest)
+    write_qa_shell(run_root)
+    output_root = tmp_path / "evidence"
+
+    result = run_packager("--run-root", str(run_root), "--output-root", str(output_root))
+
+    assert result.returncode == 1, result.stdout + result.stderr
+    assert "Traceback" not in result.stderr
+    evidence = load_evidence(output_root)
+    assert evidence["run_state"] == "INVALID_EVIDENCE"
+    assert evidence["classification"] == "FAIL"
+    codes = {f["code"] for f in evidence["findings"]}
+    assert "harness_manifest_field_wrong_type" in codes
+
+
+def test_manifest_with_non_object_list_entries_fails_closed_without_crashing(tmp_path: Path):
+    """A malformed manifest where 'inputs' is a list containing a non-object
+    entry must not crash on `.get()`; it must be flagged and fail closed.
+    """
+    run_root = build_complete_run_root(tmp_path)
+    manifest_path = run_root / "qa" / "miami_metric_smoke_manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["inputs"].append("not-an-object")
+    manifest_path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
+    output_root = tmp_path / "evidence"
+
+    result = run_packager("--run-root", str(run_root), "--output-root", str(output_root))
+
+    assert result.returncode == 1, result.stdout + result.stderr
+    assert "Traceback" not in result.stderr
+    evidence = load_evidence(output_root)
+    assert evidence["classification"] == "FAIL"
+    codes = {f["code"] for f in evidence["findings"]}
+    assert "harness_manifest_list_contains_non_object_entries" in codes
+
+
+def test_contract_manifest_tile_id_unauthorized_fails(tmp_path: Path):
+    run_root = build_complete_run_root(tmp_path)
+    manifest = synthetic_contract_manifest()
+    manifest["tile_id"] = "999999"
+    manifest["tile_scope"]["tile_id_confirmation"] = "999999"
+    (run_root / "manifest").mkdir(parents=True, exist_ok=True)
+    (run_root / "manifest" / "atlantid_tile_asset_manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+    output_root = tmp_path / "evidence"
+
+    result = run_packager("--run-root", str(run_root), "--output-root", str(output_root))
+
+    assert result.returncode == 1
+    evidence = load_evidence(output_root)
+    assert evidence["classification"] == "FAIL"
+    codes = {f["code"] for f in evidence["findings"]}
+    assert "contract_manifest_tile_id_unauthorized" in codes
+
+
+def test_contract_manifest_output_hash_not_in_run_root_fails(tmp_path: Path):
+    """A contract manifest declaring a GLB SHA-256 that does not correspond to
+    any file actually present under the run root must not be trusted merely
+    because it claims a URI/hash — the referenced asset must be verifiable.
+    """
+    run_root = build_complete_run_root(tmp_path)
+    manifest = synthetic_contract_manifest()
+    manifest["outputs"]["glb"]["sha256"] = "f" * 64  # does not match any inventoried file
+    (run_root / "manifest").mkdir(parents=True, exist_ok=True)
+    (run_root / "manifest" / "atlantid_tile_asset_manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+    output_root = tmp_path / "evidence"
+
+    result = run_packager("--run-root", str(run_root), "--output-root", str(output_root))
+
+    assert result.returncode == 1
+    evidence = load_evidence(output_root)
+    assert evidence["classification"] == "FAIL"
+    codes = {f["code"] for f in evidence["findings"]}
+    assert "contract_manifest_output_not_in_run_root" in codes
+
+
+def test_tile_ids_compared_as_identifiers_not_numeric_values(tmp_path: Path):
+    """'318155' and '0318155' (or '318155.0') must never be treated as the
+    same tile identifier through numeric coercion or tolerance.
+    """
+    run_root = build_complete_run_root(tmp_path, tiles=[TILE_A, TILE_B])
+    manifest_path = run_root / "qa" / "miami_metric_smoke_manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["inputs"][0]["tile_id"] = "0318155"  # numerically equal to TILE_A, not identifier-equal
+    manifest_path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
+    output_root = tmp_path / "evidence"
+
+    result = run_packager("--run-root", str(run_root), "--output-root", str(output_root))
+
+    assert result.returncode == 1
+    evidence = load_evidence(output_root)
+    assert evidence["classification"] == "FAIL"
+    codes = {f["code"] for f in evidence["findings"]}
+    # "0318155" is unauthorized and TILE_A is now missing — treated as distinct identifiers.
+    assert "unauthorized_tile" in codes
+    assert "missing_required_tile" in codes
+
+
+def test_duplicate_expected_tile_cli_argument_is_refused(tmp_path: Path):
+    run_root = build_complete_run_root(tmp_path)
+
+    result = run_packager(
+        "--run-root", str(run_root),
+        "--output-root", str(tmp_path / "evidence"),
+        "--expected-tile", TILE_A,
+        "--expected-tile", TILE_A,
+    )
+
+    assert result.returncode == 2
+    assert "REFUSING" in result.stderr
+
+
+def test_evidence_and_markdown_classification_agree(tmp_path: Path):
+    for builder in (build_complete_run_root, build_pre_execution_refusal_run_root):
+        run_root = builder(tmp_path / f"case_{builder.__name__}")
+        output_root = tmp_path / f"evidence_{builder.__name__}"
+        result = run_packager("--run-root", str(run_root), "--output-root", str(output_root))
+        evidence = load_evidence(output_root)
+        markdown = (output_root / "atlantid_single_run_evidence_report.md").read_text(encoding="utf-8")
+        assert f"Classification: {evidence['classification_display']}" in markdown
+        assert f"Run state: `{evidence['run_state']}`" in markdown
+        assert result.returncode == (0 if evidence["classification"] != "FAIL" else 1)
 
 
 # ── expected-tile CLI override ───────────────────────────────────────────────

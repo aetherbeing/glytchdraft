@@ -149,6 +149,41 @@ def dotted_get(value: Any, dotted_path: str) -> Any:
     return current
 
 
+def as_list(value: Any) -> list:
+    """Coerce a manifest field to a list. A present-but-wrong-typed value (e.g. a
+    string, which is falsy-unsafe under `x or []`) becomes an empty list here;
+    callers that need to *detect* the wrong type do so before calling this.
+    """
+    return value if isinstance(value, list) else []
+
+
+def as_dict(value: Any) -> dict:
+    """Coerce a manifest field to a dict. See as_list() for why `x or {}` is unsafe."""
+    return value if isinstance(value, dict) else {}
+
+
+def dict_items_only(value: list, *, field_name: str, findings: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Filter a manifest list field down to dict entries, flagging any non-dict
+    entries (which would otherwise crash a later `.get()` call) as a blocker.
+    """
+    result: list[dict[str, Any]] = []
+    dropped = 0
+    for item in value:
+        if isinstance(item, dict):
+            result.append(item)
+        else:
+            dropped += 1
+    if dropped:
+        findings.append(
+            make_finding(
+                "blocker",
+                "harness_manifest_list_contains_non_object_entries",
+                f"{field_name} contains {dropped} non-object entr{'y' if dropped == 1 else 'ies'}",
+            )
+        )
+    return result
+
+
 # ── repo safety fence (read-only; run once regardless of the run being evaluated) ──
 
 
@@ -255,21 +290,24 @@ def validate_cli_paths(args: argparse.Namespace) -> None:
 
 
 def safe_walk_files(run_root: Path) -> tuple[list[Path], list[dict[str, Any]]]:
-    """Return (regular file paths, symlink escape findings) under run_root.
+    """Return (regular file paths, filesystem-anomaly findings) under run_root.
 
     Never follows a symlinked directory. Any symlink (file or dir) whose
-    resolved target escapes run_root is reported as an escape finding and
-    excluded from the file list.
+    resolved target escapes run_root is reported as an anomaly and excluded
+    from the file list. Any directory entry that is not a symlink, a regular
+    directory, or a regular file (FIFO, socket, device node, etc.) is also
+    reported as an anomaly and excluded — it is never silently dropped, and
+    it is never opened (which would risk hanging on a FIFO).
     """
     files: list[Path] = []
-    escapes: list[dict[str, Any]] = []
+    anomalies: list[dict[str, Any]] = []
     run_root_resolved = run_root.resolve()
 
     def _walk(directory: Path) -> None:
         try:
             entries = sorted(directory.iterdir(), key=lambda p: p.name)
         except OSError as exc:
-            escapes.append({"path": str(directory), "reason": f"unreadable directory: {exc}"})
+            anomalies.append({"path": str(directory), "reason": f"unreadable directory: {exc}", "kind": "unreadable_directory"})
             return
         for entry in entries:
             rel = str(entry.relative_to(run_root))
@@ -277,13 +315,13 @@ def safe_walk_files(run_root: Path) -> tuple[list[Path], list[dict[str, Any]]]:
                 try:
                     target = entry.resolve()
                 except OSError:
-                    escapes.append({"path": rel, "reason": "broken symlink"})
+                    anomalies.append({"path": rel, "reason": "broken symlink", "kind": "broken_symlink"})
                     continue
                 if not is_relative_to(target, run_root_resolved):
-                    escapes.append({"path": rel, "reason": f"symlink escapes run root, target={target}"})
+                    anomalies.append({"path": rel, "reason": f"symlink escapes run root, target={target}", "kind": "symlink_escape"})
                     continue
                 if entry.is_dir():
-                    escapes.append({"path": rel, "reason": "symlinked directory not traversed (safety policy)"})
+                    anomalies.append({"path": rel, "reason": "symlinked directory not traversed (safety policy)", "kind": "symlink_escape"})
                     continue
                 files.append(entry)
                 continue
@@ -291,10 +329,14 @@ def safe_walk_files(run_root: Path) -> tuple[list[Path], list[dict[str, Any]]]:
                 _walk(entry)
             elif entry.is_file():
                 files.append(entry)
+            else:
+                anomalies.append(
+                    {"path": rel, "reason": "non-regular filesystem entry (FIFO/socket/device/etc.), not read", "kind": "non_regular_file"}
+                )
 
     _walk(run_root)
     files.sort(key=lambda p: str(p.relative_to(run_root)).replace("\\", "/"))
-    return files, escapes
+    return files, anomalies
 
 
 def categorize_file(rel_posix: str) -> tuple[str, str, str, str | None]:
@@ -436,11 +478,11 @@ def evaluate_run(
     findings: list[dict[str, Any]] = []
     limitations: list[str] = []
 
-    files, symlink_escapes = safe_walk_files(run_root)
+    files, filesystem_anomalies = safe_walk_files(run_root)
     inventory, excluded = build_inventory(run_root, files)
 
-    for esc in symlink_escapes:
-        findings.append(make_finding("blocker", "symlink_escape", esc["reason"], esc["path"]))
+    for esc in filesystem_anomalies:
+        findings.append(make_finding("blocker", esc.get("kind", "symlink_escape"), esc["reason"], esc["path"]))
 
     for entry in inventory:
         if entry["status"] == "prohibited":
@@ -489,6 +531,7 @@ def evaluate_run(
         "contract_status": None,
         "production_allowed": None,
         "glb_mapping_strategy": None,
+        "tile_id": None,
     }
     release_gates = {
         "engineering_valid": "unavailable",
@@ -499,7 +542,7 @@ def evaluate_run(
         "source": "unavailable",
     }
     containment_checks = {
-        "symlink_escapes": symlink_escapes,
+        "filesystem_anomalies": filesystem_anomalies,
         "path_traversal_references_detected": [],
         "manifest_output_root_matches_run_root": None,
     }
@@ -520,10 +563,23 @@ def evaluate_run(
         findings.append(make_finding("blocker", "harness_manifest_malformed", reasons[0]))
     else:
         missing_keys = [key for key in REQUIRED_MANIFEST_KEYS if key not in manifest]
+        wrong_type_fields = (
+            [
+                key
+                for key in ("inputs", "commands", "provenance_findings", "output_hashes")
+                if not isinstance(manifest.get(key), list)
+            ]
+            if not missing_keys
+            else []
+        )
         if missing_keys:
             structural_state = "INVALID_EVIDENCE"
             reasons.append(f"harness manifest missing required keys: {', '.join(missing_keys)}")
             findings.append(make_finding("blocker", "harness_manifest_missing_keys", reasons[0]))
+        elif wrong_type_fields:
+            structural_state = "INVALID_EVIDENCE"
+            reasons.append(f"harness manifest fields have wrong type (expected list): {', '.join(wrong_type_fields)}")
+            findings.append(make_finding("blocker", "harness_manifest_field_wrong_type", reasons[0]))
         else:
             schema_version = manifest.get("schema_version")
             harness_summary["schema_version"] = schema_version
@@ -536,15 +592,18 @@ def evaluate_run(
                 manifest, "controlled_smoke.authorization_provided"
             )
             harness_summary["controlled_smoke_all_clear"] = dotted_get(manifest, "controlled_smoke.preflight.all_clear")
-            provenance_findings = manifest.get("provenance_findings") or []
+            provenance_findings = dict_items_only(manifest.get("provenance_findings", []), field_name="provenance_findings", findings=findings)
             harness_summary["provenance_findings"] = provenance_findings
-            provenance_blockers = [f for f in provenance_findings if isinstance(f, dict) and f.get("severity") == "blocker"]
+            provenance_blockers = [f for f in provenance_findings if f.get("severity") == "blocker"]
 
-            commands = manifest.get("commands") or []
+            commands = dict_items_only(manifest.get("commands", []), field_name="commands", findings=findings)
             harness_summary["commands_total_count"] = len(commands)
-            started_commands = [c for c in commands if isinstance(c, dict) and c.get("started_at") is not None]
+            started_commands = [c for c in commands if c.get("started_at") is not None]
             harness_summary["commands_started_count"] = len(started_commands)
-            failed_commands = [c for c in started_commands if c.get("returncode") not in (0, None)]
+            # A started command only counts as succeeded when returncode is exactly 0.
+            # A started command with a missing/null returncode (crash, truncated
+            # manifest, killed process) must never be silently treated as passing.
+            failed_commands = [c for c in started_commands if c.get("returncode") != 0]
             harness_summary["commands_failed"] = [
                 {"label": c.get("label"), "returncode": c.get("returncode")} for c in failed_commands
             ]
@@ -567,19 +626,20 @@ def evaluate_run(
                         )
                     )
 
-            for item in manifest.get("output_hashes") or []:
-                path_value = item.get("path") if isinstance(item, dict) else None
+            output_hashes = dict_items_only(manifest.get("output_hashes", []), field_name="output_hashes", findings=findings)
+            for item in output_hashes:
+                path_value = item.get("path")
                 if isinstance(path_value, str) and (path_value.startswith("/") or ".." in Path(path_value).parts):
                     containment_checks["path_traversal_references_detected"].append(path_value)
                     findings.append(
                         make_finding("blocker", "path_traversal_reference", "output_hashes entry escapes run root", path_value)
                     )
 
-            inputs = manifest.get("inputs") or []
+            inputs = dict_items_only(manifest.get("inputs", []), field_name="inputs", findings=findings)
             tile_ids_seen: list[str] = []
             duplicate_tiles: set[str] = set()
             for item in inputs:
-                tid = str(item.get("tile_id")) if isinstance(item, dict) else None
+                tid = str(item.get("tile_id")) if item.get("tile_id") is not None else None
                 if tid is None:
                     continue
                 if tid in tile_ids_seen:
@@ -587,7 +647,7 @@ def evaluate_run(
                 tile_ids_seen.append(tid)
             observed_tile_set = sorted(set(tile_ids_seen))
 
-            source_contract = manifest.get("source_contract") or {}
+            source_contract = as_dict(manifest.get("source_contract"))
             contract_hashes: dict[str, str] = {}
             raw_hashes = source_contract.get("canonical_input_hashes")
             if isinstance(raw_hashes, dict):
@@ -620,6 +680,31 @@ def evaluate_run(
             if duplicate_tiles:
                 findings.append(
                     make_finding("blocker", "duplicate_tile_record", f"duplicate tile ids in manifest inputs: {sorted(duplicate_tiles)}")
+                )
+
+            # Cross-check the manifest's declared tile set against what is actually
+            # present on disk under tiles/<id>/. The manifest is not trusted as the
+            # sole source of truth for which tiles were touched: a rogue or
+            # tampered-in tile directory that never appears in manifest["inputs"]
+            # must still be caught, not silently inventoried as "required" evidence.
+            tiles_on_disk = sorted({e["associated_tile"] for e in inventory if e.get("associated_tile")})
+            disk_unauthorized = sorted(set(tiles_on_disk) - set(expected_tiles))
+            if disk_unauthorized:
+                findings.append(
+                    make_finding(
+                        "blocker",
+                        "unauthorized_tile_directory",
+                        f"tile director{'y' if len(disk_unauthorized) == 1 else 'ies'} on disk not in expected set: {disk_unauthorized}",
+                    )
+                )
+            disk_only = sorted(set(tiles_on_disk) - set(observed_tile_set))
+            if disk_only:
+                findings.append(
+                    make_finding(
+                        "blocker",
+                        "tile_directory_not_in_manifest",
+                        f"tile director{'y' if len(disk_only) == 1 else 'ies'} present on disk but absent from manifest inputs: {disk_only}",
+                    )
                 )
 
             unauthorized = sorted(set(observed_tile_set) - set(expected_tiles))
@@ -680,7 +765,11 @@ def evaluate_run(
                 failed_tiles = [t for t in expected_tiles if per_tile_command_status.get(t) == "failed"]
                 other_commands = [c for c in commands if c.get("label") != "run_tile_miami"]
                 other_not_started = [c for c in other_commands if c.get("started_at") is None]
-                other_failed = [c for c in other_commands if c.get("started_at") is not None and c.get("returncode") not in (0, None)]
+                # A started command only counts as succeeded when returncode is exactly
+                # 0. A missing/null returncode on a started command (e.g. the process
+                # crashed before recording an exit code, or a truncated manifest) must
+                # count as failed, not silently pass through as success.
+                other_failed = [c for c in other_commands if c.get("started_at") is not None and c.get("returncode") != 0]
 
                 if failed_tiles or other_failed:
                     structural_state = "PROCESSING_FAILED"
@@ -775,6 +864,54 @@ def evaluate_run(
             contract_manifest_validation["glb_mapping_strategy"] = dotted_get(
                 contract_data, "outputs.building_attribution.glb_mapping_strategy.strategy"
             )
+            contract_tile_id = contract_data.get("tile_id")
+            contract_manifest_validation["tile_id"] = contract_tile_id
+            if contract_tile_id is not None and str(contract_tile_id) not in expected_tiles:
+                findings.append(
+                    make_finding(
+                        "blocker",
+                        "contract_manifest_tile_id_unauthorized",
+                        f"contract manifest tile_id {contract_tile_id!r} is not in the expected tile set {list(expected_tiles)}",
+                        candidate_paths[0],
+                    )
+                )
+
+            # Cross-check declared output identity against the run root's own
+            # inventory by content hash. A contract manifest is never trusted
+            # merely because it claims a URI/hash/size — the referenced asset
+            # must actually be present (by SHA-256) among the files this
+            # packager itself safely walked and hashed under the run root.
+            inventory_by_sha256 = {e["sha256"]: e for e in inventory if e.get("sha256")}
+            for output_key in ("glb", "companion_feature_table"):
+                declared = dotted_get(contract_data, f"outputs.{output_key}")
+                if not isinstance(declared, dict):
+                    continue
+                declared_hash = declared.get("sha256")
+                if not isinstance(declared_hash, str):
+                    continue
+                matched_entry = inventory_by_sha256.get(declared_hash)
+                if matched_entry is None:
+                    findings.append(
+                        make_finding(
+                            "blocker",
+                            "contract_manifest_output_not_in_run_root",
+                            f"contract manifest outputs.{output_key}.sha256 does not match any file inventoried under the run root",
+                            declared_hash,
+                        )
+                    )
+                    continue
+                declared_size = declared.get("size_bytes")
+                if isinstance(declared_size, int) and matched_entry.get("byte_size") != declared_size:
+                    findings.append(
+                        make_finding(
+                            "blocker",
+                            "contract_manifest_output_size_mismatch",
+                            f"contract manifest outputs.{output_key}.size_bytes ({declared_size}) does not match "
+                            f"inventoried file size ({matched_entry.get('byte_size')})",
+                            matched_entry["relative_path"],
+                        )
+                    )
+
             release_gates.update(
                 {
                     "engineering_valid": dotted_get(contract_data, "publication.engineering_valid"),
@@ -832,7 +969,7 @@ def evaluate_run(
         "class_counts": "unavailable",
     }
     if manifest is not None:
-        sc = manifest.get("source_contract") or {}
+        sc = as_dict(manifest.get("source_contract"))
         if sc:
             geospatial_evidence["crs"] = {
                 "source_horizontal_crs": sc.get("source_horizontal_crs"),
@@ -877,16 +1014,39 @@ def evaluate_run(
     }
 
     # ── validation evidence ──
+    # NOTE: scripts/validation/building_characteristics_qa.py's report has no
+    # top-level "status" field — the authoritative pass/fail signal for this
+    # command is its own process exit code, which the harness always invokes
+    # with --strict (return 2 when buildings_with_errors or
+    # relationship_diagnostics are non-empty). That exit code already lands in
+    # this command's manifest returncode and gates PROCESSING_FAILED above.
+    # The fields read here are supplementary, real report fields (never a
+    # fabricated "status" key), reported as "unavailable" when the report
+    # shape does not match what this packager knows how to read.
     qa_json_path = run_root / "qa" / "building_characteristics_validator" / "building_characteristics_qa.json"
-    building_qa: dict[str, Any] = {"found": qa_json_path.exists(), "status": None, "warnings": [], "errors": []}
+    building_qa: dict[str, Any] = {
+        "found": qa_json_path.exists(),
+        "buildings_with_errors": "unavailable",
+        "relationship_diagnostics_count": "unavailable",
+    }
     if qa_json_path.exists():
         try:
             qa_data = json.loads(qa_json_path.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError) as exc:
             building_qa["found"] = False
-            findings.append(make_finding("warn", "building_characteristics_qa_unparseable", str(exc)))
+            findings.append(make_finding("blocker", "building_characteristics_qa_unparseable", str(exc)))
         else:
-            building_qa["status"] = qa_data.get("status") if isinstance(qa_data, dict) else None
+            if isinstance(qa_data, dict):
+                vfs = qa_data.get("validation_findings_summary")
+                if isinstance(vfs, dict) and "buildings_with_errors" in vfs:
+                    building_qa["buildings_with_errors"] = vfs["buildings_with_errors"]
+                relationship_diagnostics = qa_data.get("relationship_diagnostics")
+                if isinstance(relationship_diagnostics, list):
+                    building_qa["relationship_diagnostics_count"] = len(relationship_diagnostics)
+            else:
+                findings.append(
+                    make_finding("blocker", "building_characteristics_qa_unexpected_shape", "building_characteristics_qa.json root is not an object")
+                )
     validation_evidence = {
         "harness_provenance_findings": harness_summary["provenance_findings"],
         "building_characteristics_qa": building_qa,

@@ -167,9 +167,9 @@
     },
     "containment_checks": {
       "type": "object",
-      "required": ["symlink_escapes", "path_traversal_references_detected", "manifest_output_root_matches_run_root"],
+      "required": ["filesystem_anomalies", "path_traversal_references_detected", "manifest_output_root_matches_run_root"],
       "properties": {
-        "symlink_escapes": { "type": "array" },
+        "filesystem_anomalies": { "type": "array", "description": "Symlink escapes, broken symlinks, unreadable directories, and non-regular files (FIFO/socket/device) detected during the safe walk of the run root." },
         "path_traversal_references_detected": { "type": "array" },
         "manifest_output_root_matches_run_root": { "type": ["boolean", "null"] }
       }
