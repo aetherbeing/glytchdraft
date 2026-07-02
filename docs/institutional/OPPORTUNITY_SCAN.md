@@ -11,6 +11,8 @@ Official sources reviewed:
 - https://knightfoundation.org/how-we-fund/
 - https://knightfoundation.org/knight-cities-challenge/
 
+Official sources rechecked on 2026-07-02.
+
 ### Current Findings
 
 | Opportunity | Classification | Verified dates | Eligibility / mechanism | Fit | Recommended action |
@@ -55,19 +57,21 @@ Official sources reviewed:
 - NIST SBIR: https://www.nist.gov/tpo/small-business-innovation-research-program-sbir
 - DoD DSIP topic portal: https://www.dodsbirsttr.mil/topics-app/ (official portal, but text not accessible in this research pass)
 
+Official sources rechecked on 2026-07-02.
+
 ### Currently Open
 
 | Agency | Program | Solicitation / topic | Status | Opening date | Deadline | Eligibility | Phase / amount | Technical fit | Gaps | Source | Recommended action |
 |---|---|---|---|---|---|---|---|---|---|---|---|
-| U.S. DOT | SBIR FY26 Phase I | 26-FH1: Edge Artificial Intelligence Vehicle-to-Everything (AI-V2X) Integrated Practical Solutions for Congestion Prevention and Mitigation | open | June 3, 2026 | July 7, 2026, 3:00 p.m. ET | Small businesses; exact offer requirements in FY26 solicitation | Phase I; amount not captured from HTML, verify in PDF before action | Adjacent fit if Atlantid is scoped as evidence-backed geospatial/simulation data for transportation AI and V2X scenario context | Need topic PDF review, technical match, budget, registrations, and evidence package; deadline is near | Official DOT Volpe FY26 page | Recheck PDF immediately if pursuing; likely too soon unless Charles authorizes rapid capture |
-| U.S. DOT | SBIR FY26 Phase I | 26-OS2: Freight Corridor Predictive Intelligence | open | June 3, 2026 | July 7, 2026, 3:00 p.m. ET | Small businesses; exact offer requirements in FY26 solicitation | Phase I; amount not captured from HTML, verify in PDF before action | Potential fit for corridor-scale spatial intelligence and auditable geospatial artifacts | Need stronger freight-specific problem statement and official topic requirements | Official DOT Volpe FY26 page | Monitor or pursue only with explicit authorization and PDF review |
+| U.S. DOT | FY26 U.S. DOT SBIR Phase I Solicitation | 26-FH1: Edge Artificial Intelligence Vehicle-to-Everything (AI-V2X) Integrated Practical Solutions for Congestion Prevention and Mitigation | open as of 2026-07-02 | June 3, 2026 | July 7, 2026, 3:00 p.m. ET | Small businesses; exact offer requirements in FY26 solicitation | Phase I; amount not captured from HTML, verify in PDF before action | Adjacent fit only if Atlantid is scoped as evidence-backed geospatial/simulation context for transportation AI/V2X; not a direct city-asset contract topic from title alone | Need topic PDF review, technical match, budget, registrations, and evidence package; deadline is near | Official DOT Volpe FY26 page | Recheck PDF immediately if pursuing; likely too soon unless Charles authorizes rapid capture |
+| U.S. DOT | FY26 U.S. DOT SBIR Phase I Solicitation | 26-OS2: Freight Corridor Predictive Intelligence | open as of 2026-07-02 | June 3, 2026 | July 7, 2026, 3:00 p.m. ET | Small businesses; exact offer requirements in FY26 solicitation | Phase I; amount not captured from HTML, verify in PDF before action | Potential fit for corridor-scale spatial intelligence and auditable geospatial artifacts; requires freight-specific framing | Need stronger freight-specific problem statement and official topic requirements | Official DOT Volpe FY26 page | Monitor or pursue only with explicit authorization and PDF review |
 | U.S. DOT | SBIR FY26 Phase I | 26-OS1: Predictive Safety Analytics for Commercial Transport Modernization | open | June 3, 2026 | July 7, 2026, 3:00 p.m. ET | Small businesses; exact offer requirements in FY26 solicitation | Phase I; amount not captured from HTML, verify in PDF before action | Weak-to-moderate fit if safety analytics requires geospatial context; not a direct artifact-production topic from HTML title alone | Need official topic detail; avoid forcing fit | Official DOT Volpe FY26 page | Low priority unless topic PDF reveals spatial/simulation need |
 
 ### Forecast or Anticipated / Always-Open Intake
 
 | Agency | Program | Status | Dates | Eligibility | Award phase / amount | Technical fit | Gaps | Source | Recommended action |
 |---|---|---|---|---|---|---|---|---|---|
-| NSF | America's Seed Fund SBIR/STTR | Project Pitch intake appears active; exact current submission windows must be verified in official solicitation before action | No single deadline captured from reviewed HTML | U.S. startups/small businesses developing deep technology; proposal follows Project Pitch then full proposal process | NSF homepage states up to $2 million seed funding and zero equity | Strong broad fit under AI, robotics, geospatial infrastructure, simulation, visualization, and deep-tech commercialization | Need current solicitation number, exact window, topic code, registrations, PI eligibility, and Project Pitch | NSF Seed Fund official pages | Prepare Project Pitch after evidence gates; recheck current solicitation before submission |
+| NSF | America's Seed Fund SBIR/STTR | Project Pitch intake page is available; full proposal requires invitation after Project Pitch | No single full-proposal deadline captured from reviewed HTML | Startups/small businesses developing deep technology; Project Pitch precedes invited full proposal | NSF homepage states up to $2 million seed funding and zero equity | Strong broad fit under AI, robotics, geospatial infrastructure, simulation, visualization, and deep-tech commercialization | Need current solicitation number, exact window if any, topic code, registrations, PI eligibility, and Project Pitch | NSF Seed Fund official pages | Prepare Project Pitch after evidence gates; recheck current solicitation before submission |
 
 ### Recently Closed but Reusable
 
@@ -91,7 +95,7 @@ Official sources reviewed:
 - Company eligibility facts missing.
 - No authorized Beachhead public proof yet.
 - Smoke-dependent and determinism evidence pending.
-- Contract-dependent evidence language pending Instance 1.
+- Contract exists only as `CANDIDATE`; controlled smoke, determinism review, and freeze remain pending.
 - Miami footprint licensing unresolved and parked.
 - No agency-specific technical topic narrative written.
 - No budget, PI bio, facilities statement, or commercialization plan prepared.

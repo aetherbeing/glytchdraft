@@ -29,7 +29,10 @@ Relevant existing Markdown reviewed:
 | `docs/diagnostics/MIAMI_CONTROLLED_SMOKE_EXECUTION_AUTHORIZATION_PROPOSAL.md` | Smoke is proposed only; not authorized by this lane. |
 | `docs/diagnostics/MIAMI_PRODUCTION_GATE_EVIDENCE.md` | Historical Miami BIKINI defects and missing provenance evidence. |
 | `docs/diagnostics/KEY_BISCAYNE_PROVENANCE_AUDIT.md` | Example of explicit unknowns and product-disposition discipline. |
-| `ai/agents/market_claims_agent.md` | Existing out-of-scope Atlas/claims language; not reused in new external copy. |
+| `schemas/atlantid_tile_asset_manifest.schema.json` | Candidate Atlantid Tile Asset Manifest schema, `$id: glytchos.atlantid_tile_asset_manifest.v1`. |
+| `configs/contracts/atlantid_tile_asset_manifest.example.json` | Synthetic candidate manifest example; not real Miami data. |
+| `docs/diagnostics/ATLANTID_TILE_ASSET_CONTRACT_V1.md` | Candidate contract terminology, publication gates, and production GLB attribution limitation. |
+| `tests/test_atlantid_tile_asset_contract.py` | Non-processing schema/safety tests for the candidate contract. |
 
 No existing NVIDIA, Knight, SBIR, grant, design-partner, customer-discovery, or beachhead institutional packet was found in tracked Markdown.
 
@@ -45,7 +48,7 @@ Concise statement:
 
 > Atlantid tells you what it knows, how it knows it, and what remains unknown.
 
-Evidence state: these are proposed positioning statements. The full durable statement depends on Instance 1's evidence contract and artifact-level audits before it can be used as completed product fact.
+Evidence state: these are proposed positioning statements. The Atlantid Tile & Asset Contract v1 now exists as a candidate contract, not a frozen one. The full durable statement still depends on controlled smoke, determinism review, contract freeze, and artifact-level audits before it can be used as completed product fact.
 
 ## Audit Report One-Pager Template
 
@@ -57,16 +60,22 @@ Evidence state: these are proposed positioning statements. The full durable stat
 |---|---|
 | Artifact ID | pending |
 | Tile ID | pending |
-| Generating commit | pending |
-| Contract version | candidate; pending Instance 1 |
+| Manifest schema | `glytchos.atlantid_tile_asset_manifest.v1` |
+| Atlantid contract version | `v1` |
+| `contract_status` | `CANDIDATE` until controlled smoke and determinism review advance it |
+| Generating Git commit / `repository_commit_sha` | pending |
+| Run ID | pending |
 | Generation timestamp | pending |
 | Artifact evidence status | candidate / pending / verified / failed / excluded / unresolved |
+| GLB mapping strategy | pending; production exporter currently may require `tile_scoped_no_per_building_nodes` |
 
 ### 2. Included Sources
 
-| Publisher | Dataset | Source date | Source role | License status | Source hash |
+| Publisher | Dataset | Source date | Source role | License status | Source hash / registry ref |
 |---|---|---|---|---|---|
 | pending | pending | pending | pending | pending | pending |
+
+Source references should use the candidate manifest's registry terminology: `registries.source_registry`, `source.laz.sha256`, `source.data_sources.footprint_source_ref`, and `source.data_sources.address_source_ref` where applicable.
 
 ### 3. Excluded or Unresolved Sources
 
@@ -80,9 +89,13 @@ Evidence state: these are proposed positioning statements. The full durable stat
 | Field | Value |
 |---|---|
 | Method class | LiDAR-only / mixed / unresolved |
-| Footprint contribution | none / included / excluded / unresolved |
+| `source.data_sources.lidar_only` | pending |
+| External footprint contribution / `footprints_contributed` | pending |
+| Address contribution / `addresses_contributed` | pending |
+| Footprint source reference | pending or null |
 | Fallback status | pending |
-| Processing method | pending source-contract and smoke output |
+| Method references | pending `registries.method_registry` refs |
+| Processing method | pending source contract, transformation lineage, and smoke output |
 
 ### 5. Validation
 
@@ -93,18 +106,20 @@ Evidence state: these are proposed positioning statements. The full durable stat
 | Geometry validity | pending | audit output |
 | Metadata schema validity | pending | audit output |
 | Receipt completeness | pending | evidence contract validation |
+| Knowledge-claim evidence | pending | `knowledge_status`, `method_ref`, `evidence_refs`, and `confidence` fields |
+| GLB attribution limitation | pending | `outputs.building_attribution.glb_mapping_strategy.strategy`; disclose `tile_scoped_no_per_building_nodes` if applicable |
 | Residuals / measurable errors | pending | smoke or later validation report |
 
 ### 6. Attribute Evidence
 
-| Attribute | Value | Unit | Knowledge status | Evidence status | Explicit unknowns |
+| Attribute | Value | Unit | `knowledge_status` | Source/method/validation refs | Confidence / calibration | Explicit unknowns |
 |---|---|---|---|---|---|
-| Height | pending | pending | measured / derived / unknown | pending | pending |
-| Footprint | pending | geometry reference | derived / fallback / excluded / unknown | pending | pending |
-| Roof area | pending | square meters | derived / unknown | pending | pending |
-| Volume | pending | cubic meters | derived / unknown | pending | pending |
-| Materials | unknown | not applicable | unknown | pending | roof/facade material not inferred without evidence |
-| Semantic classifications | pending | not applicable | classified / unknown | pending | pending |
+| Height | pending | pending | measured / derived / unknown | pending refs | pending model, evidence inputs, `calibration_status` | pending |
+| Footprint | pending | geometry reference | derived / fallback / excluded / unknown | pending refs | pending model, evidence inputs, `calibration_status` | pending |
+| Roof area | pending | square meters | derived / unknown | pending refs | pending model, evidence inputs, `calibration_status` | pending |
+| Volume | pending | cubic meters | derived / unknown | pending refs | pending model, evidence inputs, `calibration_status` | pending |
+| Materials | unknown | not applicable | unknown | no method/evidence unless later measured | score null; calibration not applicable | roof/facade material not inferred without evidence |
+| Semantic classifications | pending | not applicable | classified / unknown | pending refs | pending model, evidence inputs, `calibration_status` | pending |
 
 ### 7. Reproducibility
 
@@ -112,8 +127,9 @@ Evidence state: these are proposed positioning statements. The full durable stat
 |---|---|
 | Source hashes | pending |
 | Output hashes | pending |
+| Artifact hashes | pending source LAZ, GLB, companion feature table, and registry document SHA-256 values |
 | Runtime | pending |
-| Determinism status | pending two authorized runs and comparison |
+| Determinism status | pending two authorized runs and comparison; no PASS claim yet |
 
 ### 8. Release Gates
 
@@ -123,7 +139,9 @@ Evidence state: these are proposed positioning statements. The full durable stat
 | `viewer_valid` | pending | Instance 3 public-tile gates |
 | `publication_allowed` | pending | artifact included-source audit |
 | `commercial_use_allowed` | pending | source license audit |
-| `production_allowed` | false until proven otherwise | city/artifact gate evidence |
+| `production_allowed` | false while `contract_status` is `CANDIDATE`; false until all required gates prove otherwise | city/artifact gate evidence |
+| `auto_publish_enabled` | false | candidate contract hard lock |
+| Manual publication approval | pending | explicit human approval fields if ever approved |
 
 ### 9. Known Limitations
 
@@ -131,6 +149,7 @@ Evidence state: these are proposed positioning statements. The full durable stat
 - Unknown values remain unknown.
 - No footprint-assisted Miami public artifact may be described as commercially clear while footprint licensing remains unresolved.
 - Provisional confidence is not a calibrated probability.
+- The current production GLB exporter is tile-scoped; do not claim complete per-building GLB attribution unless a compliant mapping strategy other than `tile_scoped_no_per_building_nodes` is actually produced and audited.
 
 ### 10. Verification Statement
 
@@ -151,7 +170,7 @@ This audit does not prove:
 | First controlled smoke | Fill artifact ID, tile IDs, commit, timestamps, input hashes, output hashes, runtime, validation results, and failures exactly from the manifest. |
 | PASS classification | Mark only the gates actually satisfied by the PASS evidence. Keep unrelated gates pending. |
 | Determinism comparison | Add run IDs, output hash comparison, differences, and limitations. |
-| Contract freeze | Replace "candidate" with frozen contract version and link to exact commit. |
+| Contract freeze | Replace `contract_status: CANDIDATE` with `FROZEN` only after independent review confirms controlled smoke and determinism evidence. |
 | Public deployment | Add public URL only after Instance 3 gates pass and Charles authorizes deployment. |
 
 ## Illustrative Building Receipt Example
@@ -172,8 +191,8 @@ This audit does not prove:
 | Geometry reference | `geometry/buildings/ILLUSTRATIVE-BLDG-0001.footprint.geojson` |
 | Knowledge status | derived |
 | Source | LiDAR cluster boundary, synthetic example |
-| Method | rotated bounding polygon from clustered returns |
-| Validation | topology valid; minimum area threshold passed; no independent footprint source included |
+| Method | illustrative `method_ref` to rotated bounding polygon from clustered returns |
+| Validation | illustrative topology and minimum-area checks; no independent footprint source included |
 | Confidence status | provisional confidence; uncalibrated |
 | Warnings | fallback footprint may not match legal parcel or roof outline |
 
@@ -185,9 +204,9 @@ This audit does not prove:
 | Unit | meters |
 | Knowledge status | measured/derived from LiDAR returns |
 | Source | synthetic LiDAR point cluster |
-| Method | p90 height above local ground estimate |
+| Method | illustrative `method_ref` to p90 height above local ground estimate |
 | Residual error | pending measured residual model |
-| Validation | plausible-height range passed; vertical-unit conversion recorded |
+| Validation | illustrative validation refs for plausible-height range and vertical-unit conversion |
 | Confidence status | provisional confidence; not a probability of correctness |
 
 ### Roof Area
@@ -224,6 +243,7 @@ This audit does not prove:
 | Generating code identity | `commit:ILLUSTRATIVE` |
 | Transformation lineage | complete in example structure; synthetic values |
 | Chain of custody | provisional |
+| GLB mapping strategy | illustrative; not a claim that production exporter has per-building nodes |
 
 ### Gates
 
@@ -258,6 +278,7 @@ Atlantid packages geometry with an inspectable receipt:
 - attribute-level evidence;
 - validation results and warnings;
 - artifact hashes and generating code identity.
+- candidate manifest fields such as `contract_status`, `knowledge_status`, registry refs, confidence model, evidence completeness, calibration status, and publication gates.
 
 ### Beachhead Proof
 
@@ -268,6 +289,8 @@ Planned proof, not yet deployed:
 - visible receipt;
 - no install;
 - no unconfirmed source included unless the artifact audit proves inclusion is allowed.
+
+The proof must not claim complete building-level GLB attribution unless the artifact audit shows a compliant mapping strategy. If the production exporter remains tile-scoped, the receipt should disclose `tile_scoped_no_per_building_nodes`.
 
 ### Pilot Scope
 
@@ -416,10 +439,11 @@ Charles
 1. Candidate evidence contract exists.
 2. Controlled smoke passes.
 3. Determinism evidence exists.
-4. Beachhead artifact passes publication gates.
-5. Public proof is authorized and deployed.
-6. Audit one-pager is updated with verified facts.
-7. Each institutional opportunity is rechecked for current eligibility and dates.
-8. Applications are submitted only when a relevant opportunity is open, the evidence package is ready, and Charles explicitly authorizes submission.
+4. Candidate contract advances from `CANDIDATE` only after required review.
+5. Beachhead artifact passes publication gates.
+6. Public proof is authorized and deployed.
+7. Audit one-pager is updated with verified facts.
+8. Each institutional opportunity is rechecked for current eligibility and dates.
+9. Applications are submitted only when a relevant opportunity is open, the evidence package is ready, and Charles explicitly authorizes submission.
 
 Parallel preparation is allowed. Artificially synchronized filing is not required because program calendars differ.

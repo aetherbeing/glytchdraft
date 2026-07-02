@@ -7,7 +7,7 @@
 
 ## Verified Program Requirements
 
-Official NVIDIA page reviewed on 2026-07-02.
+Official NVIDIA page rechecked on 2026-07-02.
 
 | Area | Current verified finding |
 |---|---|
@@ -78,13 +78,14 @@ Verified repository facts:
 - New Orleans is the Phase 1 reference city with production-ready evidence in the repository.
 - Miami footprint licensing remains unresolved and `production_allowed` remains false.
 - Miami controlled-smoke execution has not occurred in this lane.
-- Contract-dependent language remains provisional until the candidate evidence contract is completed and frozen.
+- Atlantid Tile & Asset Contract v1 exists as a candidate contract with `contract_status: CANDIDATE`; it is pending controlled smoke and determinism review.
+- Current production GLB export may be tile-scoped with `tile_scoped_no_per_building_nodes`; do not claim complete per-building GLB attribution until a compliant artifact proves it.
 
 Pending:
 
-- candidate evidence contract completion;
 - controlled-smoke result;
 - determinism comparison;
+- frozen contract status;
 - one-tile public proof authorization and deployment;
 - updated audit one-pager with verified artifact facts.
 
