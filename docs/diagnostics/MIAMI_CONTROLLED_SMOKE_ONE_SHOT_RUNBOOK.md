@@ -44,7 +44,7 @@ This window covers exactly:
 
 - Tiles `318155` and `318455`
 - The `run_tile_miami.py` subprocess path invoked by
-  `scripts/diagnostics/miami_metric_smoke_harness.py --controlled-smoke`
+  `MIAMI_METRIC_NORMALIZATION_V1=1 scripts/diagnostics/miami_metric_smoke_harness.py --controlled-smoke`
 - Output strictly under a single fresh `/tmp` directory
 
 This window never covers:
@@ -176,7 +176,7 @@ as the only gate.
 ```bash
 test -f configs/smoke/miami_controlled_two_tile_source_contract.json && echo "contract present"
 
-conda run -n pdal_env env PYTHONPATH=. python -m pytest \
+MIAMI_METRIC_NORMALIZATION_V1=1 conda run -n pdal_env env PYTHONPATH=. python -m pytest \
   tests/test_miami_controlled_smoke_source_contract.py -v
 ```
 
@@ -194,7 +194,7 @@ pass. This step performs no PDAL execution and touches no file under `/mnt/t7`.
 ## Step 8 — Run The Focused Non-Processing Test Suite
 
 ```bash
-conda run -n pdal_env env PYTHONPATH=. python -m pytest \
+MIAMI_METRIC_NORMALIZATION_V1=1 conda run -n pdal_env env PYTHONPATH=. python -m pytest \
   tests/test_miami_metric_smoke_harness.py \
   tests/test_miami_controlled_two_tile_smoke.py \
   tests/test_miami_controlled_smoke_source_contract.py \
@@ -281,6 +281,7 @@ Output:
 /tmp/glytchdraft-miami-controlled-smoke-<EXACT_FRESH_UTC_TIMESTAMP>
 
 Command:
+MIAMI_METRIC_NORMALIZATION_V1=1 \
 <EXACT REVIEWED COMMAND>
 ```
 
