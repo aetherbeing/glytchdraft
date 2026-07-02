@@ -1,0 +1,192 @@
+{
+  "schema_version": "atlantid.public_tile_layout.candidate.v1",
+  "status": "template_only",
+  "deployment_enabled": false,
+  "contract_dependency": {
+    "status": "integrated_candidate_schema",
+    "schema_path": "schemas/atlantid_tile_asset_manifest.schema.json",
+    "schema_id": "glytchos.atlantid_tile_asset_manifest.v1",
+    "example_path": "configs/contracts/atlantid_tile_asset_manifest.example.json",
+    "notes": "Field names are adapter targets from the candidate Atlantid Tile & Asset Manifest contract. Do not duplicate the schema in this template."
+  },
+  "package_root_name": "public-tile",
+  "entrypoint": "index.json",
+  "required_directories": [
+    "manifest",
+    "receipts",
+    "geometry",
+    "metadata",
+    "audit",
+    "checksums"
+  ],
+  "required_files": [
+    {
+      "relative_path": "index.json",
+      "media_type": "application/json",
+      "logical_role": "package_index",
+      "cache_policy": "no-store"
+    },
+    {
+      "relative_path": "manifest/viewer_manifest.json",
+      "media_type": "application/json",
+      "logical_role": "viewer_manifest",
+      "cache_policy": "no-cache"
+    },
+    {
+      "relative_path": "manifest/atlantid_tile_asset_manifest.json",
+      "media_type": "application/json",
+      "logical_role": "atlantid_tile_asset_manifest",
+      "cache_policy": "no-cache"
+    },
+    {
+      "relative_path": "receipts/tile_receipt.json",
+      "media_type": "application/json",
+      "logical_role": "tile_receipt",
+      "cache_policy": "no-cache"
+    },
+    {
+      "relative_path": "metadata/structures_enriched.geojson",
+      "media_type": "application/geo+json",
+      "logical_role": "selectable_metadata",
+      "cache_policy": "no-cache"
+    },
+    {
+      "relative_path": "audit/publication_gate.json",
+      "media_type": "application/json",
+      "logical_role": "publication_gate",
+      "cache_policy": "no-store"
+    },
+    {
+      "relative_path": "audit/audit_summary.md",
+      "media_type": "text/markdown; charset=utf-8",
+      "logical_role": "human_audit_summary",
+      "cache_policy": "no-store"
+    },
+    {
+      "relative_path": "checksums/SHA256SUMS",
+      "media_type": "text/plain; charset=utf-8",
+      "logical_role": "checksum_manifest",
+      "cache_policy": "no-store"
+    }
+  ],
+  "optional_file_patterns": [
+    {
+      "relative_glob": "geometry/tiles/*.glb",
+      "media_type": "model/gltf-binary",
+      "logical_role": "tile_geometry",
+      "cache_policy": "public, max-age=31536000, immutable"
+    },
+    {
+      "relative_glob": "metadata/tile_metadata/*.json",
+      "media_type": "application/json",
+      "logical_role": "tile_metadata",
+      "cache_policy": "no-cache"
+    },
+    {
+      "relative_glob": "receipts/objects/*.json",
+      "media_type": "application/json",
+      "logical_role": "object_receipt",
+      "cache_policy": "no-cache"
+    },
+    {
+      "relative_glob": "audit/*.json",
+      "media_type": "application/json",
+      "logical_role": "audit_evidence",
+      "cache_policy": "no-store"
+    }
+  ],
+  "index_entry_required_fields": [
+    "relative_path",
+    "media_type",
+    "byte_size",
+    "sha256",
+    "logical_role",
+    "source_artifact_ref",
+    "cache_policy"
+  ],
+  "receipt_panel_required_visible_fields": [
+    "tile_id",
+    "run_id",
+    "repository_commit_sha",
+    "pipeline_version",
+    "created_at",
+    "source.laz.uri",
+    "source.laz.sha256",
+    "source.laz.knowledge.knowledge_status",
+    "source.laz.knowledge.confidence.scoring_model_ref",
+    "source.laz.knowledge.confidence.score",
+    "source.laz.knowledge.confidence.calibration_status",
+    "source.crs_contract.source_horizontal_crs",
+    "source.crs_contract.source_vertical_crs",
+    "source.crs_contract.source_xy_units",
+    "source.crs_contract.source_z_units",
+    "source.crs_contract.processed_horizontal_crs",
+    "source.crs_contract.processed_xy_units",
+    "source.crs_contract.processed_z_units",
+    "source.crs_contract.z_conversion.normalization_version",
+    "source.processing_bounds",
+    "source.origin_strategy",
+    "source.data_sources.lidar_only",
+    "source.data_sources.footprints_contributed",
+    "source.data_sources.addresses_contributed",
+    "source.data_sources.footprint_source_ref",
+    "source.data_sources.address_source_ref",
+    "outputs.glb.uri",
+    "outputs.glb.sha256",
+    "outputs.glb.size_bytes",
+    "outputs.glb.knowledge.knowledge_status",
+    "outputs.glb.knowledge.method_ref",
+    "outputs.glb.knowledge.evidence_refs",
+    "outputs.companion_feature_table.uri",
+    "outputs.companion_feature_table.sha256",
+    "outputs.companion_feature_table.format",
+    "outputs.companion_feature_table.building_count",
+    "outputs.building_attribution.building_id_namespace",
+    "outputs.building_attribution.building_id_field",
+    "outputs.building_attribution.glb_mapping_strategy.strategy",
+    "outputs.building_attribution.glb_mapping_strategy.building_id_field",
+    "outputs.point_counts",
+    "registries.source_registry",
+    "registries.method_registry",
+    "registries.validation_registry",
+    "registries.license_registry",
+    "registries.runtime_registry",
+    "validation_results",
+    "qa.status",
+    "qa.warnings",
+    "publication.license_status",
+    "publication.license_evidence_refs",
+    "publication.engineering_valid",
+    "publication.viewer_valid",
+    "publication.publication_allowed",
+    "publication.commercial_use_allowed",
+    "publication.production_allowed",
+    "publication.auto_publish_enabled",
+    "publication.manual_publication_approved"
+  ],
+  "publication_gate_required_fields": [
+    "contract_status",
+    "publication.license_status",
+    "publication.license_evidence_refs",
+    "publication.engineering_valid",
+    "publication.viewer_valid",
+    "publication.publication_allowed",
+    "publication.commercial_use_allowed",
+    "publication.production_allowed",
+    "publication.auto_publish_enabled",
+    "publication.manual_publication_approved",
+    "qa.status",
+    "validation_results",
+    "source.data_sources.lidar_only",
+    "source.data_sources.footprints_contributed",
+    "source.data_sources.addresses_contributed",
+    "outputs.glb.sha256",
+    "outputs.companion_feature_table.sha256",
+    "repository_commit_sha"
+  ],
+  "source_boundary": {
+    "intended_public_artifact": "lidar_derived_geometry_only",
+    "required_statement": "No unconfirmed source is included in this artifact.",
+    "footprint_license_lane": "parked"
+  }
+}

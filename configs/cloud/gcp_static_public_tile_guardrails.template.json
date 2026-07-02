@@ -1,0 +1,68 @@
+{
+  "schema_version": "atlantid.gcp_static_public_tile_guardrails.template.v1",
+  "status": "template_only",
+  "deployment_enabled": false,
+  "creates_resources_by_default": false,
+  "requires_explicit_deployment_authorization": true,
+  "allowed_future_forms": [
+    "static_object_storage_plus_cdn",
+    "static_site_hosting",
+    "scale_to_zero_service"
+  ],
+  "prohibited_for_sprint": [
+    "always_on_postgresql",
+    "redis",
+    "always_on_vm",
+    "always_on_container",
+    "kubernetes_cluster",
+    "committed_use_purchase",
+    "full_city_asset_hosting",
+    "cloud_laz_processing",
+    "unbounded_logs",
+    "unbounded_egress"
+  ],
+  "budget_alerts_usd": [
+    50,
+    150,
+    250
+  ],
+  "required_labels": {
+    "project": "atlantid",
+    "environment": "beachhead-staging",
+    "owner": "REPLACE_WITH_OWNER",
+    "expiration": "REPLACE_WITH_YYYY-MM-DD"
+  },
+  "cost_estimate_inputs": {
+    "artifact_bytes": "REQUIRED_BEFORE_DEPLOYMENT",
+    "estimated_monthly_requests": "REQUIRED_BEFORE_DEPLOYMENT",
+    "estimated_cache_hit_ratio": "REQUIRED_BEFORE_DEPLOYMENT",
+    "estimated_uncached_egress_gb": "REQUIRED_BEFORE_DEPLOYMENT",
+    "estimated_cached_egress_gb": "REQUIRED_BEFORE_DEPLOYMENT",
+    "log_retention_days": "REQUIRED_BEFORE_DEPLOYMENT"
+  },
+  "cost_formula": "storage_gb * storage_rate_per_gb_month + cached_egress_gb * cdn_egress_rate_per_gb + uncached_egress_gb * object_egress_rate_per_gb + request_count * request_rate + log_gb * log_ingest_rate_per_gb",
+  "cache_controls": {
+    "geometry": "public, max-age=31536000, immutable",
+    "manifests": "no-cache",
+    "receipts": "no-cache",
+    "audit": "no-store"
+  },
+  "lifecycle_rules_required": true,
+  "scale_to_zero_verification_required": true,
+  "monthly_cost_report_required": true,
+  "shutdown_and_deletion_procedure_required": true,
+  "post_deployment_cost_verification_required": true,
+  "dry_run_commands_only": [
+    {
+      "name": "validate_package",
+      "argv": [
+        "python",
+        "scripts/validate_public_tile_package.py",
+        "--layout",
+        "configs/public_tile/static_asset_layout.template.json",
+        "--package-root",
+        "REPLACE_WITH_LOCAL_PACKAGE_ROOT"
+      ]
+    }
+  ]
+}
