@@ -22,6 +22,9 @@ SCHEMA_VERSION = "miami_metric_normalization_smoke.v1"
 REAL_DATA_EXECUTION_ENABLED = False
 
 T7_MOUNT = Path("/mnt/t7")
+DEFAULT_BUILDING_CHARACTERISTICS_VALIDATOR = (
+    REPO_ROOT / "scripts" / "validation" / "building_characteristics_qa.py"
+)
 
 # Second authorization gate — generic --execute alone is insufficient.
 # All of: exact tile allowlist, canonical paths, exact hashes, read-only T7,
@@ -672,10 +675,11 @@ def build_manifest(
                 [
                     sys.executable,
                     str(args.building_characteristics_validator),
-                    "--root",
-                    str(output_root),
-                    "--json",
-                    str(qa_root / "building_characteristics_validator.json"),
+                    "--input",
+                    str(tile_output_root),
+                    "--output-dir",
+                    str(qa_root / "building_characteristics_validator"),
+                    "--strict",
                 ],
                 runnable=execute_allowed,
             ),
@@ -840,7 +844,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--output-root", type=Path, default=None, help="Fresh /tmp diagnostic output root")
     parser.add_argument("--source-contract", type=Path, help="Authoritative source contract JSON from Instance 1/2")
     parser.add_argument("--release-status", default="BLOCKED", choices=["BLOCKED", "CONDITIONAL_GO", "GO"])
-    parser.add_argument("--building-characteristics-validator", type=Path, default=REPO_ROOT / "scripts" / "diagnostics" / "building_characteristics_validator.py")
+    parser.add_argument("--building-characteristics-validator", type=Path, default=DEFAULT_BUILDING_CHARACTERISTICS_VALIDATOR)
     parser.add_argument("--execute", action="store_true", help="Run real-data commands after all gates pass")
     parser.add_argument(
         "--controlled-smoke",

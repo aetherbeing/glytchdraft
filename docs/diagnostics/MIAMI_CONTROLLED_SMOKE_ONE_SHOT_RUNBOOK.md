@@ -207,8 +207,17 @@ These five files are the controlled-smoke-relevant suite. None of them invoke re
 PDAL processing against `/mnt/t7` data; they exercise the harness CLI in dry-run
 mode (`--execute` omitted, or asserting `_run_pdal` is never called), validate the
 runtime builder step order (`_building_steps`, `_ground_steps`, `_vegetation_steps`)
-by static inspection, and validate the source contract. All tests must pass before
-proceeding. A failing test at this step is a hard stop, not a non-blocking finding.
+by static inspection, validate the source contract, verify the default
+building-characteristics validator path, and test lock restoration against synthetic
+files. All tests must pass before proceeding. A failing test at this step is a hard
+stop, not a non-blocking finding.
+
+Verify the default validator and lock-restoration helper exist before continuing:
+
+```bash
+test -f scripts/validation/building_characteristics_qa.py
+test -f scripts/diagnostics/miami_restore_execution_locks.py
+```
 
 ---
 
@@ -397,36 +406,34 @@ an exception, capture whatever partial output and logs exist before restoring lo
 
 This step is mandatory on success, failure, interruption, or exception — there is no
 termination path that skips it. Use a trap so this fires even on an unhandled
-exception or signal, but do not treat the trap as sufficient by itself (see Step 16):
+exception or signal, but do not treat the trap as sufficient by itself (see Step 16).
+
+Before Step 12 changes either lock, prove that the same execution shell can write to
+the active worktree. In a managed agent environment, this means the execution shell
+must run with explicit write permission for this worktree; a sandbox that reports the
+worktree as read-only is not acceptable for the authorized execution window.
+
+```bash
+RESTORE_PROBE="$(mktemp .miami-restore-probe.XXXXXX)"
+printf 'restore-probe\n' > "$RESTORE_PROBE"
+rm "$RESTORE_PROBE"
+```
+
+Install the restoration trap before Step 12 applies the lock changes, not after:
 
 ```bash
 restore_locks() {
-  python3 - <<'PY'
-from pathlib import Path
-
-targets = {
-    Path("scripts/diagnostics/miami_metric_smoke_harness.py"):
-        ("REAL_DATA_EXECUTION_ENABLED = True",
-         "REAL_DATA_EXECUTION_ENABLED = False"),
-    Path("scripts/miami/run_tile_miami.py"):
-        ("REAL_DATA_EXECUTION_ENABLED: bool = True",
-         "REAL_DATA_EXECUTION_ENABLED: bool = False"),
+  /home/gytchdrafter/miniconda3/envs/pdal_env/bin/python \
+    scripts/diagnostics/miami_restore_execution_locks.py \
+    --repo-root "$PWD"
 }
-
-for path, (enabled, disabled) in targets.items():
-    text = path.read_text(encoding="utf-8")
-    if enabled in text:
-        text = text.replace(enabled, disabled, 1)
-        path.write_text(text, encoding="utf-8")
-PY
-}
-
 trap restore_locks EXIT INT TERM HUP
 ```
 
-Install this trap before Step 12 applies the lock changes, not after. The trap is
-the fallback control for crashes and interruptions; it is not a substitute for the
-manual verification in Step 16.
+The trap is the fallback control for crashes and interruptions; it is not a
+substitute for the manual verification in Step 16. If the trap prints
+`REFUSING: could not restore execution locks`, immediately restore the locks with a
+direct scoped file edit and then run Step 16 before any other repository operation.
 
 ---
 
@@ -447,9 +454,9 @@ git diff -- \
 
 Required result: both `grep` lines read `False`, and `git diff` for these two files
 is empty. If either check fails, do not proceed to any other repository operation —
-re-run `restore_locks()` and re-verify. Any failure to restore both locks
-immediately makes the operation a **procedural failure**, regardless of whether the
-smoke itself produced correct output.
+re-run `restore_locks()` and re-verify. Any failure to restore both locks immediately
+makes the operation a **procedural failure**, regardless of whether the smoke itself
+produced correct output.
 
 ---
 

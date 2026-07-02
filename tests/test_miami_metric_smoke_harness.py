@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import subprocess
 import sys
 from pathlib import Path
 
@@ -11,6 +12,7 @@ DIAG_DIR = REPO_ROOT / "scripts" / "diagnostics"
 sys.path.insert(0, str(DIAG_DIR))
 
 import miami_metric_smoke_harness as harness  # noqa: E402
+import miami_restore_execution_locks as restore_locks  # noqa: E402
 
 
 def write_input(path: Path, body: bytes = b"synthetic laz placeholder") -> Path:
@@ -217,3 +219,153 @@ def test_real_execution_is_disabled_even_with_verified_synthetic_contract(tmp_pa
     assert manifest["release"]["real_data_execution_enabled"] is False
     assert manifest["provenance_findings"] == []
     assert all(command["returncode"] is None for command in manifest["commands"])
+
+
+def test_default_building_characteristics_validator_is_tracked_qa_cli():
+    assert harness.DEFAULT_BUILDING_CHARACTERISTICS_VALIDATOR == (
+        REPO_ROOT / "scripts" / "validation" / "building_characteristics_qa.py"
+    )
+    assert harness.DEFAULT_BUILDING_CHARACTERISTICS_VALIDATOR.exists()
+
+
+def test_building_characteristics_validator_invocation_uses_qa_cli_contract(tmp_path: Path):
+    tiles, hashes = tile_args(tmp_path)
+    contract = write_contract(tmp_path / "contract.json", hashes)
+    out = tmp_path / "manifest-out"
+
+    code = harness.main(
+        [
+            "--source-contract",
+            str(contract),
+            "--output-root",
+            str(out),
+            *sum([["--tile", t] for t in tiles], []),
+        ]
+    )
+
+    assert code == 0
+    manifest = manifest_at(out)
+    validator_cmd = [cmd for cmd in manifest["commands"] if cmd["label"] == "building_characteristics_validator"][0]
+    assert validator_cmd["argv"] == [
+        sys.executable,
+        str(harness.DEFAULT_BUILDING_CHARACTERISTICS_VALIDATOR),
+        "--input",
+        str(out / "tiles"),
+        "--output-dir",
+        str(out / "qa" / "building_characteristics_validator"),
+        "--strict",
+    ]
+
+
+def test_missing_building_characteristics_validator_refuses_before_tile_execution(tmp_path: Path, monkeypatch):
+    monkeypatch.setenv(harness.GATE_ENV, "1")
+    monkeypatch.setattr(harness, "REAL_DATA_EXECUTION_ENABLED", True)
+    tiles, hashes = tile_args(tmp_path)
+    contract = write_contract(tmp_path / "contract.json", hashes)
+    missing_validator = tmp_path / "missing_validator.py"
+    calls: list[dict] = []
+    monkeypatch.setattr(harness, "run_command", lambda command: calls.append(command))
+
+    code = harness.main(
+        [
+            "--execute",
+            "--release-status",
+            "CONDITIONAL_GO",
+            "--source-contract",
+            str(contract),
+            "--building-characteristics-validator",
+            str(missing_validator),
+            "--output-root",
+            str(tmp_path / "out"),
+            *sum([["--tile", t] for t in tiles], []),
+        ]
+    )
+
+    assert code == 2
+    assert calls == []
+    manifest = manifest_at(tmp_path / "out")
+    assert all(command["returncode"] is None for command in manifest["commands"])
+    assert not (tmp_path / "out" / "tiles").exists()
+
+
+def test_building_characteristics_validator_failure_propagates(tmp_path: Path, monkeypatch):
+    monkeypatch.setenv(harness.GATE_ENV, "1")
+    monkeypatch.setattr(harness, "REAL_DATA_EXECUTION_ENABLED", True)
+    tiles, hashes = tile_args(tmp_path)
+    contract = write_contract(tmp_path / "contract.json", hashes)
+    validator = write_input(tmp_path / "validator.py", b"")
+    calls: list[str] = []
+
+    def fake_run_command(command: dict) -> None:
+        calls.append(command["label"])
+        command["returncode"] = 2 if command["label"] == "building_characteristics_validator" else 0
+
+    monkeypatch.setattr(harness, "run_command", fake_run_command)
+    out = tmp_path / "out"
+
+    code = harness.main(
+        [
+            "--execute",
+            "--release-status",
+            "CONDITIONAL_GO",
+            "--source-contract",
+            str(contract),
+            "--building-characteristics-validator",
+            str(validator),
+            "--output-root",
+            str(out),
+            *sum([["--tile", t] for t in tiles], []),
+        ]
+    )
+
+    assert code == 2
+    assert calls == [
+        "run_tile_miami",
+        "run_tile_miami",
+        "miami_processed_qa_json",
+        "building_characteristics_validator",
+    ]
+    manifest = manifest_at(out)
+    validator_cmd = [cmd for cmd in manifest["commands"] if cmd["label"] == "building_characteristics_validator"][0]
+    assert validator_cmd["returncode"] == 2
+
+
+def _write_synthetic_lock_repo(root: Path) -> None:
+    harness_path = root / "scripts" / "diagnostics" / "miami_metric_smoke_harness.py"
+    runtime_path = root / "scripts" / "miami" / "run_tile_miami.py"
+    harness_path.parent.mkdir(parents=True)
+    runtime_path.parent.mkdir(parents=True)
+    harness_path.write_text("REAL_DATA_EXECUTION_ENABLED = True\n", encoding="utf-8")
+    runtime_path.write_text("REAL_DATA_EXECUTION_ENABLED: bool = True\n", encoding="utf-8")
+
+
+def test_restore_execution_locks_helper_restores_synthetic_repo(tmp_path: Path):
+    _write_synthetic_lock_repo(tmp_path)
+
+    assert restore_locks.main(["--repo-root", str(tmp_path)]) == 0
+    assert restore_locks.main(["--repo-root", str(tmp_path), "--check"]) == 0
+    assert "False" in (tmp_path / "scripts" / "diagnostics" / "miami_metric_smoke_harness.py").read_text(encoding="utf-8")
+    assert "False" in (tmp_path / "scripts" / "miami" / "run_tile_miami.py").read_text(encoding="utf-8")
+
+
+def test_restore_execution_locks_trap_restores_after_command_failure(tmp_path: Path):
+    _write_synthetic_lock_repo(tmp_path)
+    script = REPO_ROOT / "scripts" / "diagnostics" / "miami_restore_execution_locks.py"
+
+    result = subprocess.run(
+        [
+            "bash",
+            "-c",
+            (
+                f"trap '{sys.executable} {script} --repo-root {tmp_path}' EXIT INT TERM HUP; "
+                "false"
+            ),
+        ],
+        cwd=REPO_ROOT,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode == 1
+    assert restore_locks.main(["--repo-root", str(tmp_path), "--check"]) == 0
