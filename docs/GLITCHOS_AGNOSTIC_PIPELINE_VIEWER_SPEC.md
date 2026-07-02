@@ -1,42 +1,69 @@
-# GlytchOS — Agnostic Pipeline + Viewer Specification
+# Atlantid + GlitchOS - Agnostic Pipeline + Viewer Specification
 
-**One document.** Everything is here: the buildable contract (§0–14), the
-machine-and-repo discipline that ends the three-drive scatter (§2, §11), the data
-contracts as inline JSON Schemas (§18), the operating scripts (§19), and the
-fenced forward vision (§15). Sections 0–14 and the schemas/scripts are the MVP.
-Section 15 is captured intent, **walled off** so it doesn't pull keystrokes from
-the foundation.
+**One document.** Everything is here: the durable contract (§0-14), the
+machine-and-repo discipline that ends the three-drive scatter (§2, §11), the
+data contracts and schema notes (§18), the operating scripts (§19), and the
+fenced forward vision (§15). Sections 0-14 define the buildable foundation.
+Section 15 is captured intent, **walled off** so it does not pull keystrokes
+from the foundation.
 
-**First market: Miami → Los Angeles → New York.** Baltimore is the warm
-go-to-market lead (placemaker contact via NDC) and the likely first *sold*
-district. The worked examples throughout use Miami.
+**System identity is explicit.** Atlantid is the pipeline. GlitchOS is the
+viewer and interaction system. Repository names may remain historical or
+practical; product identity and repository naming are not the same concern.
 
-> Build order is strict — every layer assumes the one beneath it, and the bottom
-> layer is a trustworthy city fabric: **fabric → artifact sales → design-into-fabric
-> → builder → cherries → cultural layer.**
+The durable flow is:
+
+```
+authoritative or approved source data
+-> Atlantid ingestion
+-> normalization
+-> geometry and attribute generation
+-> evidence and validation
+-> Atlantid Tile & Asset Contract
+-> audited artifact package
+-> GlitchOS viewer
+-> browser, planning, simulation, AR, and VR workflows
+```
+
+> Build order is strict: every layer assumes the one beneath it, and the bottom
+> layer is a trustworthy city fabric.
 
 ---
 
 ## 0. Purpose
 
-GlytchOS transforms real-world public spatial data into deployable spatial
-artifacts: web-viewable, AR/VR-ready, metadata-rich digital bodies of physical
-places. The goal is not 3D tiles. The goal is a stable, inspectable, portable
-**city simulacrum** — usable on the web, in AR/VR, in a presentation, in a
-planning workflow, or as design context.
+Atlantid transforms authoritative or approved real-world spatial data into
+audited, portable artifact packages. GlitchOS consumes those artifacts as a
+spatial viewer and interaction layer. The goal is not a pile of 3D tiles. The
+goal is a stable, inspectable, source-explicit city fabric that can be loaded on
+the web, inspected in a planning workflow, and later carried into AR, VR, or
+simulation contexts without losing provenance.
 
-This document defines four things: an agnostic pipeline, an agnostic viewer, an
-agnostic deployable artifact, and a strict source-of-truth workflow so machines,
-repos, generated files, and audits never get confused again.
+This document defines four things: the Atlantid pipeline, the GlitchOS viewer
+boundary, the audited artifact package, and the source-of-truth workflow that
+keeps machines, repos, generated files, and audits from drifting.
 
 ## 1. Core thesis
 
-GlytchOS turns public spatial data into a living interface for real places. The
-first product is not a game economy, not ownership speculation, not a generic
-map. It is:
+Atlantid does not just tell you what a building is. It tells you why it believes
+that is true.
 
-> A web-native spatial body of a real city that users can explore, inspect, and
-> eventually design into.
+Atlantid must store:
+
+- what is known;
+- what is unknown;
+- how a value was obtained;
+- what source supports it;
+- what method produced it;
+- what validations were applied;
+- what evidence passed or failed;
+- what uncertainty remains;
+- what legal or license status applies;
+- what code and runtime produced it.
+
+Unknown values remain unknown. Atlantid must never fabricate certainty, and
+GlitchOS must never display uncertain provenance, confidence, license, or
+validation status as confirmed knowledge.
 
 ---
 
@@ -85,35 +112,42 @@ search the machine by mtime. Never copy scratch blindly — `diff -ru` first.
 
 ## 3. Repo separation
 
-- **glytchdraft (pipeline)** — ingest, process LAZ/LAS, configs, footprints,
-  addresses, massing, per-tile outputs, metadata, manifests, audit. No
-  social/economy/UGC/Trace logic here.
-- **glytchOS (viewer)** — React/R3F, manifest loading, GLB loading, selection,
-  metadata, visual style, layers, deployment. Consumes audited outputs and
-  nothing else.
-- **scratch** — any copied/repair workspace is non-authoritative until proven.
+- **glytchdraft / Atlantid (pipeline)** - LAZ/LiDAR ingestion, normalization,
+  source registry references, geometry generation, attribute generation,
+  evidence registries, receipts, manifests, hashes, audits, publication gates,
+  and static artifact packages. No social, economy, UGC, claims, Trace,
+  monetization, or viewer product logic belongs here.
+- **glytchOS / GlitchOS (viewer)** - rendering, scene interaction, selection UX,
+  navigation, receipt presentation, metadata-panel behavior, browser/AR/VR
+  interaction, and viewer deployment. GlitchOS consumes audited Atlantid
+  evidence. It must not recreate ingestion or silently invent or upgrade
+  provenance, confidence, license, or validation status.
+- **scratch** - any copied or repair workspace is non-authoritative until proven
+  against GitHub.
 
 ---
 
 ## 4. Three agnostic layers
 
-- **Layer A — Pipeline.** Input any supported city data, output standardized
+- **Layer A - Atlantid pipeline.** Input any supported city data, normalize it,
+  generate geometry and attributes, validate outputs, and package standardized
   artifacts. Never hardcoded to one city.
-- **Layer B — Viewer.** Load any valid manifest, display any valid artifact.
-  Never hardcoded to Miami, LA, NY, or any other city.
-- **Layer C — Artifact.** A portable digital body deployable to web, AR, VR,
-  presentation, and future engine targets.
+- **Layer B - GlitchOS viewer.** Load any valid audited artifact, render it, and
+  expose receipts and limitations. Never hardcoded to Miami, LA, NY, or any
+  other city.
+- **Layer C - Artifact package.** A portable, audited digital body deployable to
+  web, AR, VR, presentation, and future engine targets.
 
-> The artifact is the body. The viewer is one way to inhabit it. The pipeline is
-> how the body is made.
+The artifact is the body. GlitchOS is one way to inhabit it. Atlantid is how the
+body is made.
 
 ---
 
-## 5. Agnostic pipeline
+## 5. Atlantid pipeline
 
 ### 5.1 Goal
-Convert public spatial data into audited, viewer-ready artifacts from a city
-config plus a machine-local paths file.
+Convert authoritative or approved spatial data into audited, viewer-ready
+artifacts from a city config plus a machine-local paths file.
 
 ### 5.2 Inputs — the config split
 City configs are committed and machine-independent (city facts only; see schema
@@ -135,11 +169,19 @@ city_output/
 ```
 
 ### 5.5 Contracts are schema files, not prose
-The viewer manifest, building metadata, audit report, city status, and artifact
-manifest are each defined by a JSON Schema (§18). Phase 10 and 11 **validate
-against these and hard-fail on mismatch.** A contract isn't real until something
-rejects a violation. The inline examples are illustrative; the schemas are
-authoritative.
+The viewer manifest, building metadata, audit report, city status, artifact
+manifest, and Atlantid Tile & Asset Manifest are each defined by JSON Schema
+(§18 and `schemas/`). Phase 10 and 11 **validate against these and hard-fail on
+mismatch.** A contract is not real until something rejects a violation. The
+repository schema files are authoritative where they exist; inline examples in
+this document are illustrative and must not override merged schema files.
+
+The merged Atlantid Tile & Asset Contract is
+`glytchos.atlantid_tile_asset_manifest.v1`. Its current status is
+`CANDIDATE`, pending controlled-smoke evidence and determinism review. A
+candidate contract may be implemented and tested before freeze. It must not be
+called frozen until evidence shows that it adequately describes actual generated
+outputs and deterministic or adequately explained reruns.
 
 ### 5.6 Phases
 
@@ -170,17 +212,84 @@ authoritative.
 - **10 Manifest generation** — `city_manifest.json`, `viewer_manifest.json`;
   schema-validated; no hardcoded city logic.
 - **11 Audit** — §10. Emits computed status; never hand-authored.
-- **12 Publish** — viewer-ready package. **Refuses to package any city whose
-  `license_status != confirmed`.**
+- **12 Package and gate** - viewer-ready package. Packaging and publication are
+  separate decisions. Publication must evaluate exact included sources, license
+  evidence, validation results, and artifact gates, not only a city-wide label.
+
+### 5.7 Attribute evidence envelopes
+
+Primitive undocumented attribute storage is not a complete data model:
+
+```json
+{ "height": 17.23 }
+```
+
+Every meaningful attribute must be able to expose an evidence envelope with
+concepts equivalent to:
+
+- value and unit;
+- `knowledge_status`;
+- source references;
+- method reference;
+- validation references;
+- confidence model;
+- evidence completeness;
+- calibration status;
+- lineage;
+- warnings;
+- unresolved conditions.
+
+The contract's actual field names govern physical manifests. Current contract
+terms include `knowledge_status`, `method_ref`, `evidence_refs`, `confidence`,
+`scoring_model_ref`, `evidence_inputs`, `calibration_status`, and `limitations`.
+At city scale, attributes should reference shared registries instead of
+duplicating full provenance text in every building record.
+
+### 5.8 Shared evidence registries
+
+Atlantid uses shared registries for sources, methods, validations, licenses,
+runtimes, and artifacts. Stable IDs let multiple buildings and attributes
+reference one canonical source, method, validation result, license record, or
+runtime record. Do not repeat full source titles, legal text, method
+descriptions, validation definitions, or runtime details inside every building
+record when a shared registry reference can identify them. The exact normative
+field structure remains governed by the merged contract schema.
+
+### 5.9 Knowledge status
+
+The controlled `knowledge_status` values in the current Atlantid contract are:
+`measured`, `derived`, `authoritative_import`, `classified`, `inferred`,
+`fallback`, `unknown`, `not_applicable`, `excluded`, and `blocked`.
+
+An absent field is not automatically equivalent to an unknown field. Unknown or
+unavailable values must remain explicitly representable. GlitchOS must not
+interpret `unknown`, `provisional`, `excluded`, `blocked`, or `needs_review` as
+confirmed knowledge.
+
+### 5.10 Attribute classes
+
+Attribute classes have independent evidence and verification:
+
+- **Geometry:** footprint, perimeter, centroid, orientation, topology.
+- **Dimensions:** height, roof area, footprint area, volume.
+- **Semantic:** building type, occupancy, zoning, roof type.
+- **Visual:** facade material, roof material, textures.
+- **Administrative:** source license, provenance completeness, acquisition date,
+  processing version, generating commit, artifact identity.
+
+Atlantid does not necessarily produce every listed attribute today. The model
+must distinguish `supported`, `unsupported`, `unknown`, `not_applicable`, and
+`excluded`.
 
 ---
 
-## 6. Agnostic viewer
+## 6. GlitchOS viewer
 
 ### 6.1 Goal
-Load a viewer manifest, display a real city artifact, no hardcoded city
-assumptions. Answer: where am I, what tile, what building (hover/selected), what
-metadata, what layers, what provenance.
+Load audited Atlantid artifacts, display real city geometry, and expose
+human-readable receipts without hardcoded city assumptions. Answer: where am I,
+what tile or object did I select, what metadata supports it, what evidence
+exists, what is unknown, and what limitations apply.
 
 ### 6.2 Core requirements
 Manifest loading; **frustum-based tile streaming as a FETCH-gating mechanism, not
@@ -199,10 +308,20 @@ silently skip missing tiles; confuse demo assets with pipeline truth.
 → selection → metadata panel → layer registry → visual state manager`
 
 ### 6.5 Selection contract
-Every selectable object resolves to `{ selection_type, building_id, tile_id,
-metadata, source }`. If a click can't resolve metadata, show an explicit
-"geometry found, metadata missing" notice with tile_id and object_name. Never
-fail silently.
+Every selectable object resolves, at the level supported by the exporter, to
+identity and receipt data such as `{ selection_type, building_id, tile_id,
+artifact_id, metadata, source }`. If a click cannot resolve metadata, show an
+explicit "geometry found, metadata missing" notice with tile ID and object name.
+Never fail silently.
+
+The current production GLB exporter emits tile-scoped output without stable
+per-building GLB node attribution. The Atlantid Tile & Asset Contract honestly
+supports `tile_scoped_no_per_building_nodes` as a compatibility mode. This mode
+does not prove per-building GLB selection. Building-level metadata may exist
+independently of stable GLB-node mapping, and GlitchOS must not claim exact
+per-building geometry attribution when the mapping does not exist. Promotion of
+a per-building naming or export mechanism requires separate implementation and
+validation; prototype exporters are not production-ready evidence.
 
 ### 6.6 Visual baseline — "GlytchOS Demo Visual Baseline v1"
 Atmospheric but readable; buildings visible without squinting; hover and selected
@@ -248,11 +367,39 @@ ring, cheap. Elevated/orbital views legitimately see far and cost more; gate the
 - **L5 Cultural / UGC** — stories, photos, video, tours, events, place memory,
   public art, historic layers, mods. Future-facing; does not block MVP.
 
+### 6.9 Viewer receipt panel
+
+GlitchOS must provide a human-readable projection of the machine-readable
+Atlantid evidence. Visible fields should include, when available:
+
+- artifact ID;
+- tile ID;
+- building or object ID;
+- geometry method;
+- LiDAR-only status;
+- external-footprint contribution;
+- source publisher;
+- source dataset;
+- source date;
+- license status;
+- validation status;
+- knowledge status;
+- confidence model;
+- evidence completeness;
+- fallback status;
+- audit timestamp;
+- generating commit.
+
+Technical details may expose source hashes, output hashes, runtime, CRS, units,
+bounds, Z range, point counts, validation references, method references,
+warnings, and determinism status. The UI must not require arbitrary percentages
+and must not hide unknown or blocked values.
+
 ---
 
-## 7. Agnostic artifact
+## 7. Atlantid artifact package
 
-A GlytchOS artifact is a bundle, not just a GLB:
+An Atlantid artifact is a bundle, not just a GLB:
 ```
 artifact/  artifact.json, viewer_manifest.json, geometry/, metadata/,
            provenance/, preview/, audit/
@@ -260,56 +407,111 @@ artifact/  artifact.json, viewer_manifest.json, geometry/, metadata/,
 See schema §18.7. Deployment targets: web (default), AR, VR, presentation,
 future native/engine.
 
-### 7.1 Hosting split (cost-critical)
-The **viewer shell** (React app) goes on Vercel or equivalent. The **heavy
-geometry** (GLB tiles) goes on object storage with cheap/zero egress (Cloudflare
-R2 preferred) behind a CDN. Vercel bills bandwidth hard; serving three cities'
-tiles through it is the difference between affording two cities and affording all
-three. Geometry on R2 + manifest-driven fetch = cost ≈ storage + near-zero egress.
+### 7.1 Artifact and building receipts
 
-### 7.2 artifact_budget (carried in city status)
+A building receipt is a human-readable projection of machine-readable contract
+evidence. It may show building ID, tile ID, artifact ID, geometry method,
+footprint knowledge status, height value and units, source references, method
+references, validation results, residual errors, confidence model, evidence
+completeness, roof-area status, material-status fields, license state,
+chain-of-custody state, generating commit, audit timestamp, and known
+limitations.
+
+Do not require one opaque overall percentage. Prefer independent
+attribute-level evidence and explicit artifact-level gates. If an overall score
+is later supported, it must reference a defined model and must not conceal failed
+or unknown attributes.
+
+### 7.2 Hosting principles
+
+The core specification is provider-neutral. Permitted Beachhead Proof hosting
+patterns include static object storage plus CDN, static-site hosting, and
+services that scale to zero. Provider-specific deployment belongs in runbooks and
+configuration.
+
+The permanent architecture requires a budget ceiling, budget alerts, cache
+policy, egress estimate, shutdown procedure, no-idle-cost verification where
+applicable, monthly cost reporting, and no always-on dependency unless justified
+by a later production architecture.
+
+The one-tile proof should not require always-on PostgreSQL, Redis, Kubernetes,
+an always-on VM, or an always-on container.
+
+### 7.3 Artifact budget (carried in city status)
 ```json
 { "reveal_radius_m": 800, "max_total_glb_mb": 2048, "max_per_tile_glb_mb": 8,
-  "hosting_tier": "r2", "estimated_monthly_gb_egress": 0 }
+  "hosting_tier": "static_object_storage_cdn", "estimated_monthly_gb_egress": 0 }
 ```
+
+### 7.4 Source and license closure
+
+Publication decisions operate on the exact source set included in the artifact,
+not only on a city-wide license label. Each included source must carry evidence
+equivalent to source identity, source role, publisher, dataset title, version or
+date, source hash where applicable, license status, license evidence,
+redistribution status, derivative-use status, commercial-use status, included or
+excluded state, and exclusion reason.
+
+An unresolved city source does not necessarily block a narrower artifact when
+the unresolved source is mechanically proven to be excluded. A defensible
+artifact claim is: `No unconfirmed source is included in this artifact.` That
+statement may be made only when the exact artifact audit proves it. Miami
+footprint licensing remains unresolved until the dedicated license lane closes
+it with evidence.
+
+## 8. Beachhead Proof and viewer MVP
+
+### 8.1 Atlantid Beachhead Proof
+
+The one-tile public artifact is the **Atlantid Beachhead Proof**. Its purpose is
+to demonstrate that a user can:
+
+1. open a browser;
+2. load one real audited artifact;
+3. select a building or spatial object when mapping permits;
+4. inspect a human-readable receipt;
+5. see source, method, license, validation, confidence, artifact identity, and
+   limitations;
+6. understand what is known and unknown.
+
+The Beachhead Proof is not the complete GlitchOS viewer MVP.
+
+### 8.2 Full viewer MVP
+
+The full viewer MVP may still require multiple tiles, manifest-driven loading,
+adjacent-tile emergence, stable selection, readable geometry, metadata
+resolution, navigation, and absence of city-specific hardcoding. Do not weaken
+the full MVP merely to classify a one-tile proof as complete.
+
+The full MVP does not require multiplayer, economy, ownership, crypto, payments,
+full UGC, full civic integration, perfect roofs, full city-scale streaming,
+native AR/VR, or engine deployment.
 
 ---
 
-## 8. MVP scope
+## 9. Release and publication gates
 
-**Must demonstrate (one city/district):** real city-derived geometry; multiple
-tiles; readable masses; visible top surfaces; stable lighting; hover; selected;
-metadata panel; manifest-driven loading; provenance/audit awareness; no hardcoded
-single-city trap.
+Publication gates are separate decisions. Do not infer one from another:
 
-**Does not require:** multiplayer, economy, ownership, crypto, payments, full UGC,
-full civic integration, perfect roofs, full city-scale streaming, native AR/VR,
-engine deployment.
+- `engineering_valid` concerns technical artifact validity.
+- `viewer_valid` concerns viewer compatibility and inspectability.
+- `publication_allowed` concerns whether the exact artifact may be publicly
+  distributed.
+- `commercial_use_allowed` concerns whether the exact artifact may be used in a
+  paid or commercial context.
+- `production_allowed` concerns full production release under the stricter
+  production gate.
 
-The MVP proves the artifact model and the interaction contract — and is itself
-the first sellable B2B deliverable.
+Each decision must expose result, evidence, blocking findings, audit timestamp,
+and audit commit. Manually typed booleans are not sufficient release evidence.
+`production_allowed` remains false for the current Miami candidate state and is
+hard-locked false while the Atlantid Tile & Asset Contract is `CANDIDATE`.
 
----
-
-## 9. City status model
-
-See schema §18.5. **`production_allowed` is computed by the audit, never
-hand-authored:**
-
-```
-production_allowed =
-      audit.status == "pass"
-  AND license_status == "confirmed"
-  AND address_coverage_pct >= min_address_coverage
-  AND missing_glb_count == 0 (for non-zero-building tiles)
-```
-If any clause is false, `production_allowed = false` and Publish refuses.
-
-### Market order and city buckets
+### 9.1 Market order and city buckets
 - **Miami** — **market #1.** Primary reference + demo city. Build everything
-  around it. License/provenance must be explicitly confirmed before
-  production_allowed (footprint + address commercial-use terms verified with
-  citations in provenance.json).
+  around it. License/provenance must be explicitly confirmed before production
+  release, with exact included-source evidence. The Miami footprint-license lane
+  remains unresolved.
 - **Los Angeles** — **market #2.** Repair-needed (missing Phase 08 GLBs, missing
   enriched structures in some runs, source uncertainty).
 - **New York** — **market #3.** Large-scale catalog. Path/storage layout must be
@@ -333,6 +535,48 @@ head): `min_address_coverage`, `max_missing_glb`, `max_invalid_geometry`,
 `expected_tile_tolerance`. Each city declares its own bar; the audit computes
 pass/warn/fail against declared numbers. Zero-building tiles missing per-tile GLBs
 are **INFO** when production_ready and viewer_ready are true — not blocking WARN.
+
+### 10.1 Confidence and verification
+
+Confidence scores must not be arbitrary and must not be treated as verified
+probabilities merely because tests passed. A confidence or verification result
+must identify the scoring model, model version, measurable evidence inputs,
+scale, evidence completeness, calibration status, and known limitations.
+
+Potential measurable inputs include LiDAR point density, vertical residual
+error, horizontal residual error, agreement between independent measurements,
+topology validity, mesh-quality metrics, validation-test results, source
+authority, source completeness, lineage completeness, and determinism results.
+
+Until calibrated, scores are **provisional confidence**. They must not be
+represented as statistically proven probabilities of correctness.
+
+### 10.2 Queryable verification
+
+Verification must be machine-queryable without locking the specification to one
+database or query language. Customers should be able to query artifacts or
+buildings by evidence conditions such as complete provenance, required
+`knowledge_status`, required validation passes, minimum evidence completeness,
+specific source or license status, no fallback use, LiDAR-only geometry,
+specific confidence model, deterministic output status, and publication
+eligibility.
+
+### 10.3 Determinism
+
+A release-candidate artifact should support comparison between two runs using
+the same input identities, input hashes, tile set, pipeline commit, contract
+version, configuration, runtime, normalization rules, and execution flags.
+
+The comparison should record output inventory, file sizes, hashes, geometry
+counts, point counts, classification counts, CRS, horizontal units, vertical
+units, bounds, Z ranges, metadata record counts, normalized semantic
+equivalence, expected nondeterministic fields, and unexplained differences.
+
+Do not require byte-identical hashes when a format contains legitimate
+nondeterministic fields unless normalization makes that expectation valid.
+Unexplained differences remain visible. Contract v1 must not be described as
+frozen until controlled smoke and determinism review demonstrate that it
+adequately describes the real output.
 
 ---
 
@@ -359,26 +603,38 @@ commit made, push status, remaining issues, next exact command.
 
 ---
 
-## 13. Immediate implementation plan
+## 13. Durable implementation gates
 
-1. Clone canonical glytchdraft fresh from remote; archive stale Windows checkout.
-2. Add this spec, the schemas (§18), and the scripts (§19) to the repo.
-3. Commit + push. (This is the first thing on the source of truth.)
-4. Wire Phase 01 to validate config + resolve `paths.local.json`.
-5. Wire Phase 10/11 to validate against schemas and compute `production_allowed`.
-6. Stand up **Miami** as the reference city: config, status, source catalog.
-7. Confirm Miami footprint + address commercial-use terms → `license_status`.
+1. Keep city facts in committed configs and machine paths in untracked local
+   path files.
+2. Validate source identity, CRS, units, license evidence, and source hashes
+   before generation.
+3. Generate geometry and attributes with explicit source, method, validation,
+   runtime, and commit lineage.
+4. Emit schema-valid manifests, receipts, and audits.
+5. Evaluate `engineering_valid`, `viewer_valid`, `publication_allowed`,
+   `commercial_use_allowed`, and `production_allowed` separately.
+6. Run determinism comparison before advancing a candidate contract to frozen.
+7. Package only artifacts whose exact included-source set supports the intended
+   release decision.
 
 ---
 
 ## 14. Success criteria
 
-No one confuses viewer with pipeline repo. No audit runs from an unconfirmed
-folder. Every output has a manifest. Every viewer load is manifest-driven. Every
-selection resolves to metadata or an explicit missing-metadata notice. Every audit
-records machine/repo/branch/commit. `production_allowed` is always computed. Every
-deployable scene is describable as a GlytchOS artifact. The project can move web →
-AR/VR without rewriting its identity model.
+No one confuses Atlantid with GlitchOS or pipeline with viewer repo. No audit
+runs from an unconfirmed folder. Every published artifact has a schema-valid
+receipt. Every included source has explicit identity and license evidence. Every
+excluded unresolved source is named. LiDAR-only claims are mechanically
+verifiable. Every meaningful attribute can expose its knowledge status and
+evidence references. Publication and commercial-use decisions are evaluated
+separately. `production_allowed` remains an independent stricter gate.
+Determinism is tested before contract freeze. Unexplained nondeterminism is
+visible. The viewer never presents uncertain provenance as confirmed. A selected
+building or object can be traced to the artifact, tile, method, sources, audit,
+and generating commit at the level actually supported by the exporter. Current
+tile-scoped GLBs are not misrepresented as having stable per-building node
+attribution.
 
 ---
 
@@ -398,9 +654,9 @@ AR/VR without rewriting its identity model.
 - **The moat:** the UGC / activation layer (15.5).
 - Position vs Esri: not "cheaper ArcGIS." A different line item — they sell
   per-seat annual platform access + the labor to build a city yourself; you sell
-  a finished artifact as an outcome. The pipeline's audit + provenance is what
-  lets you charge real money. Confirm `license_status: confirmed` per city before
-  any invoice.
+  a finished artifact as an outcome. Atlantid's audit + provenance is what lets
+  you defend the artifact. Commercial use requires exact artifact evidence, not
+  only a city-wide license label.
 
 ### 15.1 Design-into-fabric (the category)
 Canonical fabric is read-only and authoritative — that is what makes it
@@ -485,13 +741,14 @@ research-grade and walled off. Naming it; not chasing it.
 
 ## 16. One-line definitions
 
-**Product:** GlytchOS converts public city data into web-native, AR/VR-ready
-spatial artifacts — digital bodies of real places that can be explored, inspected,
-narrated, and designed into.
+**Product:** GlitchOS lets people explore, inspect, and present audited Atlantid
+city artifacts as web-native and future AR/VR-ready spatial bodies of real
+places.
 
-**Technical:** an agnostic pipeline + viewer that transform LiDAR, footprints,
-addresses, and civic metadata into audited, manifest-driven, selectable 3D city
-artifacts deployable across web, AR, VR, and future spatial computing.
+**Technical:** Atlantid is a city-agnostic geospatial ingestion, normalization,
+validation, provenance, geometry-generation, attribute-generation, audit, and
+artifact-packaging pipeline. GlitchOS is the spatial viewer and interaction
+system that consumes audited Atlantid artifacts.
 
 ---
 
@@ -499,15 +756,18 @@ artifacts deployable across web, AR, VR, and future spatial computing.
 
 No more ghost folders. No more mystery audits. No more "it ran somewhere." Every
 run has: machine, repo, branch, commit, city, config, outputs, audit, next action.
-The artifact is the product. The pipeline makes the body. The viewer gives it
-presence. The web is the first hologram.
+The artifact is the product. Atlantid makes the body. GlitchOS gives it
+presence. The web is the first delivery surface.
 
 ---
 
 ## 18. Data contracts (inline JSON Schemas)
 
-Extract each block to `schemas/<name>.schema.json` when wiring the repo. They are
-inlined here so the spec is one readable document.
+These legacy inline schemas document the original direction of the system. When
+a corresponding schema exists under `schemas/`, the repository schema file is
+authoritative. The current Atlantid Tile & Asset Contract lives in
+`schemas/atlantid_tile_asset_manifest.schema.json`; this section must not
+override that merged contract.
 
 ### 18.1 city_config.schema.json — committed, machine-independent
 ```json
@@ -625,7 +885,7 @@ inlined here so the spec is one readable document.
                       "max_invalid_geometry":{"type":"integer","minimum":0}, "expected_tile_tolerance":{"type":"integer","minimum":0} } },
     "artifact_budget": { "type":"object","required":["reveal_radius_m","max_total_glb_mb","max_per_tile_glb_mb","hosting_tier"],"additionalProperties":false,
       "properties": { "reveal_radius_m":{"type":"number","minimum":0}, "max_total_glb_mb":{"type":"number","minimum":0},
-                      "max_per_tile_glb_mb":{"type":"number","minimum":0}, "hosting_tier":{"enum":["vercel_hobby","vercel_pro","r2","s3"]},
+                      "max_per_tile_glb_mb":{"type":"number","minimum":0}, "hosting_tier":{"enum":["static_object_storage_cdn","static_site_hosting","scale_to_zero_service","other_documented_provider"]},
                       "estimated_monthly_gb_egress":{"type":"number","minimum":0} } },
     "production_allowed": { "type":"boolean" },
     "notes": { "type":"array","items":{"type":"string"} }
@@ -695,9 +955,9 @@ inlined here so the spec is one readable document.
   "source_ids": { "laz": "miami_lidar", "footprints": "miami_footprints", "addresses": "miami_addresses", "terrain": null, "streets": null },
   "provenance": {
     "lidar_source": "USGS LPC FL Miami-Dade (confirm exact collection + year)",
-    "footprint_source": "TODO: confirm source + commercial-use terms",
+    "footprint_source": "TODO: confirm source identity, version, license evidence, and commercial-use terms",
     "address_source": "TODO: confirm source + commercial-use terms",
-    "license_notes": "VERIFY before production_allowed. license_status must be confirmed with citations in provenance.json."
+    "license_notes": "VERIFY exact included sources before publication or production release. City-wide license_status is not sufficient artifact evidence."
   },
   "phase_toggles": { "terrain": false, "streets": false }
 }
@@ -711,11 +971,11 @@ inlined here so the spec is one readable document.
   "viewer_status": "not_loaded",
   "license_status": "needs_review",
   "thresholds": { "min_address_coverage": 90, "max_missing_glb": 0, "max_invalid_geometry": 50, "expected_tile_tolerance": 5 },
-  "artifact_budget": { "reveal_radius_m": 600, "max_total_glb_mb": 2048, "max_per_tile_glb_mb": 8, "hosting_tier": "r2", "estimated_monthly_gb_egress": 0 },
+  "artifact_budget": { "reveal_radius_m": 600, "max_total_glb_mb": 2048, "max_per_tile_glb_mb": 8, "hosting_tier": "static_object_storage_cdn", "estimated_monthly_gb_egress": 0 },
   "production_allowed": false,
   "notes": [
     "Miami is market #1 and the technical reference city.",
-    "production_allowed stays false until license_status == confirmed (footprint + address terms verified).",
+    "production_allowed stays false until artifact-level source, license, validation, viewer, commercial-use, and production gates pass.",
     "zero-building tiles without per-tile GLBs are INFO, not blocking WARN."
   ]
 }
@@ -726,11 +986,11 @@ inlined here so the spec is one readable document.
 {
   "machine": "jaDeFireLoom1",
   "source_roots": {
-    "miami_lidar": "/mnt/t7/miami/laz",
-    "miami_footprints": "/mnt/t7/miami/footprints.geojson",
-    "miami_addresses": "/mnt/t7/miami/addresses.geojson"
+    "miami_lidar": "/data/local/miami/laz",
+    "miami_footprints": "/data/local/miami/footprints.geojson",
+    "miami_addresses": "/data/local/miami/addresses.geojson"
   },
-  "output_root": "/mnt/t7/miami/data_processed"
+  "output_root": "/data/local/miami/data_processed"
 }
 ```
 
