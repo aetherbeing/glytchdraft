@@ -1,0 +1,605 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "glytchos.atlantid_tile_asset_manifest.v1",
+  "title": "Atlantid Tile Asset Manifest",
+  "description": "Canonical post-processing, output-side manifest for a single audited LAZ-to-GLB tile in the Atlantid pipeline. Complements schemas/gcp_batch_tile_task.schema.json (the pre-processing input task manifest). Every asset entry carries a structured knowledge claim (what is known, how it is known, supporting evidence) rather than bare assertions, and references shared source/method/validation/license/runtime registries instead of duplicating provenance text. One manifest governs exactly one tile. Publication and production use are never automatic. This is a CANDIDATE contract: production_allowed is hard-locked false until an independent review, controlled smoke test, and determinism comparison complete and contract_status is advanced to FROZEN.",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "atlantid_contract_version",
+    "contract_status",
+    "city_id",
+    "tile_id",
+    "tile_scope",
+    "run_id",
+    "repository_commit_sha",
+    "pipeline_version",
+    "created_at",
+    "registries",
+    "source",
+    "outputs",
+    "transformation_lineage",
+    "validation_results",
+    "qa",
+    "publication"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "const": "glytchos.atlantid_tile_asset_manifest.v1",
+      "description": "Pinned schema identity. Must equal this schema's $id."
+    },
+    "atlantid_contract_version": {
+      "const": "v1",
+      "description": "Atlantid product-contract version. The pipeline is named Atlantid. Distinct from schema_version: bumped when the contract's semantics change even if the JSON Schema file itself is edited non-breakingly."
+    },
+    "contract_status": {
+      "enum": ["CANDIDATE", "FROZEN"],
+      "description": "Lifecycle state of this manifest instance. Must be 'CANDIDATE' until the controlled smoke test and a determinism comparison (re-running the same tile and diffing outputs) have both completed and been independently reviewed. See allOf rule below: while CANDIDATE, publication.production_allowed is hard-locked to false."
+    },
+    "city_id": {
+      "type": "string",
+      "pattern": "^[a-z0-9_]+$",
+      "description": "Matches the city_id convention used by schemas/city_config.schema.json and schemas/viewer_manifest.schema.json."
+    },
+    "tile_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[a-zA-Z0-9_\\-]+$",
+      "description": "Single tile identifier, matching the tile_id convention in schemas/gcp_batch_tile_task.schema.json. This field is a string only — array or wildcard values are not permitted. Each manifest governs exactly one tile."
+    },
+    "tile_scope": {
+      "type": "object",
+      "required": ["explicit_single_tile", "tile_id_confirmation", "city_wide_scope"],
+      "additionalProperties": false,
+      "description": "Explicit single-tile scope assertion, mirroring tile_scope in schemas/gcp_batch_tile_task.schema.json. JSON Schema draft-07 cannot assert tile_id_confirmation is byte-equal to the top-level tile_id (no cross-property backreferences); that exact-equality check is a runtime obligation of the manifest producer and its tests, not of this schema.",
+      "properties": {
+        "explicit_single_tile": { "const": true, "description": "Must be true. Asserts that this manifest governs exactly one tile." },
+        "tile_id_confirmation": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "description": "Must equal the top-level tile_id field exactly."
+        },
+        "city_wide_scope": { "const": false, "description": "Must be false. City-wide scope is not permitted from a per-tile asset manifest." }
+      }
+    },
+    "run_id": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9\\-]{3,62}[a-z0-9]$",
+      "description": "Unique, stable run identifier for the pipeline execution that produced this manifest. Must not be 'latest', 'current', or any other mutable alias."
+    },
+    "repository_commit_sha": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{40}$",
+      "description": "Full 40-character git commit SHA of the generating glytchdraft repository state."
+    },
+    "pipeline_version": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Version tag of the Atlantid city-pipeline codebase (e.g. the pipeline_version field already used in configs/cities/new_orleans.json), independent of schema_version and atlantid_contract_version."
+    },
+    "created_at": { "type": "string", "format": "date-time", "description": "ISO 8601 UTC timestamp when this manifest was created." },
+    "registries": {
+      "type": "object",
+      "required": ["source_registry", "method_registry", "validation_registry", "license_registry", "runtime_registry"],
+      "additionalProperties": false,
+      "description": "Content-addressed pointers to the shared registry documents in effect for this manifest. Individual claims reference entries within these registries by ref_id instead of duplicating full provenance text inline.",
+      "properties": {
+        "source_registry": { "$ref": "#/definitions/registry_document_ref" },
+        "method_registry": { "$ref": "#/definitions/registry_document_ref" },
+        "validation_registry": { "$ref": "#/definitions/registry_document_ref" },
+        "license_registry": { "$ref": "#/definitions/registry_document_ref" },
+        "runtime_registry": { "$ref": "#/definitions/registry_document_ref" }
+      }
+    },
+    "source": {
+      "type": "object",
+      "required": ["laz", "crs_contract", "processing_bounds", "origin_strategy", "data_sources"],
+      "additionalProperties": false,
+      "description": "Source input inventory, CRS/unit contract, and data-source attribution.",
+      "properties": {
+        "laz": {
+          "type": "object",
+          "required": ["uri", "sha256", "size_bytes", "point_count", "knowledge"],
+          "additionalProperties": false,
+          "properties": {
+            "uri": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^[A-Za-z0-9/_.:\\-]+$",
+              "not": { "pattern": "(?i)(^|[/_.\\-])(latest|current|final-final)([/_.\\-]|$)" },
+              "description": "Immutable, content-addressed URI or path to the source LAZ input. Must not be 'latest.laz' or any mutable alias."
+            },
+            "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$", "description": "SHA-256 hex digest of the source LAZ file." },
+            "size_bytes": { "type": "integer", "minimum": 1 },
+            "point_count": { "type": "integer", "minimum": 0 },
+            "knowledge": { "$ref": "#/definitions/knowledge_claim" }
+          }
+        },
+        "crs_contract": {
+          "type": "object",
+          "required": [
+            "source_horizontal_crs",
+            "source_vertical_crs",
+            "source_xy_units",
+            "source_z_units",
+            "processed_horizontal_crs",
+            "processed_xy_units",
+            "processed_z_units",
+            "z_conversion"
+          ],
+          "additionalProperties": false,
+          "description": "Reconciled with the laz_source_contract shape in schemas/city_config.schema.json.",
+          "properties": {
+            "source_horizontal_crs": { "type": "string", "minLength": 1 },
+            "source_vertical_crs": { "type": "string", "minLength": 1 },
+            "source_xy_units": { "type": "string", "minLength": 1 },
+            "source_z_units": { "type": "string", "minLength": 1 },
+            "processed_horizontal_crs": { "type": "string", "minLength": 1 },
+            "processed_xy_units": { "const": "meters" },
+            "processed_z_units": { "const": "meters" },
+            "z_conversion": {
+              "type": "object",
+              "required": ["required", "occurs_exactly_once", "stage", "z_to_meters_factor", "normalization_version"],
+              "additionalProperties": false,
+              "description": "Exactly-once Z-normalization provenance, reconciled with laz_source_contract.z_conversion in schemas/city_config.schema.json.",
+              "properties": {
+                "required": { "const": true },
+                "occurs_exactly_once": { "const": true },
+                "stage": { "type": "string", "minLength": 1, "description": "Pipeline stage name where Z normalization occurred, e.g. 'filters.assign'." },
+                "z_to_meters_factor": { "type": "number", "exclusiveMinimum": 0 },
+                "normalization_version": { "type": "string", "minLength": 1, "description": "e.g. 'miami_metric_normalization_v1'." }
+              }
+            }
+          }
+        },
+        "processing_bounds": {
+          "type": "object",
+          "required": ["min", "max"],
+          "additionalProperties": false,
+          "description": "Processed-CRS bounding box for the tile, using the same 3-element [x,y,z] convention as schemas/building_metadata.schema.json bbox.",
+          "properties": {
+            "min": { "type": "array", "items": { "type": "number" }, "minItems": 3, "maxItems": 3 },
+            "max": { "type": "array", "items": { "type": "number" }, "minItems": 3, "maxItems": 3 }
+          }
+        },
+        "origin_strategy": {
+          "type": "object",
+          "required": ["mode", "local_origin"],
+          "additionalProperties": false,
+          "description": "Local/world origin strategy. local_origin uses the same {x,y,z} object convention as schemas/viewer_manifest.schema.json origin.",
+          "properties": {
+            "mode": { "enum": ["tile_local", "world_absolute"] },
+            "local_origin": {
+              "type": "object",
+              "required": ["x", "y", "z"],
+              "additionalProperties": false,
+              "properties": { "x": { "type": "number" }, "y": { "type": "number" }, "z": { "type": "number" } }
+            }
+          }
+        },
+        "data_sources": {
+          "type": "object",
+          "required": ["lidar_only", "footprints_contributed", "addresses_contributed", "footprint_source_ref", "address_source_ref"],
+          "additionalProperties": false,
+          "description": "Whether this tile's geometry is LiDAR-only, or whether external footprint/address sources contributed.",
+          "properties": {
+            "lidar_only": { "type": "boolean" },
+            "footprints_contributed": { "type": "boolean" },
+            "addresses_contributed": { "type": "boolean" },
+            "footprint_source_ref": { "anyOf": [{ "$ref": "#/definitions/source_registry_ref" }, { "type": "null" }] },
+            "address_source_ref": { "anyOf": [{ "$ref": "#/definitions/source_registry_ref" }, { "type": "null" }] }
+          }
+        }
+      }
+    },
+    "outputs": {
+      "type": "object",
+      "required": ["glb", "companion_feature_table", "building_attribution", "point_counts"],
+      "additionalProperties": false,
+      "description": "Output asset inventory produced by this tile run. Each asset carries a structured knowledge claim.",
+      "properties": {
+        "glb": {
+          "type": "object",
+          "required": ["uri", "sha256", "size_bytes", "knowledge"],
+          "additionalProperties": false,
+          "properties": {
+            "uri": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^[A-Za-z0-9/_.:\\-]+$",
+              "not": { "pattern": "(?i)(^|[/_.\\-])(latest|current|final-final)([/_.\\-]|$)" },
+              "description": "Immutable, content-addressed GLB path or URI. Must not use mutable aliases such as 'latest', 'current', or 'final-final'."
+            },
+            "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+            "size_bytes": { "type": "integer", "minimum": 1 },
+            "knowledge": { "$ref": "#/definitions/knowledge_claim" }
+          }
+        },
+        "companion_feature_table": {
+          "type": "object",
+          "required": ["uri", "sha256", "format", "building_count", "knowledge"],
+          "additionalProperties": false,
+          "description": "Reference to the checksummed companion enriched GeoJSON / feature table. Building records are never embedded directly in this manifest.",
+          "properties": {
+            "uri": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^[A-Za-z0-9/_.:\\-]+$",
+              "not": { "pattern": "(?i)(^|[/_.\\-])(latest|current|final-final)([/_.\\-]|$)" },
+              "description": "Path or URI to structures_enriched.geojson (or equivalent checksummed feature table) for this tile."
+            },
+            "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+            "format": { "enum": ["geojson", "csv", "parquet"] },
+            "building_count": { "type": "integer", "minimum": 0 },
+            "knowledge": { "$ref": "#/definitions/knowledge_claim" }
+          }
+        },
+        "building_attribution": {
+          "type": "object",
+          "required": ["building_id_namespace", "building_id_field", "glb_mapping_strategy"],
+          "additionalProperties": false,
+          "description": "Makes the authoritative-footprint -> enriched-feature -> tile-manifest -> GLB-node -> selectable-object chain deterministic.",
+          "properties": {
+            "building_id_namespace": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Stable namespace scoping building_id values, mirroring building_id_namespace in schemas/building_synthesis_profile.schema.json (e.g. 'glytchdraft.phase06_building.v1'). building_id itself is tile-scoped, not globally unique, per docs/validation/BUILDING_CHARACTERISTICS_DATA_DICTIONARY.md."
+            },
+            "building_id_field": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Exact property name in the companion feature table that holds the building ID, e.g. 'building_id'."
+            },
+            "glb_mapping_strategy": {
+              "type": "object",
+              "required": ["strategy", "building_id_field"],
+              "additionalProperties": false,
+              "properties": {
+                "strategy": {
+                  "enum": ["node_name_equals_building_id", "extras_building_id", "external_mapping_table", "tile_scoped_no_per_building_nodes"],
+                  "description": "node_name_equals_building_id / extras_building_id / external_mapping_table describe a GLB with per-building node granularity. tile_scoped_no_per_building_nodes documents today's canonical production GLB export (scripts/phases/phase_08_export.py), which emits a single tile-named node with no per-building attribution."
+                },
+                "building_id_field": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "Field or naming scheme carrying the building ID inside the GLB (node name, extras key, or external table column)."
+                },
+                "node_name_pattern": {
+                  "type": ["string", "null"],
+                  "description": "Node naming pattern when strategy involves per-building nodes, e.g. 'bld_{tile_id}_{building_id}' (see scripts/phases/prototype_named_glb.py). Null when strategy is tile_scoped_no_per_building_nodes."
+                }
+              }
+            }
+          }
+        },
+        "point_counts": {
+          "type": "object",
+          "required": ["ground", "building", "vegetation"],
+          "additionalProperties": false,
+          "description": "Per-class point counts where produced by the pipeline. Null where a class was not produced for this tile.",
+          "properties": {
+            "ground": { "type": ["integer", "null"], "minimum": 0 },
+            "building": { "type": ["integer", "null"], "minimum": 0 },
+            "vegetation": { "type": ["integer", "null"], "minimum": 0 }
+          }
+        }
+      }
+    },
+    "transformation_lineage": {
+      "type": "array",
+      "minItems": 1,
+      "description": "Ordered processing steps applied between source LAZ and output assets, each referencing the method_registry rather than embedding method prose inline.",
+      "items": {
+        "type": "object",
+        "required": ["step", "method_ref", "occurs_exactly_once"],
+        "additionalProperties": false,
+        "properties": {
+          "step": { "type": "string", "minLength": 1 },
+          "method_ref": { "$ref": "#/definitions/method_registry_ref" },
+          "occurs_exactly_once": { "type": "boolean" }
+        }
+      }
+    },
+    "validation_results": {
+      "type": "array",
+      "description": "Structured validation outcomes, each referencing the validation_registry rather than embedding check descriptions inline.",
+      "items": {
+        "type": "object",
+        "required": ["check_ref", "result", "evidence_refs"],
+        "additionalProperties": false,
+        "properties": {
+          "check_ref": { "$ref": "#/definitions/validation_registry_ref" },
+          "result": { "enum": ["pass", "warn", "fail", "not_run"] },
+          "evidence_refs": { "type": "array", "items": { "$ref": "#/definitions/registry_ref" } }
+        }
+      }
+    },
+    "qa": {
+      "type": "object",
+      "required": ["status", "warnings"],
+      "additionalProperties": false,
+      "properties": {
+        "status": { "enum": ["pass", "warn", "fail"], "description": "Matches the status enum in schemas/audit_report.schema.json." },
+        "warnings": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "publication": {
+      "type": "object",
+      "required": [
+        "license_status",
+        "license_evidence_refs",
+        "engineering_valid",
+        "viewer_valid",
+        "publication_allowed",
+        "commercial_use_allowed",
+        "production_allowed",
+        "auto_publish_enabled",
+        "manual_publication_approved",
+        "manual_publication_approved_by",
+        "manual_publication_approved_at"
+      ],
+      "additionalProperties": false,
+      "description": "Layered publication gating. engineering_valid, viewer_valid, publication_allowed, commercial_use_allowed, and production_allowed are deliberately separate booleans, not one collapsed flag. Publication is never automatic: auto_publish_enabled is hard-locked false, mirroring the real_data_execution_enabled compile-time lock pattern in schemas/gcp_batch_tile_task.schema.json. production_allowed is additionally hard-locked false while contract_status is CANDIDATE (see top-level allOf).",
+      "properties": {
+        "license_status": { "enum": ["confirmed", "needs_review", "blocked"], "description": "Matches the license_status enum in schemas/city_status.schema.json." },
+        "license_evidence_refs": { "type": "array", "items": { "$ref": "#/definitions/license_registry_ref" }, "description": "Evidence backing license_status. Required to be non-empty when license_status is 'confirmed' (see allOf)." },
+        "engineering_valid": { "type": "boolean", "description": "Geometry/topology/manifest internal consistency passed." },
+        "viewer_valid": { "type": "boolean", "description": "Asset renders and loads correctly under the glytchOS viewer asset contract." },
+        "publication_allowed": { "type": "boolean", "description": "Whether this asset may be shown at all (e.g. non-commercial/demo viewer contexts). Distinct from production_allowed and commercial_use_allowed." },
+        "commercial_use_allowed": { "type": "boolean", "description": "Whether the underlying source license permits commercial use. Implies publication_allowed (see allOf)." },
+        "production_allowed": {
+          "type": "boolean",
+          "description": "Must remain false for Atlantid Contract v1 while contract_status is CANDIDATE, and must be false whenever license_status is not 'confirmed'. Not hand-set casually — computed from audit/QA/license state, mirroring production_allowed in schemas/city_status.schema.json."
+        },
+        "auto_publish_enabled": { "const": false, "description": "Hard safety lock. Must always be false. There is no automatic publication pathway from this manifest." },
+        "manual_publication_approved": { "type": "boolean", "description": "Explicit human sign-off gate, distinct from all boolean gates above." },
+        "manual_publication_approved_by": { "type": ["string", "null"], "minLength": 1, "description": "Required non-null identity of the approving human when manual_publication_approved is true." },
+        "manual_publication_approved_at": { "type": ["string", "null"], "format": "date-time", "description": "Required non-null timestamp of manual approval when manual_publication_approved is true." }
+      }
+    }
+  },
+  "definitions": {
+    "knowledge_status": {
+      "enum": ["measured", "derived", "authoritative_import", "classified", "inferred", "fallback", "unknown", "not_applicable", "excluded", "blocked"],
+      "description": "How an asset's identity/content claim is known. Unknown values must remain explicitly 'unknown' rather than silently defaulting to a stronger status."
+    },
+    "registry_ref": {
+      "type": "object",
+      "required": ["registry", "ref_id"],
+      "additionalProperties": false,
+      "properties": {
+        "registry": { "enum": ["source_registry", "method_registry", "validation_registry", "license_registry", "runtime_registry"] },
+        "ref_id": { "type": "string", "minLength": 1 }
+      }
+    },
+    "source_registry_ref": {
+      "type": "object",
+      "required": ["registry", "ref_id"],
+      "additionalProperties": false,
+      "properties": { "registry": { "const": "source_registry" }, "ref_id": { "type": "string", "minLength": 1 } }
+    },
+    "method_registry_ref": {
+      "type": "object",
+      "required": ["registry", "ref_id"],
+      "additionalProperties": false,
+      "properties": { "registry": { "const": "method_registry" }, "ref_id": { "type": "string", "minLength": 1 } }
+    },
+    "validation_registry_ref": {
+      "type": "object",
+      "required": ["registry", "ref_id"],
+      "additionalProperties": false,
+      "properties": { "registry": { "const": "validation_registry" }, "ref_id": { "type": "string", "minLength": 1 } }
+    },
+    "license_registry_ref": {
+      "type": "object",
+      "required": ["registry", "ref_id"],
+      "additionalProperties": false,
+      "properties": { "registry": { "const": "license_registry" }, "ref_id": { "type": "string", "minLength": 1 } }
+    },
+    "registry_document_ref": {
+      "type": "object",
+      "required": ["uri", "sha256"],
+      "additionalProperties": false,
+      "description": "Content-addressed pointer to the exact version of a shared registry document in effect for this manifest.",
+      "properties": {
+        "uri": { "type": "string", "minLength": 1 },
+        "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
+      }
+    },
+    "knowledge_claim": {
+      "type": "object",
+      "required": ["knowledge_status", "method_ref", "evidence_refs", "confidence"],
+      "additionalProperties": false,
+      "description": "What is known about an asset, how it is known, and the supporting evidence. Reused for every asset entry (source LAZ, GLB, companion feature table).",
+      "properties": {
+        "knowledge_status": { "$ref": "#/definitions/knowledge_status" },
+        "method_ref": { "anyOf": [{ "$ref": "#/definitions/registry_ref" }, { "type": "null" }] },
+        "evidence_refs": { "type": "array", "items": { "$ref": "#/definitions/registry_ref" } },
+        "confidence": {
+          "type": "object",
+          "required": ["scoring_model_ref", "score", "evidence_inputs", "calibration_status", "limitations"],
+          "additionalProperties": false,
+          "description": "A numeric score is never presented alone as verification; it must name its scoring model and cite evidence inputs.",
+          "properties": {
+            "scoring_model_ref": { "anyOf": [{ "$ref": "#/definitions/method_registry_ref" }, { "type": "null" }] },
+            "score": { "type": ["number", "null"], "minimum": 0, "maximum": 1 },
+            "evidence_inputs": { "type": "array", "items": { "type": "string" } },
+            "calibration_status": { "enum": ["calibrated", "uncalibrated", "not_applicable"] },
+            "limitations": { "type": "array", "items": { "type": "string" } }
+          },
+          "allOf": [
+            {
+              "description": "A non-null score requires a named scoring model and at least one evidence input.",
+              "if": { "properties": { "score": { "not": { "const": null } } }, "required": ["score"] },
+              "then": {
+                "properties": {
+                  "scoring_model_ref": { "not": { "const": null } },
+                  "evidence_inputs": { "type": "array", "minItems": 1 }
+                }
+              }
+            }
+          ]
+        }
+      },
+      "allOf": [
+        {
+          "description": "Claims backed by an established knowledge status require a method reference and at least one evidence reference; only unknown/not_applicable/excluded/blocked may omit them.",
+          "if": {
+            "properties": { "knowledge_status": { "enum": ["measured", "derived", "authoritative_import", "classified", "inferred", "fallback"] } },
+            "required": ["knowledge_status"]
+          },
+          "then": {
+            "properties": {
+              "method_ref": { "not": { "const": null } },
+              "evidence_refs": { "type": "array", "minItems": 1 }
+            }
+          }
+        }
+      ]
+    }
+  },
+  "allOf": [
+    {
+      "description": "While contract_status is CANDIDATE, publication.production_allowed is hard-locked false. Do not treat the contract as FROZEN until independent review, controlled smoke, and determinism comparison complete.",
+      "if": { "properties": { "contract_status": { "const": "CANDIDATE" } }, "required": ["contract_status"] },
+      "then": {
+        "properties": { "publication": { "type": "object", "properties": { "production_allowed": { "const": false } }, "required": ["production_allowed"] } },
+        "required": ["publication"]
+      }
+    },
+    {
+      "description": "production_allowed must be false whenever license_status is not confirmed.",
+      "if": {
+        "properties": { "publication": { "type": "object", "properties": { "license_status": { "not": { "const": "confirmed" } } }, "required": ["license_status"] } },
+        "required": ["publication"]
+      },
+      "then": {
+        "properties": { "publication": { "type": "object", "properties": { "production_allowed": { "const": false } }, "required": ["production_allowed"] } }
+      }
+    },
+    {
+      "description": "license_status='confirmed' requires at least one license_evidence_refs entry.",
+      "if": {
+        "properties": { "publication": { "type": "object", "properties": { "license_status": { "const": "confirmed" } }, "required": ["license_status"] } },
+        "required": ["publication"]
+      },
+      "then": {
+        "properties": { "publication": { "type": "object", "properties": { "license_evidence_refs": { "type": "array", "minItems": 1 } }, "required": ["license_evidence_refs"] } }
+      }
+    },
+    {
+      "description": "production_allowed=true requires engineering_valid and viewer_valid to both be true.",
+      "if": {
+        "properties": { "publication": { "type": "object", "properties": { "production_allowed": { "const": true } }, "required": ["production_allowed"] } },
+        "required": ["publication"]
+      },
+      "then": {
+        "properties": {
+          "publication": {
+            "type": "object",
+            "properties": { "engineering_valid": { "const": true }, "viewer_valid": { "const": true } },
+            "required": ["engineering_valid", "viewer_valid"]
+          }
+        }
+      }
+    },
+    {
+      "description": "commercial_use_allowed=true implies publication_allowed=true.",
+      "if": {
+        "properties": { "publication": { "type": "object", "properties": { "commercial_use_allowed": { "const": true } }, "required": ["commercial_use_allowed"] } },
+        "required": ["publication"]
+      },
+      "then": {
+        "properties": { "publication": { "type": "object", "properties": { "publication_allowed": { "const": true } }, "required": ["publication_allowed"] } }
+      }
+    },
+    {
+      "description": "manual_publication_approved=true requires a non-null approver identity and timestamp.",
+      "if": {
+        "properties": { "publication": { "type": "object", "properties": { "manual_publication_approved": { "const": true } }, "required": ["manual_publication_approved"] } },
+        "required": ["publication"]
+      },
+      "then": {
+        "properties": {
+          "publication": {
+            "type": "object",
+            "properties": {
+              "manual_publication_approved_by": { "type": "string", "minLength": 1 },
+              "manual_publication_approved_at": { "type": "string", "format": "date-time" }
+            },
+            "required": ["manual_publication_approved_by", "manual_publication_approved_at"]
+          }
+        }
+      }
+    },
+    {
+      "description": "data_sources.lidar_only=true implies no footprint/address contribution and no source refs.",
+      "if": {
+        "properties": {
+          "source": { "type": "object", "properties": { "data_sources": { "type": "object", "properties": { "lidar_only": { "const": true } }, "required": ["lidar_only"] } }, "required": ["data_sources"] }
+        },
+        "required": ["source"]
+      },
+      "then": {
+        "properties": {
+          "source": {
+            "type": "object",
+            "properties": {
+              "data_sources": {
+                "type": "object",
+                "properties": {
+                  "footprints_contributed": { "const": false },
+                  "addresses_contributed": { "const": false },
+                  "footprint_source_ref": { "const": null },
+                  "address_source_ref": { "const": null }
+                },
+                "required": ["footprints_contributed", "addresses_contributed", "footprint_source_ref", "address_source_ref"]
+              }
+            },
+            "required": ["data_sources"]
+          }
+        }
+      }
+    },
+    {
+      "description": "data_sources.footprints_contributed=true requires a non-null footprint_source_ref.",
+      "if": {
+        "properties": {
+          "source": { "type": "object", "properties": { "data_sources": { "type": "object", "properties": { "footprints_contributed": { "const": true } }, "required": ["footprints_contributed"] } }, "required": ["data_sources"] }
+        },
+        "required": ["source"]
+      },
+      "then": {
+        "properties": {
+          "source": {
+            "type": "object",
+            "properties": { "data_sources": { "type": "object", "properties": { "footprint_source_ref": { "not": { "const": null } } }, "required": ["footprint_source_ref"] } },
+            "required": ["data_sources"]
+          }
+        }
+      }
+    },
+    {
+      "description": "data_sources.addresses_contributed=true requires a non-null address_source_ref.",
+      "if": {
+        "properties": {
+          "source": { "type": "object", "properties": { "data_sources": { "type": "object", "properties": { "addresses_contributed": { "const": true } }, "required": ["addresses_contributed"] } }, "required": ["data_sources"] }
+        },
+        "required": ["source"]
+      },
+      "then": {
+        "properties": {
+          "source": {
+            "type": "object",
+            "properties": { "data_sources": { "type": "object", "properties": { "address_source_ref": { "not": { "const": null } } }, "required": ["address_source_ref"] } },
+            "required": ["data_sources"]
+          }
+        }
+      }
+    }
+  ]
+}
