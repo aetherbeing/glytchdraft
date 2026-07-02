@@ -18,6 +18,7 @@
     "inventory_comparison",
     "counts_and_geospatial_evidence_availability",
     "normalization_policy",
+    "tolerance_applications",
     "findings",
     "classification",
     "classification_reasons",
@@ -102,6 +103,11 @@
         }
       }
     },
+    "tolerance_applications": {
+      "type": "array",
+      "description": "The canonical, deduplicated ledger of every tolerated numeric field difference. Exactly one record per tolerated field difference -- produced solely by compare_counts_and_geospatial (see build_report), never duplicated by the raw JSON file-level comparison layer.",
+      "items": { "$ref": "#/definitions/tolerance_application" }
+    },
     "findings": {
       "type": "array",
       "items": { "$ref": "#/definitions/finding" }
@@ -129,6 +135,21 @@
         "code": { "type": "string", "minLength": 1 },
         "message": { "type": "string", "minLength": 1 },
         "field": { "type": ["string", "null"] }
+      }
+    },
+    "tolerance_application": {
+      "type": "object",
+      "required": ["file", "path", "value_a", "value_b", "tolerance_category", "tolerance", "observed_difference", "reason"],
+      "additionalProperties": false,
+      "properties": {
+        "file": { "type": "string", "minLength": 1, "description": "Relative path of the evidence file this tolerated field was read from." },
+        "path": { "type": "string", "minLength": 1, "description": "Exact semantic JSON path of the tolerated field." },
+        "value_a": { "type": "number" },
+        "value_b": { "type": "number" },
+        "tolerance_category": { "enum": ["count", "z_m"] },
+        "tolerance": { "type": "number", "minimum": 0 },
+        "observed_difference": { "type": "number", "minimum": 0 },
+        "reason": { "type": "string", "minLength": 1 }
       }
     }
   },

@@ -731,3 +731,343 @@ def test_run_tile_miami_and_smoke_harness_locks_remain_false():
 def test_miami_production_allowed_remains_false():
     miami_config = json.loads((REPO_ROOT / "configs" / "cities" / "miami.json").read_text(encoding="utf-8"))
     assert miami_config["pipeline_tunables"]["footprint_source_detail"]["production_allowed"] is False
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+# PR #37 bounded correctness pass: path-specific tolerances, exact-commit-path
+# normalization, deduplicated normalization/tolerance records.
+# ═════════════════════════════════════════════════════════════════════════════
+
+WIDE_TOLERANCES = {"count": 1000, "z_m": 1000.0}
+ZERO_TOLERANCES = {"count": 0, "z_m": 0.0}
+
+
+def _direct_compare(a: Any, b: Any, *, extra_normalized_paths: frozenset[str] = frozenset(), tolerances: dict[str, float] = ZERO_TOLERANCES):
+    normalization_events: list = []
+    tolerated_paths: list = []
+    diffs: list = []
+    equal = mod.compare_json_values(
+        a, b, "",
+        run_root_a="", run_root_b="",
+        extra_normalized_paths=extra_normalized_paths, tolerances=tolerances,
+        normalization_events=normalization_events, tolerated_paths=tolerated_paths, diffs=diffs,
+    )
+    return equal, normalization_events, tolerated_paths, diffs
+
+
+# ── 1-2: tolerance applies only to approved paths ──────────────────────────
+
+def test_count_tolerance_category_only_for_approved_count_paths():
+    for suffix in mod.APPROVED_COUNT_TOLERANCE_PATH_SUFFIXES:
+        path = ".".join(suffix)
+        assert mod.tolerance_category_for_path(path) == "count", path
+        # index-agnostic: metrics[0].point_counts.normalized must match the same as metrics.point_counts.normalized
+        indexed = re_sub_first_component_index(path)
+        assert mod.tolerance_category_for_path(indexed) == "count", indexed
+
+
+def test_z_tolerance_category_only_for_approved_z_paths():
+    for suffix in mod.APPROVED_Z_TOLERANCE_PATH_SUFFIXES:
+        path = ".".join(suffix)
+        assert mod.tolerance_category_for_path(path) == "z_m", path
+
+
+def re_sub_first_component_index(path: str) -> str:
+    parts = path.split(".")
+    parts[0] = f"{parts[0]}[0]"
+    return ".".join(parts)
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        "commands[0].returncode",
+        "inputs[0].bytes",
+        "source_records.318155.bytes",
+        "metrics[0].crs.processed_horizontal_epsg",
+        "metrics[0].some_other_metric",
+        "outputs.glb.size_bytes",
+        "n_footprints.extra",  # not an exact top-level match
+        "tile_id",
+        "metrics[0].point_counts.raw",  # only .normalized is approved, not .raw
+    ],
+)
+def test_unapproved_paths_are_never_tolerated(path):
+    assert mod.tolerance_category_for_path(path) is None
+
+
+# ── 3: tile-ID difference fails even with nonzero count tolerance ──────────
+
+def test_tile_id_difference_fails_even_with_count_tolerance(tmp_path: Path):
+    tid = AUTHORIZED_TILE_IDS[0]
+    root_a = build_valid_run(tmp_path, "a")
+    root_b = build_valid_run(tmp_path, "b", tile_manifest_overrides={tid: {"tile_id": "999999"}})
+    result = run_comparison(root_a, root_b, tolerances=WIDE_TOLERANCES)
+    report = result["report"]
+    assert report["classification"] == "FAIL"
+    per_file = report["inventory_comparison"]["per_file"][f"tiles/{tid}/manifest/{tid}_manifest.json"]
+    assert per_file["status"] == "different"
+    assert any(d["path"] == "tile_id" for d in per_file.get("diffs", []))
+
+
+# ── 4: byte-size difference fails unless the exact path is explicitly allowed ─
+
+def test_source_byte_size_difference_fails_with_nonzero_count_tolerance(tmp_path: Path):
+    root_a = build_valid_run(tmp_path, "a")
+    tid0 = AUTHORIZED_TILE_IDS[0]
+    root_b = build_valid_run(tmp_path, "b")
+    manifest_path_b = root_b / "qa" / "miami_metric_smoke_manifest.json"
+    manifest_b = json.loads(manifest_path_b.read_text(encoding="utf-8"))
+    for item in manifest_b["inputs"]:
+        if item["tile_id"] == tid0:
+            item["bytes"] += 5
+    write_json(manifest_path_b, manifest_b)
+
+    result = run_comparison(root_a, root_b, tolerances=WIDE_TOLERANCES)
+    report = result["report"]
+    assert report["classification"] == "FAIL"
+    assert "source_size_mismatch" in codes(report, "blocker")
+    per_file = report["inventory_comparison"]["per_file"]["qa/miami_metric_smoke_manifest.json"]
+    assert per_file["status"] == "different"
+    assert any(d["path"].endswith(".bytes") for d in per_file.get("diffs", []))
+
+
+# ── 5: return-code difference is exact (never tolerated) ───────────────────
+
+def test_returncode_difference_is_never_tolerated():
+    equal, _, _, diffs = _direct_compare(
+        {"commands": [{"label": "x", "returncode": 0}]},
+        {"commands": [{"label": "x", "returncode": 2}]},
+        tolerances=WIDE_TOLERANCES,
+    )
+    assert equal is False
+    assert any(d["path"] == "commands[0].returncode" for d in diffs)
+
+
+# ── 6: EPSG / CRS-identifier-shaped numeric difference is exact ────────────
+
+def test_epsg_style_numeric_difference_is_never_tolerated():
+    equal, _, _, diffs = _direct_compare(
+        {"metrics": [{"crs": {"processed_horizontal_epsg": 32617}}]},
+        {"metrics": [{"crs": {"processed_horizontal_epsg": 4326}}]},
+        tolerances=WIDE_TOLERANCES,
+    )
+    assert equal is False
+    assert any(d["path"] == "metrics[0].crs.processed_horizontal_epsg" for d in diffs)
+
+
+# ── 7: an unrelated float difference is exact even with nonzero Z tolerance ─
+
+def test_unrelated_float_difference_is_never_tolerated():
+    equal, _, _, diffs = _direct_compare(
+        {"some_other_metric": 5.0},
+        {"some_other_metric": 5.05},
+        tolerances=WIDE_TOLERANCES,
+    )
+    assert equal is False
+    assert any(d["path"] == "some_other_metric" for d in diffs)
+
+
+# ── 8-9: exact pipeline-commit path only, never a bare "head" key ──────────
+
+def test_exact_commit_path_normalized_only_with_allow_flag():
+    without_flag, events_without, _, _ = _direct_compare(
+        {"git": {"head": "a" * 40}}, {"git": {"head": "b" * 40}}, extra_normalized_paths=frozenset()
+    )
+    assert without_flag is False
+
+    with_flag, events_with, _, _ = _direct_compare(
+        {"git": {"head": "a" * 40}}, {"git": {"head": "b" * 40}}, extra_normalized_paths=frozenset({"git.head"})
+    )
+    assert with_flag is True
+    assert len(events_with) == 1
+    assert events_with[0]["path"] == "git.head"
+    assert events_with[0]["mechanism"] == "explicit_opt_in_normalization"
+    assert events_with[0]["value_a"] == "a" * 40
+    assert events_with[0]["value_b"] == "b" * 40
+
+
+def test_unrelated_key_named_head_is_not_normalized():
+    equal, _, _, diffs = _direct_compare(
+        {"other": {"head": "a" * 40}}, {"other": {"head": "b" * 40}}, extra_normalized_paths=frozenset({"git.head"})
+    )
+    assert equal is False
+    assert any(d["path"] == "other.head" for d in diffs)
+
+
+# ── 10-11: different-commit classification ceiling ─────────────────────────
+
+def test_different_commits_without_allowance_fails(tmp_path: Path):
+    root_a = build_valid_run(tmp_path, "a", git_head="a" * 40)
+    root_b = build_valid_run(tmp_path, "b", git_head="b" * 40)
+    result = run_comparison(root_a, root_b)
+    assert result["report"]["classification"] == "FAIL"
+    assert "pipeline_commit_mismatch" in codes(result["report"], "blocker")
+
+
+def test_different_commits_with_allowance_never_reaches_clean_pass(tmp_path: Path):
+    root_a = build_valid_run(tmp_path, "a", git_head="a" * 40, embed_real_root_paths=False)
+    root_b = build_valid_run(tmp_path, "b", git_head="b" * 40, embed_real_root_paths=False)
+    result = run_comparison(root_a, root_b, allow_different_commits=True)
+    report = result["report"]
+    assert report["classification"] == "PASS WITH NON-BLOCKING FINDINGS"
+    assert report["classification"] != "PASS"
+    assert "pipeline_commit_mismatch" not in codes(report, "blocker")
+    assert "pipeline_commit_mismatch_accepted" in codes(report, "warning")
+    # the runtime-identity finding still names both commit values
+    accepted = next(f for f in report["findings"] if f["code"] == "pipeline_commit_mismatch_accepted")
+    assert ("a" * 40) in accepted["message"] and ("b" * 40) in accepted["message"]
+
+
+# ── 12: normalization events are not duplicated ─────────────────────────────
+
+def test_normalization_events_are_not_duplicated(tmp_path: Path):
+    root_a = build_valid_run(tmp_path, "a", embed_real_root_paths=True, created_at="2026-07-01T00:00:00Z")
+    root_b = build_valid_run(tmp_path, "b", embed_real_root_paths=True, created_at="2026-07-01T05:00:00Z")
+    manifest_a = json.loads((root_a / "qa" / "miami_metric_smoke_manifest.json").read_text(encoding="utf-8"))
+    manifest_b = json.loads((root_b / "qa" / "miami_metric_smoke_manifest.json").read_text(encoding="utf-8"))
+
+    normalization_events: list = []
+    tolerated_paths: list = []
+    diffs: list = []
+    equal = mod.compare_json_values(
+        manifest_a, manifest_b, "",
+        run_root_a=str(root_a), run_root_b=str(root_b),
+        extra_normalized_paths=frozenset(), tolerances=ZERO_TOLERANCES,
+        normalization_events=normalization_events, tolerated_paths=tolerated_paths, diffs=diffs,
+    )
+    assert equal is True
+    # exactly one event per distinct (path, mechanism) pair -- never two
+    # (one per side) for the same field, and never more than one entry
+    # merely because both manifests independently reference the run root.
+    seen = set()
+    for event in normalization_events:
+        key = (event["path"], event["mechanism"])
+        assert key not in seen, f"duplicate normalization event: {key}"
+        seen.add(key)
+    created_at_events = [e for e in normalization_events if e.get("key") == "created_at"]
+    assert len(created_at_events) == 1
+    assert created_at_events[0]["value_a"] == "2026-07-01T00:00:00Z"
+    assert created_at_events[0]["value_b"] == "2026-07-01T05:00:00Z"
+
+
+# ── 13: tolerance application records are not duplicated ───────────────────
+
+def test_tolerance_application_visible_in_both_layers_produces_exactly_one_record(tmp_path: Path):
+    """The same within-tolerance count difference is independently visible to
+    compare_file_pair (raw JSON diff of the tile manifest file) and to
+    compare_counts_and_geospatial (semantic field comparison of the same
+    file). The final report must record it exactly once."""
+    tid = AUTHORIZED_TILE_IDS[0]
+    root_a = build_valid_run(tmp_path, "a")
+    root_b = build_valid_run(tmp_path, "b", tile_manifest_overrides={tid: {"n_footprints": 11}})  # base is 10
+
+    result = run_comparison(root_a, root_b, tolerances={"count": 1, "z_m": 0.0})
+    report = result["report"]
+
+    assert report["classification"] == "PASS WITH NON-BLOCKING FINDINGS", report["classification_reasons"]
+    matching = [
+        t for t in report["tolerance_applications"]
+        if t["path"] == "n_footprints" and t["file"] == f"tiles/{tid}/manifest/{tid}_manifest.json"
+    ]
+    assert len(matching) == 1, report["tolerance_applications"]
+    record = matching[0]
+    assert record["value_a"] == 10
+    assert record["value_b"] == 11
+    assert record["tolerance_category"] == "count"
+    assert record["tolerance"] == 1
+    assert record["observed_difference"] == 1
+    assert record["reason"]
+
+    # And the raw file-level diff for that same tile manifest must NOT also
+    # be a blocking "different" -- it should agree it's tolerated.
+    per_file = report["inventory_comparison"]["per_file"][f"tiles/{tid}/manifest/{tid}_manifest.json"]
+    assert per_file["status"] == "normalized_equal"
+    assert "n_footprints" in per_file.get("tolerated_paths", [])
+
+
+def test_z_tolerance_application_deduplicated_across_layers(tmp_path: Path):
+    tid = AUTHORIZED_TILE_IDS[0]
+    root_a = build_valid_run(tmp_path, "a")
+    root_b = build_valid_run(tmp_path, "b", metrics_overrides={tid: {"height": {"normalized": 10.3, "compatible": True}}})
+
+    result = run_comparison(root_a, root_b, tolerances={"count": 0, "z_m": 0.5})
+    report = result["report"]
+    assert report["classification"] == "PASS WITH NON-BLOCKING FINDINGS"
+    matching = [t for t in report["tolerance_applications"] if t["path"] == f"metrics[{tid}].height.normalized"]
+    assert len(matching) == 1, report["tolerance_applications"]
+    assert matching[0]["tolerance_category"] == "z_m"
+
+
+# ── 14: report schema includes and validates tolerance_applications ────────
+
+@pytest.mark.skipif(not HAS_JSONSCHEMA, reason="jsonschema not installed")
+def test_report_schema_requires_tolerance_applications():
+    schema = json.loads(SCHEMA_PATH.read_text(encoding="utf-8"))
+    assert "tolerance_applications" in schema["required"]
+    assert "tolerance_applications" in schema["properties"]
+
+
+@pytest.mark.skipif(not HAS_JSONSCHEMA, reason="jsonschema not installed")
+def test_tolerance_report_validates_against_schema(tmp_path: Path):
+    tid = AUTHORIZED_TILE_IDS[0]
+    root_a = build_valid_run(tmp_path, "a")
+    root_b = build_valid_run(tmp_path, "b", tile_manifest_overrides={tid: {"n_footprints": 11}})
+    result = run_comparison(root_a, root_b, tolerances={"count": 1, "z_m": 0.0})
+    schema = json.loads(SCHEMA_PATH.read_text(encoding="utf-8"))
+    validate(instance=result["report"], schema=schema)
+    assert len(result["report"]["tolerance_applications"]) == 1
+
+
+# ── 16-18: refusal / third-tile / production_allowed re-verified after the correction ─
+
+def test_pre_execution_refusal_still_cannot_pass_after_correction(tmp_path: Path):
+    root = tmp_path / "failed_shape_corrected_check"
+    write_json(
+        root / "qa" / "miami_metric_smoke_manifest.json",
+        {
+            "schema_version": "miami_metric_normalization_smoke.v1",
+            "dry_run": False,
+            "controlled_smoke": {"active": True, "authorization_provided": True},
+            "provenance_findings": [],
+            "commands": [{"label": "building_characteristics_validator", "returncode": 2}],
+            "inputs": [],
+        },
+    )
+    valid = build_valid_run(tmp_path, "valid_counterpart_corrected_check")
+    assert run_comparison(root, valid)["refused"] is True
+    assert run_comparison(valid, root)["refused"] is True
+
+
+def test_third_tile_still_fails_after_correction(tmp_path: Path):
+    root_a = build_valid_run(tmp_path, "a")
+    root_b = build_valid_run(
+        tmp_path, "b",
+        tile_ids=(*AUTHORIZED_TILE_IDS, "999999"),
+        source_hashes={**KNOWN_CANONICAL_SOURCE_SHA256, "999999": "9" * 64},
+    )
+    result = run_comparison(root_a, root_b, tolerances=WIDE_TOLERANCES)
+    assert result["report"]["classification"] == "FAIL"
+    assert "unauthorized_tile" in codes(result["report"], "blocker")
+
+
+def test_production_allowed_true_still_fails_after_correction(tmp_path: Path):
+    gate = json.dumps({"publication": {"production_allowed": True}}).encode("utf-8")
+    root_a = build_valid_run(tmp_path, "a", extra_root_files={"qa/publication_gate.json": gate})
+    root_b = build_valid_run(tmp_path, "b", extra_root_files={"qa/publication_gate.json": gate})
+    result = run_comparison(root_a, root_b, tolerances=WIDE_TOLERANCES)
+    assert result["report"]["classification"] == "FAIL"
+    assert "production_allowed_true" in codes(result["report"], "blocker")
+
+
+# ── zero tolerance preserves exact comparison behavior ──────────────────────
+
+def test_zero_tolerance_is_exact_for_approved_paths_too(tmp_path: Path):
+    tid = AUTHORIZED_TILE_IDS[0]
+    root_a = build_valid_run(tmp_path, "a")
+    root_b = build_valid_run(tmp_path, "b", tile_manifest_overrides={tid: {"n_footprints": 11}})
+    result = run_comparison(root_a, root_b, tolerances=ZERO_TOLERANCES)
+    report = result["report"]
+    assert report["classification"] == "FAIL"
+    assert "count_mismatch" in codes(report, "blocker")
+    assert report["tolerance_applications"] == []

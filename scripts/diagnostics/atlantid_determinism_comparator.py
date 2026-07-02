@@ -77,6 +77,47 @@ Z_RELATED_METRIC_GROUPS = ("height", "ground_z", "absolute_roof_elevation", "bui
 COUNT_METRIC_GROUPS = ("point_counts",)
 TILE_MANIFEST_COUNT_FIELDS = ("n_clusters", "n_footprints", "n_vegetation_pts", "building_mass_lod0", "building_mass_lod1")
 
+# Path-specific tolerance policy (CRITICAL: do not widen this to "any int" or
+# "any float" -- that would tolerate meaningfully different tile IDs, byte
+# sizes, return codes, EPSG-style numeric codes, version numbers, or
+# validation thresholds just because they happen to be numeric). A numeric
+# leaf is only ever eligible for tolerance when its exact JSON path -- with
+# array indices stripped, since tile ordering is not what's being tolerated
+# -- exactly equals one of the patterns below. Every other numeric leaf, at
+# every other path, is always compared exactly regardless of configured
+# tolerance. These are the single source of truth: compare_counts_and_geospatial
+# iterates the same underlying field names, and the raw JSON file-level
+# comparison (compare_json_values) is path-gated against the derived tuples
+# below, so the two layers can never disagree about which fields tolerate.
+APPROVED_COUNT_TOLERANCE_PATH_SUFFIXES: tuple[tuple[str, ...], ...] = tuple(
+    (field,) for field in TILE_MANIFEST_COUNT_FIELDS
+) + tuple(("metrics", group, "normalized") for group in COUNT_METRIC_GROUPS)
+APPROVED_Z_TOLERANCE_PATH_SUFFIXES: tuple[tuple[str, ...], ...] = tuple(
+    ("metrics", group, "normalized") for group in Z_RELATED_METRIC_GROUPS
+)
+
+# The exact pipeline-commit JSON path in the smoke manifest. --allow-different-commits
+# excludes only this one exact path from the raw content equality diff -- never
+# any dict key merely named "head" wherever it appears (CRITICAL CORRECTION 2).
+PIPELINE_COMMIT_PATH = "git.head"
+
+NORMALIZATION_JUSTIFICATIONS: dict[str, str] = {
+    "run_root_path_prefix": (
+        "The absolute output-root path is a fresh UTC-stamped /tmp directory per run by design "
+        "(default_output_root() in miami_metric_smoke_harness.py); its literal string value is not semantic content."
+    ),
+    "normalized_key_name": (
+        "This JSON key is a wall-clock timestamp, elapsed duration, or per-run identifier, expected to differ "
+        "between two independently executed runs of the same authorized tiles."
+    ),
+    "created_timestamp_line": "Rendered '- Created: `<timestamp>`' line, derived from the same created_at field this mechanism excludes in JSON.",
+    "explicit_opt_in_normalization": (
+        "git.head (the pipeline commit SHA) was excluded from the raw content equality diff only because "
+        "--allow-different-commits was explicitly passed for this comparison; the mismatch is still recorded "
+        "as a warning-severity finding in the runtime comparison (see compare_runtime_identity)."
+    ),
+}
+
 _MEDIA_TYPES = {
     ".json": "application/json",
     ".md": "text/markdown; charset=utf-8",
@@ -157,35 +198,39 @@ def iter_leaf_values(value: Any, path: str = ""):
         yield path, value
 
 
-def deep_diff(a: Any, b: Any, path: str = "", limit: int = 20, acc: list[dict[str, Any]] | None = None) -> list[dict[str, Any]]:
-    if acc is None:
-        acc = []
-    if len(acc) >= limit:
-        return acc
-    if isinstance(a, dict) and isinstance(b, dict):
-        for k in sorted(set(a) | set(b), key=str):
-            if len(acc) >= limit:
-                break
-            sub_path = f"{path}.{k}" if path else str(k)
-            if k not in a:
-                acc.append({"path": sub_path, "a": "<missing>", "b": b[k]})
-            elif k not in b:
-                acc.append({"path": sub_path, "a": a[k], "b": "<missing>"})
-            else:
-                deep_diff(a[k], b[k], sub_path, limit, acc)
-        return acc
-    if isinstance(a, list) and isinstance(b, list):
-        if len(a) != len(b):
-            acc.append({"path": path + "[]", "a": f"<list len {len(a)}>", "b": f"<list len {len(b)}>"})
-            return acc
-        for i, (x, y) in enumerate(zip(a, b)):
-            if len(acc) >= limit:
-                break
-            deep_diff(x, y, f"{path}[{i}]", limit, acc)
-        return acc
-    if a != b:
-        acc.append({"path": path, "a": a, "b": b})
-    return acc
+def _strip_indices(path: str) -> tuple[str, ...]:
+    """Turn 'metrics[0].height.normalized' into ('metrics','height','normalized').
+    Array indices reflect run-independent tile ordering, not what is being
+    tolerated, so the tolerance-path policy is index-agnostic."""
+    cleaned = re.sub(r"\[\d+\]", "", path)
+    return tuple(p for p in cleaned.split(".") if p)
+
+
+def tolerance_category_for_path(path: str) -> str | None:
+    """Return 'count', 'z_m', or None. None means: this path is never eligible
+    for tolerance, no matter what type the value is -- see the CRITICAL
+    comment on APPROVED_*_TOLERANCE_PATH_SUFFIXES above."""
+    components = _strip_indices(path)
+    if components in APPROVED_COUNT_TOLERANCE_PATH_SUFFIXES:
+        return "count"
+    if components in APPROVED_Z_TOLERANCE_PATH_SUFFIXES:
+        return "z_m"
+    return None
+
+
+def _tolerance_application(
+    file: str, path: str, value_a: Any, value_b: Any, category: str, tolerance: float, reason: str
+) -> dict[str, Any]:
+    return {
+        "file": file,
+        "path": path,
+        "value_a": value_a,
+        "value_b": value_b,
+        "tolerance_category": category,
+        "tolerance": tolerance,
+        "observed_difference": abs(value_a - value_b),
+        "reason": reason,
+    }
 
 
 # ── inventory ────────────────────────────────────────────────────────────────
@@ -357,85 +402,181 @@ def collect_run_evidence(root: Path, label: str, manifest: dict[str, Any] | None
     }
 
 
-# ── normalization ────────────────────────────────────────────────────────────
+# ── normalization + tolerance-aware comparison ──────────────────────────────
+#
+# compare_json_values walks Run A's and Run B's parsed JSON in lockstep and
+# produces exactly ONE normalization/tolerance event per normalized or
+# tolerated field (CRITICAL CORRECTION 3: the earlier implementation
+# normalized each side independently and concatenated two per-field event
+# lists, double-recording every normalized field). Each event names both
+# Run A's and Run B's value, so nothing is lost even though the field is
+# excluded from the equality check.
 
-def normalize_json_value(value: Any, run_root_str: str, extra_normalized_keys: frozenset[str] = frozenset()) -> tuple[Any, list[dict[str, Any]]]:
-    events: list[dict[str, Any]] = []
-    normalized_keys = NORMALIZED_KEY_NAMES | extra_normalized_keys
+def compare_json_values(
+    a: Any,
+    b: Any,
+    path: str,
+    *,
+    run_root_a: str,
+    run_root_b: str,
+    extra_normalized_paths: frozenset[str],
+    tolerances: dict[str, float],
+    normalization_events: list[dict[str, Any]],
+    tolerated_paths: list[str],
+    diffs: list[dict[str, Any]],
+) -> bool:
+    """Raw JSON structural equality, used only to decide whether two files'
+    contents agree closely enough to report normalized_equal/different --
+    NOT to produce the report's canonical tolerance ledger. That ledger has
+    exactly one producer, compare_counts_and_geospatial (see build_report),
+    so the same tolerated difference is never recorded twice. When a numeric
+    leaf at an approved path is within tolerance, this function only records
+    its bare path in tolerated_paths (informational, no value_a/value_b) so
+    per-file output stays transparent without duplicating the canonical
+    record."""
+    if isinstance(a, dict) and isinstance(b, dict):
+        keys_a, keys_b = set(a), set(b)
+        if keys_a != keys_b:
+            for k in sorted(keys_a - keys_b, key=str):
+                diffs.append({"path": f"{path}.{k}" if path else str(k), "a": a[k], "b": "<missing>"})
+            for k in sorted(keys_b - keys_a, key=str):
+                diffs.append({"path": f"{path}.{k}" if path else str(k), "a": "<missing>", "b": b[k]})
+            return False
+        equal_all = True
+        for k in sorted(a, key=str):
+            sub = f"{path}.{k}" if path else str(k)
+            val_a, val_b = a[k], b[k]
 
-    def _walk(v: Any, path: str) -> Any:
-        if isinstance(v, dict):
-            out = {}
-            for k, item in v.items():
-                if isinstance(k, str) and k in normalized_keys:
-                    sub_path = f"{path}.{k}" if path else k
-                    mechanism = "normalized_key_name" if k in NORMALIZED_KEY_NAMES else "explicit_opt_in_normalization"
-                    events.append({"path": sub_path, "mechanism": mechanism, "key": k, "value": item})
-                    out[k] = "<NORMALIZED>"
-                    continue
-                out[k] = _walk(item, f"{path}.{k}" if path else str(k))
-            return out
-        if isinstance(v, list):
-            return [_walk(item, f"{path}[{i}]") for i, item in enumerate(v)]
-        if isinstance(v, str) and run_root_str and run_root_str in v:
-            events.append({"path": path, "mechanism": "run_root_path_prefix", "original": v})
-            return v.replace(run_root_str, "<RUN_ROOT>")
-        return v
+            if isinstance(k, str) and k in NORMALIZED_KEY_NAMES:
+                if val_a != val_b:
+                    normalization_events.append(
+                        {
+                            "path": sub,
+                            "mechanism": "normalized_key_name",
+                            "key": k,
+                            "value_a": val_a,
+                            "value_b": val_b,
+                            "justification": NORMALIZATION_JUSTIFICATIONS["normalized_key_name"],
+                        }
+                    )
+                continue
 
-    return _walk(value, ""), events
+            if sub in extra_normalized_paths:
+                if val_a != val_b:
+                    normalization_events.append(
+                        {
+                            "path": sub,
+                            "mechanism": "explicit_opt_in_normalization",
+                            "key": k,
+                            "value_a": val_a,
+                            "value_b": val_b,
+                            "justification": NORMALIZATION_JUSTIFICATIONS["explicit_opt_in_normalization"],
+                        }
+                    )
+                continue
 
+            if k in UNORDERED_ARRAY_KEYS and isinstance(val_a, list) and isinstance(val_b, list):
+                val_a = sorted(val_a, key=lambda item: json.dumps(item, sort_keys=True, default=str))
+                val_b = sorted(val_b, key=lambda item: json.dumps(item, sort_keys=True, default=str))
 
-def tolerant_equal(a: Any, b: Any, tolerances: dict[str, float]) -> bool:
-    """Deep equality where numeric leaves may differ within the configured
-    count/z tolerance -- the same tolerance concept applied field-by-field in
-    compare_counts_and_geospatial, applied uniformly here so a raw file-level
-    diff never contradicts the field-level classification for the same
-    underlying value. int-typed leaves use the count tolerance; float-typed
-    leaves use the z tolerance. Booleans are never treated as numeric."""
+            ok = compare_json_values(
+                val_a, val_b, sub,
+                run_root_a=run_root_a, run_root_b=run_root_b,
+                extra_normalized_paths=extra_normalized_paths, tolerances=tolerances,
+                normalization_events=normalization_events, tolerated_paths=tolerated_paths, diffs=diffs,
+            )
+            equal_all = equal_all and ok
+        return equal_all
+
+    if isinstance(a, list) and isinstance(b, list):
+        if len(a) != len(b):
+            diffs.append({"path": path + "[]", "a": f"<list len {len(a)}>", "b": f"<list len {len(b)}>"})
+            return False
+        equal_all = True
+        for i, (x, y) in enumerate(zip(a, b)):
+            ok = compare_json_values(
+                x, y, f"{path}[{i}]",
+                run_root_a=run_root_a, run_root_b=run_root_b,
+                extra_normalized_paths=extra_normalized_paths, tolerances=tolerances,
+                normalization_events=normalization_events, tolerated_paths=tolerated_paths, diffs=diffs,
+            )
+            equal_all = equal_all and ok
+        return equal_all
+
     if isinstance(a, bool) or isinstance(b, bool):
-        return a is b
+        if a is b:
+            return True
+        diffs.append({"path": path, "a": a, "b": b})
+        return False
+
+    if isinstance(a, str) and isinstance(b, str):
+        norm_a = a.replace(run_root_a, "<RUN_ROOT>") if run_root_a and run_root_a in a else a
+        norm_b = b.replace(run_root_b, "<RUN_ROOT>") if run_root_b and run_root_b in b else b
+        if (norm_a != a or norm_b != b) and norm_a == norm_b:
+            normalization_events.append(
+                {
+                    "path": path,
+                    "mechanism": "run_root_path_prefix",
+                    "value_a": a,
+                    "value_b": b,
+                    "justification": NORMALIZATION_JUSTIFICATIONS["run_root_path_prefix"],
+                }
+            )
+            return True
+        if norm_a == norm_b:
+            return True
+        diffs.append({"path": path, "a": a, "b": b})
+        return False
+
+    # Numeric leaves: exact unless this exact path is an explicitly approved
+    # tolerance pattern (CRITICAL CORRECTION 1 -- never type-based).
     if isinstance(a, (int, float)) and isinstance(b, (int, float)):
         if a == b:
             return True
-        tol = tolerances["z_m"] if (isinstance(a, float) or isinstance(b, float)) else tolerances["count"]
-        return abs(a - b) <= tol
-    if isinstance(a, dict) and isinstance(b, dict):
-        return set(a) == set(b) and all(tolerant_equal(a[k], b[k], tolerances) for k in a)
-    if isinstance(a, list) and isinstance(b, list):
-        return len(a) == len(b) and all(tolerant_equal(x, y, tolerances) for x, y in zip(a, b))
-    return a == b
+        category = tolerance_category_for_path(path)
+        if category is not None:
+            tol = tolerances[category]
+            observed = abs(a - b)
+            if observed <= tol:
+                tolerated_paths.append(path)
+                return True
+        diffs.append({"path": path, "a": a, "b": b})
+        return False
 
-
-def canonicalize_unordered_arrays(value: Any) -> Any:
-    if isinstance(value, dict):
-        out = {}
-        for k, v in value.items():
-            v2 = canonicalize_unordered_arrays(v)
-            if k in UNORDERED_ARRAY_KEYS and isinstance(v2, list):
-                v2 = sorted(v2, key=lambda item: json.dumps(item, sort_keys=True, default=str))
-            out[k] = v2
-        return out
-    if isinstance(value, list):
-        return [canonicalize_unordered_arrays(v) for v in value]
-    return value
+    if a == b:
+        return True
+    diffs.append({"path": path, "a": a, "b": b})
+    return False
 
 
 _CREATED_LINE_RE = re.compile(r"(- Created: `)([^`]+)(`)")
 
 
-def normalize_text(text: str, run_root_str: str) -> tuple[str, list[dict[str, Any]]]:
+def compare_text_documents(text_a: str, text_b: str, run_root_a: str, run_root_b: str) -> tuple[bool, list[dict[str, Any]]]:
     events: list[dict[str, Any]] = []
-    out = text
-    if run_root_str and run_root_str in out:
-        events.append({"mechanism": "run_root_path_prefix"})
-        out = out.replace(run_root_str, "<RUN_ROOT>")
+    norm_a = text_a.replace(run_root_a, "<RUN_ROOT>") if run_root_a and run_root_a in text_a else text_a
+    norm_b = text_b.replace(run_root_b, "<RUN_ROOT>") if run_root_b and run_root_b in text_b else text_b
+    if norm_a != text_a or norm_b != text_b:
+        events.append(
+            {"path": "<document>", "mechanism": "run_root_path_prefix", "justification": NORMALIZATION_JUSTIFICATIONS["run_root_path_prefix"]}
+        )
 
-    def _sub(m: re.Match) -> str:
-        events.append({"mechanism": "normalized_key_name", "key": "created_timestamp_line"})
-        return f"{m.group(1)}<NORMALIZED>{m.group(3)}"
+    match_a = _CREATED_LINE_RE.search(norm_a)
+    match_b = _CREATED_LINE_RE.search(norm_b)
+    if match_a is not None or match_b is not None:
+        events.append(
+            {
+                "path": "<document>#created_line",
+                "mechanism": "created_timestamp_line",
+                "value_a": match_a.group(2) if match_a else None,
+                "value_b": match_b.group(2) if match_b else None,
+                "justification": NORMALIZATION_JUSTIFICATIONS["created_timestamp_line"],
+            }
+        )
+        norm_a = _CREATED_LINE_RE.sub(lambda m: f"{m.group(1)}<NORMALIZED>{m.group(3)}", norm_a)
+        norm_b = _CREATED_LINE_RE.sub(lambda m: f"{m.group(1)}<NORMALIZED>{m.group(3)}", norm_b)
 
-    out = _CREATED_LINE_RE.sub(_sub, out)
-    return out, events
+    return norm_a == norm_b, events
 
 
 def compare_file_pair(
@@ -445,12 +586,12 @@ def compare_file_pair(
     run_root_a: str,
     run_root_b: str,
     tolerances: dict[str, float],
-    extra_normalized_keys: frozenset[str] = frozenset(),
+    extra_normalized_paths: frozenset[str] = frozenset(),
 ) -> dict[str, Any]:
     raw_a = path_a.read_bytes()
     raw_b = path_b.read_bytes()
     if raw_a == raw_b:
-        return {"status": "byte_identical", "normalization_events": []}
+        return {"status": "byte_identical", "normalization_events": [], "tolerated_paths": []}
 
     ext = Path(rel).suffix.lower()
     if ext == ".json":
@@ -458,34 +599,40 @@ def compare_file_pair(
             obj_a = json.loads(raw_a.decode("utf-8"))
             obj_b = json.loads(raw_b.decode("utf-8"))
         except (json.JSONDecodeError, UnicodeDecodeError):
-            return {"status": "different", "reason": "byte mismatch and JSON parse failed", "normalization_events": []}
-        norm_a, ev_a = normalize_json_value(obj_a, run_root_a, extra_normalized_keys)
-        norm_b, ev_b = normalize_json_value(obj_b, run_root_b, extra_normalized_keys)
-        norm_a = canonicalize_unordered_arrays(norm_a)
-        norm_b = canonicalize_unordered_arrays(norm_b)
-        if tolerant_equal(norm_a, norm_b, tolerances):
-            return {"status": "normalized_equal", "normalization_events": ev_a + ev_b}
+            return {"status": "different", "reason": "byte mismatch and JSON parse failed", "normalization_events": [], "tolerated_paths": []}
+        normalization_events: list[dict[str, Any]] = []
+        tolerated_paths: list[str] = []
+        diffs: list[dict[str, Any]] = []
+        equal = compare_json_values(
+            obj_a, obj_b, "",
+            run_root_a=run_root_a, run_root_b=run_root_b,
+            extra_normalized_paths=extra_normalized_paths, tolerances=tolerances,
+            normalization_events=normalization_events, tolerated_paths=tolerated_paths, diffs=diffs,
+        )
+        if equal:
+            return {"status": "normalized_equal", "normalization_events": normalization_events, "tolerated_paths": tolerated_paths}
         return {
             "status": "different",
-            "reason": "content differs after documented JSON normalization and configured tolerances",
-            "normalization_events": ev_a + ev_b,
-            "diffs": deep_diff(norm_a, norm_b),
+            "reason": "content differs after documented JSON normalization and path-specific tolerances",
+            "normalization_events": normalization_events,
+            "tolerated_paths": tolerated_paths,
+            "diffs": diffs[:20],
         }
 
     if ext in (".md", ".html", ".csv", ".txt"):
         text_a = raw_a.decode("utf-8", errors="replace")
         text_b = raw_b.decode("utf-8", errors="replace")
-        norm_a, ev_a = normalize_text(text_a, run_root_a)
-        norm_b, ev_b = normalize_text(text_b, run_root_b)
-        if norm_a == norm_b:
-            return {"status": "normalized_equal", "normalization_events": ev_a + ev_b}
+        equal, events = compare_text_documents(text_a, text_b, run_root_a, run_root_b)
+        if equal:
+            return {"status": "normalized_equal", "normalization_events": events, "tolerated_paths": []}
         return {
             "status": "different",
             "reason": "text content differs after documented normalization",
-            "normalization_events": ev_a + ev_b,
+            "normalization_events": events,
+            "tolerated_paths": [],
         }
 
-    return {"status": "different", "reason": "binary content differs; no normalization is defined for this format", "normalization_events": []}
+    return {"status": "different", "reason": "binary content differs; no normalization is defined for this format", "normalization_events": [], "tolerated_paths": []}
 
 
 # ── comparison stages ────────────────────────────────────────────────────────
@@ -535,7 +682,7 @@ def compare_inventories(
     ev_b: dict[str, Any],
     allowed_file_patterns: list[str],
     tolerances: dict[str, float],
-    extra_normalized_keys: frozenset[str] = frozenset(),
+    extra_normalized_paths: frozenset[str] = frozenset(),
 ) -> dict[str, Any]:
     findings: list[dict[str, Any]] = []
     map_a = {e["relative_path"]: e for e in ev_a["inventory"]}
@@ -558,10 +705,17 @@ def compare_inventories(
         else:
             findings.append(blocker("unexplained_file_only_in_run_b", f"{rel}: present only in Run B with no configured exclusion", field=rel))
 
+    # NOTE: compare_file_pair's per-file result may include "tolerated_paths"
+    # (bare paths where a numeric leaf matched within an approved tolerance).
+    # This is informational only, scoped to that file's inventory entry. It
+    # deliberately does NOT feed the report's canonical tolerance_applications
+    # ledger -- compare_counts_and_geospatial is the single producer of that
+    # ledger (see build_report), so the same tolerated difference is never
+    # recorded twice.
     per_file: dict[str, Any] = {}
     for rel in both:
         cmp = compare_file_pair(
-            rel, Path(ev_a["root"]) / rel, Path(ev_b["root"]) / rel, ev_a["root"], ev_b["root"], tolerances, extra_normalized_keys
+            rel, Path(ev_a["root"]) / rel, Path(ev_b["root"]) / rel, ev_a["root"], ev_b["root"], tolerances, extra_normalized_paths
         )
         per_file[rel] = cmp
         if cmp["status"] == "byte_identical":
@@ -569,7 +723,7 @@ def compare_inventories(
         if cmp["status"] == "normalized_equal":
             findings.append(warning("normalized_equal", f"{rel}: not byte-identical but semantically equal after documented normalization", field=rel))
         else:
-            findings.append(blocker("unexplained_content_difference", f"{rel}: content differs and is not explained by documented normalization ({cmp.get('reason', 'see diffs')})", field=rel))
+            findings.append(blocker("unexplained_content_difference", f"{rel}: content differs and is not explained by documented normalization or tolerance ({cmp.get('reason', 'see diffs')})", field=rel))
 
     for label, ev in (("A", ev_a), ("B", ev_b)):
         for note in ev["symlink_escapes"]:
@@ -621,6 +775,7 @@ def _metric_by_tile(manifest: dict[str, Any] | None) -> dict[str, dict[str, Any]
 
 def compare_counts_and_geospatial(ev_a: dict[str, Any], ev_b: dict[str, Any], tolerances: dict[str, float]) -> dict[str, Any]:
     findings: list[dict[str, Any]] = []
+    tolerance_applications: list[dict[str, Any]] = []
     availability = {
         "crs": "unavailable", "units": "unavailable", "bounds": "unavailable (not captured by miami_metric_smoke_harness.py schema)",
         "z_related_values": "unavailable", "point_counts": "unavailable",
@@ -643,6 +798,12 @@ def compare_counts_and_geospatial(ev_a: dict[str, Any], ev_b: dict[str, Any], to
                     findings.append(blocker("count_mismatch", f"tile {tid}: {field} differs beyond configured tolerance ({tolerances['count']}): A={va} B={vb}", field=field))
                 elif va != vb:
                     findings.append(warning("count_mismatch_within_tolerance", f"tile {tid}: {field} differs within configured tolerance ({tolerances['count']}): A={va} B={vb}", field=field))
+                    tolerance_applications.append(
+                        _tolerance_application(
+                            f"tiles/{tid}/manifest/{tid}_manifest.json", field, va, vb, "count", tolerances["count"],
+                            "path exactly matches an entry in APPROVED_COUNT_TOLERANCE_PATH_SUFFIXES",
+                        )
+                    )
             if tm_a.get("all_stages_passed") is not True:
                 findings.append(blocker("tile_stage_failure", f"tile {tid}: Run A all_stages_passed is not True", field=f"tiles.{tid}.all_stages_passed"))
             if tm_b.get("all_stages_passed") is not True:
@@ -679,6 +840,12 @@ def compare_counts_and_geospatial(ev_a: dict[str, Any], ev_b: dict[str, Any], to
                 findings.append(blocker("z_value_mismatch", f"tile {tid}: {group}.normalized differs beyond z tolerance ({tolerances['z_m']}m): A={va} B={vb}", field=f"metrics.{tid}.{group}"))
             elif va != vb:
                 findings.append(warning("z_value_mismatch_within_tolerance", f"tile {tid}: {group}.normalized differs within z tolerance ({tolerances['z_m']}m): A={va} B={vb}", field=f"metrics.{tid}.{group}"))
+                tolerance_applications.append(
+                    _tolerance_application(
+                        "qa/miami_metric_smoke_manifest.json", f"metrics[{tid}].{group}.normalized", va, vb, "z_m", tolerances["z_m"],
+                        "path exactly matches an entry in APPROVED_Z_TOLERANCE_PATH_SUFFIXES",
+                    )
+                )
 
         for group in COUNT_METRIC_GROUPS:
             ga, gb = ma.get(group) or {}, mb.get(group) or {}
@@ -690,12 +857,18 @@ def compare_counts_and_geospatial(ev_a: dict[str, Any], ev_b: dict[str, Any], to
                 findings.append(blocker("point_count_mismatch", f"tile {tid}: {group}.normalized differs beyond count tolerance ({tolerances['count']}): A={va} B={vb}", field=f"metrics.{tid}.{group}"))
             elif va != vb:
                 findings.append(warning("point_count_mismatch_within_tolerance", f"tile {tid}: {group}.normalized differs within count tolerance ({tolerances['count']}): A={va} B={vb}", field=f"metrics.{tid}.{group}"))
+                tolerance_applications.append(
+                    _tolerance_application(
+                        "qa/miami_metric_smoke_manifest.json", f"metrics[{tid}].{group}.normalized", va, vb, "count", tolerances["count"],
+                        "path exactly matches an entry in APPROVED_COUNT_TOLERANCE_PATH_SUFFIXES",
+                    )
+                )
 
         zf_a, zf_b = ma.get("z_conversion_factor"), mb.get("z_conversion_factor")
         if zf_a is not None and zf_b is not None and zf_a != zf_b:
             findings.append(blocker("z_conversion_factor_mismatch", f"tile {tid}: z_conversion_factor differs: A={zf_a} B={zf_b}", field=f"metrics.{tid}.z_conversion_factor"))
 
-    return {"findings": findings, "availability": availability}
+    return {"findings": findings, "availability": availability, "tolerance_applications": tolerance_applications}
 
 
 def scan_for_unsafe_values(ev: dict[str, Any]) -> list[dict[str, Any]]:
@@ -741,17 +914,25 @@ def build_report(
     allow_different_commits: bool,
     allowed_file_patterns: list[str],
 ) -> dict[str, Any]:
-    extra_normalized_keys: frozenset[str] = frozenset({"head"}) if allow_different_commits else frozenset()
+    # CRITICAL CORRECTION 2: exclude only the exact pipeline-commit path, never
+    # any dict key merely named "head".
+    extra_normalized_paths: frozenset[str] = frozenset({PIPELINE_COMMIT_PATH}) if allow_different_commits else frozenset()
 
     findings: list[dict[str, Any]] = []
     findings += compare_tile_and_source_identity(ev_a, ev_b)
-    inv_cmp = compare_inventories(ev_a, ev_b, allowed_file_patterns, tolerances, extra_normalized_keys)
+    inv_cmp = compare_inventories(ev_a, ev_b, allowed_file_patterns, tolerances, extra_normalized_paths)
     findings += inv_cmp["findings"]
     findings += compare_runtime_identity(ev_a, ev_b, allow_different_commits)
     counts_cmp = compare_counts_and_geospatial(ev_a, ev_b, tolerances)
     findings += counts_cmp["findings"]
     findings += scan_for_unsafe_values(ev_a) + scan_for_unsafe_values(ev_b)
     findings += scan_external_references(ev_a) + scan_external_references(ev_b)
+
+    # Single canonical producer of the tolerance ledger -- compare_counts_and_geospatial
+    # only, so a tolerated count/Z difference is never recorded twice even though
+    # compare_file_pair's raw JSON diff independently applies the same path-gated
+    # tolerance to decide byte-vs-normalized-equal status for that file.
+    tolerance_applications = counts_cmp["tolerance_applications"]
 
     classification = classify(findings)
     if classification == "FAIL":
@@ -794,12 +975,19 @@ def build_report(
         {
             "name": "numeric_tolerance",
             "description": (
-                "Numeric JSON leaves may differ within the configured tolerances object without "
-                "being treated as a blocking content difference: integer-typed leaves use the "
-                "count tolerance, float-typed leaves use the z_m tolerance. Both default to 0 "
-                "(exact). This applies uniformly to raw file content comparison so it never "
-                "contradicts the field-level count/Z findings for the same underlying value."
+                "A numeric JSON leaf may differ within the configured tolerances object without "
+                "being treated as a blocking content difference ONLY when its exact JSON path "
+                "(array indices stripped) matches one of the approved patterns listed below. "
+                "Every other numeric leaf, at every other path -- tile IDs, source/output byte "
+                "sizes, source/output hashes, command return codes, CRS/EPSG identifiers, version "
+                "numbers, validation thresholds, or any unlisted numeric metadata -- is always "
+                "compared exactly, regardless of the configured tolerance. Both tolerances default "
+                "to 0 (exact). See report.tolerance_applications for every field this mechanism "
+                "actually applied to, with both values, the configured tolerance, and the observed "
+                "difference."
             ),
+            "approved_count_tolerance_paths": [".".join(s) for s in APPROVED_COUNT_TOLERANCE_PATH_SUFFIXES],
+            "approved_z_tolerance_paths": [".".join(s) for s in APPROVED_Z_TOLERANCE_PATH_SUFFIXES],
         },
     ]
     if allow_different_commits:
@@ -807,13 +995,16 @@ def build_report(
             {
                 "name": "explicit_opt_in_normalization",
                 "description": (
-                    "Because --allow-different-commits was passed, the JSON key 'head' (git.head, "
-                    "the pipeline commit SHA) is additionally excluded from the raw content "
-                    "equality diff for this comparison only. This is not a default normalization "
-                    "-- see compare_runtime_identity, which still records a pipeline_commit_mismatch_accepted "
-                    "warning naming both commit values."
+                    f"Because --allow-different-commits was passed, only the exact JSON path "
+                    f"'{PIPELINE_COMMIT_PATH}' (the pipeline commit SHA) is additionally excluded "
+                    "from the raw content equality diff for this comparison only -- never any dict "
+                    "key merely named 'head' at any other path. This is not a default normalization. "
+                    "The commit mismatch is still recorded as a pipeline_commit_mismatch_accepted "
+                    "warning-severity finding in the runtime comparison (see compare_runtime_identity), "
+                    "so a comparison across different pipeline commits can never classify better than "
+                    "PASS WITH NON-BLOCKING FINDINGS."
                 ),
-                "keys": ["head"],
+                "paths": [PIPELINE_COMMIT_PATH],
             }
         )
 
@@ -838,6 +1029,7 @@ def build_report(
         },
         "counts_and_geospatial_evidence_availability": counts_cmp["availability"],
         "normalization_policy": {"mechanisms": mechanisms},
+        "tolerance_applications": tolerance_applications,
         "findings": findings,
         "classification": classification,
         "classification_reasons": reasons,
@@ -891,6 +1083,16 @@ def render_markdown(report: dict[str, Any]) -> str:
     )
     for k, v in sorted(report["counts_and_geospatial_evidence_availability"].items()):
         lines.append(f"- `{k}`: {v}")
+    lines.extend(["", "## Tolerance applications", ""])
+    if report["tolerance_applications"]:
+        lines.append("| File | Path | Run A | Run B | Category | Tolerance | Observed diff |")
+        lines.append("|---|---|---|---|---|---|---|")
+        for t in report["tolerance_applications"]:
+            lines.append(
+                f"| `{t['file']}` | `{t['path']}` | {t['value_a']} | {t['value_b']} | {t['tolerance_category']} | {t['tolerance']} | {t['observed_difference']} |"
+            )
+    else:
+        lines.append("- None. Every compared numeric field was either identical or outside the approved-tolerance path list.")
     lines.extend(["", "## Notice", "", report["notice"], ""])
     return "\n".join(lines) + "\n"
 

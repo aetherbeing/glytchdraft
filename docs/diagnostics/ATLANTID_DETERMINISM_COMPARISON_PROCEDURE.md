@@ -218,10 +218,35 @@ to **exact** comparison:
   `all_stages_passed`/`errors` are always exact — no tolerance concept
   applies to them.
 
+**Tolerance is path-specific, never type-wide.** A numeric leaf is only
+eligible for tolerance when its exact JSON path — with array indices stripped,
+since tile ordering is not what's being tolerated — exactly equals one of the
+approved patterns embedded in the comparator's
+`APPROVED_COUNT_TOLERANCE_PATH_SUFFIXES` and
+`APPROVED_Z_TOLERANCE_PATH_SUFFIXES` constants. Every other numeric leaf at
+every other path — tile IDs, source/output byte sizes, source/output hashes,
+command return codes, CRS/EPSG identifiers, version numbers, validation
+thresholds, and all unlisted numeric metadata — is always compared exactly,
+regardless of the configured tolerance. This prevents a non-zero count
+tolerance from accidentally tolerating a tile-ID change, a byte-size change,
+a return-code change, or any other field that happens to be numeric.
+
 Both tolerances are recorded verbatim in every report's `tolerances` object.
 A difference that falls within a configured, non-zero tolerance is reported
 as a `warning`-severity finding (visible, non-blocking), never silently
 dropped.
+
+Every actually-applied tolerance is also recorded in the report's
+`tolerance_applications` array — one record per tolerated field difference,
+produced solely by the semantic comparison layer (`compare_counts_and_geospatial`).
+Each record names: the relative evidence file path, the exact semantic JSON
+path, the Run A value, the Run B value, the tolerance category (`count` or
+`z_m`), the configured tolerance, the observed absolute difference, and the
+justification. This ledger is deduplicated: even though the file-level
+comparison (`compare_file_pair`) independently applies the same path-gated
+tolerance to decide whether a file's content is `normalized_equal` or
+`different`, it does **not** contribute to the `tolerance_applications` ledger
+— so the same tolerated difference is never recorded twice.
 
 ---
 
@@ -289,6 +314,44 @@ failed smoke root — and exercises:
 18. A meaningful JSON content difference is never normalized away.
 19. The failed pre-execution smoke shape (no `tiles/` directory) is refused
     outright and cannot be classified as a successful Run A or Run B.
+
+**PR #37 bounded correctness pass** added 22 focused regression tests proving
+each path-specific tolerance and deduplication invariant independently:
+
+20. Count tolerance applies only to the approved count paths (`n_clusters`,
+    `n_footprints`, `n_vegetation_pts`, `building_mass_lod0/1`,
+    `metrics.point_counts.normalized`). No other numeric field is eligible.
+21. Z tolerance applies only to the approved Z paths
+    (`metrics.height/ground_z/absolute_roof_elevation/building_relative_height.normalized`).
+22. A tile-ID field difference is a `FAIL` even with a wide count tolerance.
+23. A source-file byte-size difference is a `FAIL` even with wide tolerances.
+24. A command return-code difference is a `FAIL` — never tolerated.
+25. A CRS/EPSG numeric-code difference is a `FAIL` — never tolerated.
+26. A unit-string difference is a `FAIL`.
+27. An unrelated float difference is a `FAIL` even with a wide Z tolerance.
+28. The exact JSON path `git.head` is normalized only when
+    `--allow-different-commits` is passed.
+29. A dict key named `head` at any other path (e.g., `other.head`) is **not**
+    normalized by `--allow-different-commits`; it remains exact.
+30. A cross-commit comparison with `--allow-different-commits` classifies no
+    better than `PASS WITH NON-BLOCKING FINDINGS` — never a clean `PASS`.
+31. A commit mismatch without `--allow-different-commits` is a `FAIL`.
+32. Each normalized field emits exactly one normalization event (no double-
+    recording from per-side normalization).
+33. Each tolerated field emits exactly one `tolerance_applications` record
+    (no duplication between the file-level and semantic comparison layers).
+34. A difference visible to both the file-level and the semantic comparison
+    layer appears exactly once in the final report.
+35. A pre-execution-refusal run shape cannot pass, even after the path-specific
+    tolerance correction.
+36. A processing-failure run shape cannot pass.
+37. An incomplete-evidence run shape cannot pass.
+38. A third tile remains a `FAIL` even with wide tolerances.
+39. `production_allowed=true` remains a `FAIL` even with wide tolerances.
+40. Generated reports validate against
+    `schemas/atlantid_determinism_report.schema.json`.
+41. A zero count or Z tolerance preserves exact comparison behavior even for
+    fields whose paths are on the approved tolerance list.
 
 Focused test commands (no PDAL, no `/mnt/t7`, no real LAZ/GLB, no network):
 
