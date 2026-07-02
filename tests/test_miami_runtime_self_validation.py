@@ -13,6 +13,7 @@ No writes occur to /mnt/t7. REAL_DATA_EXECUTION_ENABLED remains False.
 from __future__ import annotations
 
 import importlib
+import json
 import sys
 import types
 from pathlib import Path
@@ -739,6 +740,68 @@ def test_dry_run_does_not_require_laz_to_exist(tmp_path, monkeypatch):
     ])
     code = rtm.main()
     assert code == 0
+
+
+def test_pdal_stage_failure_returns_nonzero_and_writes_failure_manifest(tmp_path, monkeypatch):
+    """A caught PDAL processing exception must return nonzero while preserving evidence."""
+    rtm = _import_rtm()
+
+    def _fail_pdal(_steps):
+        raise rtm.PdalStageError("simulated PDAL subprocess failure")
+
+    monkeypatch.setattr(rtm, "_run_pdal", _fail_pdal)
+
+    code = rtm.run_tile(tmp_path / "synthetic.laz", tmp_path / "out", ["extract"])
+
+    assert code == 1
+    manifest_path = tmp_path / "out" / "manifest" / "synthetic_manifest.json"
+    assert manifest_path.exists()
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    assert manifest["processing_status"] == "failed"
+    assert manifest["processing_failed"] is True
+    assert manifest["stages"]["extract"] == "failed"
+    assert "simulated PDAL subprocess failure" in manifest["failure_reason"]
+
+
+def test_crs_proj_failure_cannot_return_zero(tmp_path, monkeypatch):
+    """The observed CRS/PROJ failure text must be classified as processing failure."""
+    rtm = _import_rtm()
+    proj_error = (
+        "Could not import coordinate system 'EPSG:32617': "
+        "PROJ: proj_create_from_database: Open of "
+        "/home/gytchdrafter/miniconda3/envs/pdal_env/share/proj failed"
+    )
+
+    def _fail_pdal(_steps):
+        raise rtm.PdalStageError(proj_error)
+
+    monkeypatch.setattr(rtm, "_run_pdal", _fail_pdal)
+
+    code = rtm.run_tile(tmp_path / "synthetic.laz", tmp_path / "out", ["extract"])
+
+    assert code == 1
+    manifest = json.loads(
+        (tmp_path / "out" / "manifest" / "synthetic_manifest.json").read_text(encoding="utf-8")
+    )
+    assert manifest["processing_status"] == "failed"
+    assert "EPSG:32617" in manifest["failure_reason"]
+    assert "share/proj failed" in manifest["failure_reason"]
+
+
+def test_zero_extracted_outputs_cannot_be_successful_real_processing(tmp_path, monkeypatch):
+    """A real extract that writes no pointcloud outputs must not return success."""
+    rtm = _import_rtm()
+    monkeypatch.setattr(rtm, "_run_pdal", lambda _steps: None)
+
+    code = rtm.run_tile(tmp_path / "synthetic.laz", tmp_path / "out", ["extract"])
+
+    assert code == 1
+    manifest = json.loads(
+        (tmp_path / "out" / "manifest" / "synthetic_manifest.json").read_text(encoding="utf-8")
+    )
+    assert manifest["processing_status"] == "failed"
+    assert manifest["stages"]["extract"] == "failed"
+    assert "zero pointcloud outputs" in manifest["failure_reason"]
 
 
 # ── safety state invariants ───────────────────────────────────────────────────
