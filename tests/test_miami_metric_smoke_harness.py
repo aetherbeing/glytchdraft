@@ -298,6 +298,14 @@ def test_building_characteristics_validator_failure_propagates(tmp_path: Path, m
 
     def fake_run_command(command: dict) -> None:
         calls.append(command["label"])
+        if command["label"] == "run_tile_miami":
+            # Simulate real tile processing output so the downstream QA/validator
+            # prerequisite gate does not skip them before reaching the assertion
+            # under test (building-characteristics validator failure).
+            out_dir = Path(command["argv"][command["argv"].index("--out") + 1])
+            manifest_dir = out_dir / "manifest"
+            manifest_dir.mkdir(parents=True, exist_ok=True)
+            (manifest_dir / f"{out_dir.name}_manifest.json").write_text("{}", encoding="utf-8")
         command["returncode"] = 2 if command["label"] == "building_characteristics_validator" else 0
 
     monkeypatch.setattr(harness, "run_command", fake_run_command)

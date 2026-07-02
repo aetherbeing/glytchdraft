@@ -472,6 +472,16 @@ def build_controlled_smoke_preflight(
 
 
 def command_record(label: str, argv: list[str], *, runnable: bool) -> dict[str, Any]:
+    """Build a manifest command entry.
+
+    `runnable` is reporting-only: it records whether the operator supplied
+    --execute, for human/markdown display. It does not gate whether `argv`
+    is actually invoked — the sole gate is execute_if_released's pre-loop
+    refusal chain, which must return before the command-execution loop is
+    ever reached. A command can be recorded runnable=True and still never
+    run if any authorization, source, allowlist, runtime, or lock gate
+    refuses first.
+    """
     return {
         "label": label,
         "argv": argv,
@@ -488,6 +498,18 @@ def run_command(record: dict[str, Any]) -> dict[str, Any]:
     record["ended_at"] = utc_now()
     record["returncode"] = proc.returncode
     return record
+
+
+def _tile_manifest_path(tile_output_root: Path, tile_id: str) -> Path:
+    """Path run_tile_miami.py writes only when it actually reaches run_tile()
+    (i.e. real PDAL processing was attempted), never during dry-run."""
+    return tile_output_root / tile_id / "manifest" / f"{tile_id}_manifest.json"
+
+
+def _all_tile_outputs_present(tile_output_root: Path, tile_ids: list[str]) -> bool:
+    return bool(tile_ids) and all(
+        _tile_manifest_path(tile_output_root, tile_id).exists() for tile_id in tile_ids
+    )
 
 
 def load_source_contract(path: Path | None) -> dict[str, Any]:
@@ -620,6 +642,47 @@ def collect_output_hashes(output_root: Path, *, exclude: set[Path] | None = None
     return hashes
 
 
+def child_execution_authorized(
+    args: argparse.Namespace,
+    *,
+    feature_gate_enabled: bool,
+    provenance_findings: list[dict[str, str]],
+    cs_active: bool,
+    cs_auth_provided: bool,
+    controlled_smoke_preflight: dict[str, Any] | None,
+) -> bool:
+    """True only when every controlled-smoke execution gate has independently passed.
+
+    Mirrors the pre-loop refusal checks in execute_if_released: --execute, the
+    normalization feature gate, an accepted release status, a clean source
+    contract, controlled-smoke activation with the exact authorization token,
+    a clean two-tile allowlist/T7/runtime preflight, and the module-level
+    REAL_DATA_EXECUTION_ENABLED lock. A single unmet condition means the
+    run_tile_miami child commands stay in dry-run — real execution flags are
+    never propagated to a subprocess the top level itself would refuse to run.
+    """
+    if not args.execute:
+        return False
+    if not feature_gate_enabled:
+        return False
+    if args.release_status not in {"CONDITIONAL_GO", "GO"}:
+        return False
+    if provenance_findings:
+        return False
+    if not cs_active or not cs_auth_provided:
+        return False
+    preflight = controlled_smoke_preflight or {}
+    if (
+        preflight.get("input_errors")
+        or preflight.get("t7_errors")
+        or preflight.get("runtime_normalization_errors")
+    ):
+        return False
+    if REAL_DATA_EXECUTION_ENABLED is not True:
+        return False
+    return True
+
+
 def build_manifest(
     args: argparse.Namespace,
     inputs: dict[str, Path],
@@ -639,24 +702,41 @@ def build_manifest(
     ]
     tile_output_root = output_root / "tiles"
     qa_root = output_root / "qa"
+
+    findings = provenance_findings(source_contract, input_records)
+    cs_active = bool(getattr(args, "controlled_smoke", False))
+    cs_auth_provided = (
+        getattr(args, "controlled_smoke_authorization", None) == CONTROLLED_SMOKE_AUTH_TOKEN
+    )
+    feature_gate_enabled = os.environ.get(GATE_ENV) == "1"
+    child_authorized = child_execution_authorized(
+        args,
+        feature_gate_enabled=feature_gate_enabled,
+        provenance_findings=findings,
+        cs_active=cs_active,
+        cs_auth_provided=cs_auth_provided,
+        controlled_smoke_preflight=controlled_smoke_preflight,
+    )
+
     commands: list[dict[str, Any]] = []
     execute_allowed = bool(args.execute)
     for item in input_records:
         tile_id = item["tile_id"]
-        commands.append(
-            command_record(
-                "run_tile_miami",
-                [
-                    sys.executable,
-                    str(REPO_ROOT / "scripts" / "miami" / "run_tile_miami.py"),
-                    "--laz",
-                    item["path"],
-                    "--out",
-                    str(tile_output_root / tile_id),
-                ],
-                runnable=execute_allowed,
-            )
-        )
+        argv = [
+            sys.executable,
+            str(REPO_ROOT / "scripts" / "miami" / "run_tile_miami.py"),
+            "--laz",
+            item["path"],
+            "--out",
+            str(tile_output_root / tile_id),
+        ]
+        if child_authorized:
+            argv += [
+                "--execute",
+                "--controlled-execution-authorization",
+                CONTROLLED_SMOKE_AUTH_TOKEN,
+            ]
+        commands.append(command_record("run_tile_miami", argv, runnable=execute_allowed))
     commands.extend(
         [
             command_record(
@@ -685,11 +765,6 @@ def build_manifest(
             ),
         ]
     )
-    findings = provenance_findings(source_contract, input_records)
-    cs_active = bool(getattr(args, "controlled_smoke", False))
-    cs_auth_provided = (
-        getattr(args, "controlled_smoke_authorization", None) == CONTROLLED_SMOKE_AUTH_TOKEN
-    )
     return {
         "schema_version": SCHEMA_VERSION,
         "created_at": utc_now(),
@@ -697,7 +772,7 @@ def build_manifest(
         "feature_gate": {
             "name": GATE_ENV,
             "value": os.environ.get(GATE_ENV),
-            "enabled": os.environ.get(GATE_ENV) == "1",
+            "enabled": feature_gate_enabled,
         },
         "release": {
             "status": args.release_status,
@@ -708,6 +783,12 @@ def build_manifest(
             "active": cs_active,
             "authorization_provided": cs_auth_provided,
             "auth_token_name": CONTROLLED_SMOKE_AUTH_TOKEN,
+            # Evidence only — records whether build_manifest embedded real
+            # execution flags in the run_tile_miami argv above. This field is
+            # read back by execute_if_released solely as a fail-closed drift
+            # guard (it can only add a refusal, never grant one); it does not
+            # itself authorize execution.
+            "child_execution_authorized": child_authorized,
             "preflight": controlled_smoke_preflight,
         },
         "git": git_state(),
@@ -829,10 +910,48 @@ def execute_if_released(args: argparse.Namespace, manifest: dict[str, Any]) -> i
     if not validator.exists():
         print(f"REFUSING: building-characteristics validator not found: {validator}", file=sys.stderr)
         return 2
+
+    # Drift guard: every check above must agree with child_execution_authorized,
+    # the same boolean build_manifest used to decide whether run_tile_miami argv
+    # carries real execution flags. If this harness revision would run the
+    # command loop below while child_execution_authorized is False, the two
+    # gate implementations have drifted apart — refuse rather than risk
+    # silently running dry-run child argv and mistaking it for real execution.
+    if cs.get("active") and not cs.get("child_execution_authorized"):
+        print(
+            "REFUSING: internal consistency check failed — all execute_if_released "
+            "gates passed but child_execution_authorized is False; refusing rather "
+            "than run commands whose argv was built without real execution flags",
+            file=sys.stderr,
+        )
+        return 2
+
+    output_root = Path(manifest["output_root"])
+    tile_output_root = output_root / "tiles"
+    tile_ids = sorted(item["tile_id"] for item in manifest["inputs"])
+
     for command in manifest["commands"]:
+        if command["label"] in ("miami_processed_qa_json", "building_characteristics_validator"):
+            if not _all_tile_outputs_present(tile_output_root, tile_ids):
+                reason = (
+                    f"{command['label']} skipped: no real processed-tile output found "
+                    f"under {tile_output_root} for tiles {tile_ids}; a dry run or failed "
+                    "tile execution must not be mistaken for successful processing"
+                )
+                command["skipped"] = True
+                command["skip_reason"] = reason
+                manifest["execution_status"] = "failed"
+                manifest["execution_failure_reason"] = reason
+                print(f"REFUSING: {reason}", file=sys.stderr)
+                return 3
         run_command(command)
         if command["returncode"] != 0:
+            manifest["execution_status"] = "failed"
+            manifest["execution_failure_reason"] = (
+                f"{command['label']} exited with returncode {command['returncode']}"
+            )
             return int(command["returncode"])
+    manifest["execution_status"] = "passed"
     return 0
 
 
