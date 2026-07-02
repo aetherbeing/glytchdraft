@@ -61,6 +61,10 @@ except ImportError:
 
 ALL_STAGES = ["extract", "clean", "cluster", "footprints", "masses", "vegetation"]
 
+
+class PdalStageError(RuntimeError):
+    """Raised when PDAL fails inside a processing stage."""
+
 # PRESERVE_RAW_LAZ guard — enforced at module load time (rule 3)
 # The pipeline reads LAZ files via PDAL but NEVER writes to CFG.LAZ_DIR.
 # If this assertion fails, stop immediately — something has misconfigured the pipeline.
@@ -426,7 +430,7 @@ def _run_pdal(steps: list[dict]) -> np.ndarray | None:
         return pipe.arrays[0] if n > 0 else None
     except Exception as exc:
         print(f"  PDAL error: {exc}", file=sys.stderr)
-        return None
+        raise PdalStageError(str(exc)) from exc
 
 
 def _write_ply(arr: np.ndarray, out_path: Path, dims: str) -> int:
@@ -478,6 +482,13 @@ def stage_extract(laz_path: Path, out: Path, tile_id: str) -> dict:
         results[suffix] = n
         print(f"  [extract] {suffix}: {n:,} pts ({time.time()-t0:.1f}s)")
         t0 = time.time()
+
+    if not any(value > 0 for value in results.values()):
+        return {
+            "ok": False,
+            "results": results,
+            "error": "extract produced zero pointcloud outputs",
+        }
 
     return {"ok": True, "results": results}
 
@@ -989,6 +1000,7 @@ def _write_manifest(tile_id: str, out: Path, stage_results: dict, elapsed: float
     mass_result    = stage_results.get("masses", {})
 
     veg_result = stage_results.get("vegetation", {})
+    processing_failed = bool(errors)
     manifest = {
         "schema_version":  CFG.PIPELINE_VERSION,
         "pipeline":        "GlitchOS.io Miami city pipeline",
@@ -996,6 +1008,9 @@ def _write_manifest(tile_id: str, out: Path, stage_results: dict, elapsed: float
         "generated_at":    datetime.now(timezone.utc).isoformat(),
         "elapsed_s":       round(elapsed, 1),
         "all_stages_passed": not errors,
+        "processing_status": "failed" if processing_failed else "passed",
+        "processing_failed": processing_failed,
+        "failure_reason": "; ".join(f"{k}: {v}" for k, v in sorted(errors.items())) if errors else None,
         "terrain_only":    cluster_result.get("terrain_only", False),
         "building_mass_lod0":  mass_result.get("lod0"),
         "building_mass_lod1":  mass_result.get("lod1"),
@@ -1060,7 +1075,10 @@ def run_tile(laz_path: Path, out: Path, stages: list[str], resume: bool = False)
 
         stage_results[stage_name] = result
         if not result.get("ok", True):
-            errors[stage_name] = errors.get(stage_name, "stage returned ok=False")
+            errors[stage_name] = errors.get(
+                stage_name,
+                str(result.get("error") or "stage returned ok=False"),
+            )
 
         elapsed_stage = time.time() - t0
         status = "OK" if result.get("ok", True) else "FAIL"

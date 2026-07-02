@@ -1413,6 +1413,69 @@ def test_child_nonzero_return_stops_downstream_qa(tmp_path, monkeypatch):
     assert "returncode 1" in m["execution_failure_reason"]
 
 
+def test_parent_harness_receives_repaired_child_failure_and_skips_qa(tmp_path, monkeypatch):
+    """The controlled-smoke parent must stop on the repaired child nonzero exit."""
+    allowlist, hashes = _make_allowlist(tmp_path)
+    monkeypatch.setattr(harness, "CONTROLLED_SMOKE_ALLOWLIST", allowlist)
+    monkeypatch.setattr(harness, "check_t7_read_only", _t7_ro_mock)
+    monkeypatch.setattr(harness, "REAL_DATA_EXECUTION_ENABLED", True)
+    monkeypatch.setenv(harness.GATE_ENV, "1")
+    calls: list[str] = []
+    monkeypatch.setattr(
+        harness,
+        "run_command",
+        _fake_run_command(calls, tile_returncodes={"318155": 1}, write_tile_output=False),
+    )
+    out = tmp_path / "out"
+
+    code = harness.main(_authorized_command_args(allowlist, hashes, tmp_path, out))
+
+    assert code == 1
+    assert calls == ["run_tile_miami"]
+    m = _manifest_at(out)
+    tile_cmds = _tile_commands(m)
+    assert tile_cmds[0]["returncode"] == 1
+    assert tile_cmds[1]["returncode"] is None
+    assert "miami_processed_qa_json" not in calls
+    assert "building_characteristics_validator" not in calls
+
+
+def test_exit_code_repair_keeps_both_execution_locks_false():
+    """The child exit-code repair must not enable either real-data execution lock."""
+    harness_source = (REPO_ROOT / "scripts" / "diagnostics" / "miami_metric_smoke_harness.py").read_text(
+        encoding="utf-8"
+    )
+    runtime_source = (REPO_ROOT / "scripts" / "miami" / "run_tile_miami.py").read_text(
+        encoding="utf-8"
+    )
+
+    assert "REAL_DATA_EXECUTION_ENABLED = False" in harness_source
+    assert "REAL_DATA_EXECUTION_ENABLED = True" not in harness_source
+    assert "REAL_DATA_EXECUTION_ENABLED: bool = False" in runtime_source
+    assert "REAL_DATA_EXECUTION_ENABLED: bool = True" not in runtime_source
+
+
+def test_exit_code_repair_keeps_miami_production_allowed_false():
+    """The child exit-code repair must not alter Miami production authorization."""
+    city_config = json.loads((REPO_ROOT / "configs" / "cities" / "miami.json").read_text(encoding="utf-8"))
+
+    production_allowed_values: list[bool] = []
+
+    def _collect(value):
+        if isinstance(value, dict):
+            for key, item in value.items():
+                if key == "production_allowed":
+                    production_allowed_values.append(item)
+                _collect(item)
+        elif isinstance(value, list):
+            for item in value:
+                _collect(item)
+
+    _collect(city_config)
+    assert production_allowed_values
+    assert all(value is False for value in production_allowed_values)
+
+
 def test_child_success_returncode_with_no_output_is_still_failure(tmp_path, monkeypatch):
     """A dry-run result (returncode 0, no processed output) must not be classified
     as successful real execution — the overall run must fail, not silently pass."""
