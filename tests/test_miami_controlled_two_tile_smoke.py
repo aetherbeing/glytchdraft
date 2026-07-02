@@ -1179,3 +1179,373 @@ def test_harness_runtime_gate_passes_correct_pipeline(tmp_path, monkeypatch):
         f"valid pipeline should produce no errors: {preflight['runtime_normalization_errors']}"
     assert preflight["all_clear"]
     assert code == 0
+
+
+# ─── controlled-execution flag propagation ─────────────────────────────────────
+#
+# Covers the fix/miami-controlled-execution-flag-propagation repair: the
+# harness's own --execute must not, by itself, cause run_tile_miami.py to
+# receive real-execution flags. Flags may only be embedded in argv when every
+# gate (feature gate, release status, clean provenance, controlled-smoke
+# activation + exact token, clean allowlist/T7/runtime preflight, and the
+# module-level REAL_DATA_EXECUTION_ENABLED lock) has independently passed.
+# No test here performs real PDAL processing, touches /mnt/t7, or invokes a
+# real subprocess — run_command is monkeypatched throughout.
+
+def _authorized_command_args(allowlist, hashes, tmp_path, out):
+    """Full CLI args for an otherwise-fully-authorized controlled-smoke --execute run."""
+    contract = _write_contract(tmp_path / "auth_contract.json", hashes)
+    validator = _write(tmp_path / "auth_validator.py", b"")
+    return [
+        "--controlled-smoke", "--execute",
+        "--controlled-smoke-authorization", harness.CONTROLLED_SMOKE_AUTH_TOKEN,
+        "--release-status", "CONDITIONAL_GO",
+        "--source-contract", str(contract),
+        "--building-characteristics-validator", str(validator),
+        "--output-root", str(out),
+        *_tile_flags(allowlist),
+    ]
+
+
+def _tile_commands(manifest: dict) -> list[dict]:
+    return [c for c in manifest["commands"] if c["label"] == "run_tile_miami"]
+
+
+def _fake_run_command(calls: list[str], *, tile_returncodes=None, write_tile_output=True,
+                       qa_returncode=0, validator_returncode=0):
+    """Synthetic run_command: records call order, never spawns a real subprocess.
+
+    tile_returncodes: optional dict[tile_id] -> returncode override (default 0).
+    write_tile_output: if True, writes the per-tile manifest file run_tile_miami.py
+    only writes on real processing, simulating genuine successful output.
+    """
+    tile_returncodes = tile_returncodes or {}
+
+    def fake(command: dict) -> None:
+        calls.append(command["label"])
+        if command["label"] == "run_tile_miami":
+            out_dir = Path(command["argv"][command["argv"].index("--out") + 1])
+            tile_id = out_dir.name
+            rc = tile_returncodes.get(tile_id, 0)
+            if rc == 0 and write_tile_output:
+                manifest_dir = out_dir / "manifest"
+                manifest_dir.mkdir(parents=True, exist_ok=True)
+                (manifest_dir / f"{tile_id}_manifest.json").write_text("{}", encoding="utf-8")
+            command["returncode"] = rc
+        elif command["label"] == "miami_processed_qa_json":
+            command["returncode"] = qa_returncode
+        elif command["label"] == "building_characteristics_validator":
+            command["returncode"] = validator_returncode
+
+    return fake
+
+
+def test_dry_run_child_commands_lack_execution_flags(tmp_path, monkeypatch):
+    """Controlled-smoke dry-run (no --execute) never embeds child execution flags."""
+    allowlist, _ = _make_allowlist(tmp_path)
+    monkeypatch.setattr(harness, "CONTROLLED_SMOKE_ALLOWLIST", allowlist)
+    monkeypatch.setattr(harness, "check_t7_read_only", _t7_ro_mock)
+    out = tmp_path / "out"
+
+    code = harness.main(["--controlled-smoke", "--output-root", str(out), *_tile_flags(allowlist)])
+
+    assert code == 0
+    m = _manifest_at(out)
+    assert m["controlled_smoke"]["child_execution_authorized"] is False
+    tile_cmds = _tile_commands(m)
+    assert len(tile_cmds) == 2
+    for cmd in tile_cmds:
+        assert "--execute" not in cmd["argv"]
+        assert "--controlled-execution-authorization" not in cmd["argv"]
+
+
+def test_authorized_execution_generates_child_execution_flags(tmp_path, monkeypatch):
+    """Fully authorized --execute embeds both required flags in both tile commands."""
+    allowlist, hashes = _make_allowlist(tmp_path)
+    monkeypatch.setattr(harness, "CONTROLLED_SMOKE_ALLOWLIST", allowlist)
+    monkeypatch.setattr(harness, "check_t7_read_only", _t7_ro_mock)
+    monkeypatch.setattr(harness, "REAL_DATA_EXECUTION_ENABLED", True)
+    monkeypatch.setenv(harness.GATE_ENV, "1")
+    calls: list[str] = []
+    monkeypatch.setattr(harness, "run_command", _fake_run_command(calls))
+    out = tmp_path / "out"
+
+    code = harness.main(_authorized_command_args(allowlist, hashes, tmp_path, out))
+
+    assert code == 0
+    m = _manifest_at(out)
+    assert m["controlled_smoke"]["child_execution_authorized"] is True
+    tile_cmds = _tile_commands(m)
+    assert len(tile_cmds) == 2
+    assert {Path(c["argv"][c["argv"].index("--out") + 1]).name for c in tile_cmds} == {
+        "318155", "318455",
+    }
+    for cmd in tile_cmds:
+        assert "--execute" in cmd["argv"]
+        assert "--controlled-execution-authorization" in cmd["argv"]
+        auth_idx = cmd["argv"].index("--controlled-execution-authorization")
+        assert cmd["argv"][auth_idx + 1] == harness.CONTROLLED_SMOKE_AUTH_TOKEN
+    assert calls == [
+        "run_tile_miami", "run_tile_miami", "miami_processed_qa_json",
+        "building_characteristics_validator",
+    ]
+
+
+def test_no_third_tile_can_be_authorized(tmp_path, monkeypatch):
+    """A third --tile is rejected before any manifest or command is built."""
+    allowlist, _ = _make_allowlist(tmp_path)
+    monkeypatch.setattr(harness, "CONTROLLED_SMOKE_ALLOWLIST", allowlist)
+    monkeypatch.setattr(harness, "check_t7_read_only", _t7_ro_mock)
+    third = _write(tmp_path / "inputs" / "USGS_LPC_FL_MiamiDade_D23_LID2024_777777_0901.laz")
+
+    code = harness.main([
+        "--controlled-smoke",
+        "--output-root", str(tmp_path / "out"),
+        *_tile_flags(allowlist),
+        "--tile", f"777777={third}",
+    ])
+
+    assert code == 2
+    assert not (tmp_path / "out").exists()
+
+
+def test_missing_authorization_token_prevents_child_flags(tmp_path, monkeypatch):
+    """--execute without --controlled-smoke-authorization never reaches child argv."""
+    allowlist, hashes = _make_allowlist(tmp_path)
+    monkeypatch.setattr(harness, "CONTROLLED_SMOKE_ALLOWLIST", allowlist)
+    monkeypatch.setattr(harness, "check_t7_read_only", _t7_ro_mock)
+    monkeypatch.setattr(harness, "REAL_DATA_EXECUTION_ENABLED", True)
+    monkeypatch.setenv(harness.GATE_ENV, "1")
+    calls: list[str] = []
+    monkeypatch.setattr(harness, "run_command", _fake_run_command(calls))
+    contract = _write_contract(tmp_path / "c.json", hashes)
+    out = tmp_path / "out"
+
+    code = harness.main([
+        "--controlled-smoke", "--execute",
+        # deliberately omit --controlled-smoke-authorization
+        "--release-status", "CONDITIONAL_GO",
+        "--source-contract", str(contract),
+        "--output-root", str(out),
+        *_tile_flags(allowlist),
+    ])
+
+    assert code == 2
+    assert calls == []
+    m = _manifest_at(out)
+    assert m["controlled_smoke"]["child_execution_authorized"] is False
+    for cmd in _tile_commands(m):
+        assert "--execute" not in cmd["argv"]
+
+
+def test_invalid_authorization_token_prevents_child_flags(tmp_path, monkeypatch):
+    """--execute with an incorrect token never reaches child argv."""
+    allowlist, hashes = _make_allowlist(tmp_path)
+    monkeypatch.setattr(harness, "CONTROLLED_SMOKE_ALLOWLIST", allowlist)
+    monkeypatch.setattr(harness, "check_t7_read_only", _t7_ro_mock)
+    monkeypatch.setattr(harness, "REAL_DATA_EXECUTION_ENABLED", True)
+    monkeypatch.setenv(harness.GATE_ENV, "1")
+    calls: list[str] = []
+    monkeypatch.setattr(harness, "run_command", _fake_run_command(calls))
+    contract = _write_contract(tmp_path / "c.json", hashes)
+    out = tmp_path / "out"
+
+    code = harness.main([
+        "--controlled-smoke", "--execute",
+        "--controlled-smoke-authorization", "WRONG_TOKEN",
+        "--release-status", "CONDITIONAL_GO",
+        "--source-contract", str(contract),
+        "--output-root", str(out),
+        *_tile_flags(allowlist),
+    ])
+
+    assert code == 2
+    assert calls == []
+    m = _manifest_at(out)
+    assert m["controlled_smoke"]["child_execution_authorized"] is False
+    for cmd in _tile_commands(m):
+        assert "--execute" not in cmd["argv"]
+
+
+def test_module_lock_false_prevents_child_flags(tmp_path, monkeypatch):
+    """REAL_DATA_EXECUTION_ENABLED=False (the default) blocks flag propagation
+    even when every other gate — token, contract, allowlist, T7 — passes."""
+    allowlist, hashes = _make_allowlist(tmp_path)
+    monkeypatch.setattr(harness, "CONTROLLED_SMOKE_ALLOWLIST", allowlist)
+    monkeypatch.setattr(harness, "check_t7_read_only", _t7_ro_mock)
+    monkeypatch.setenv(harness.GATE_ENV, "1")
+    # REAL_DATA_EXECUTION_ENABLED intentionally left at its default False.
+    assert harness.REAL_DATA_EXECUTION_ENABLED is False
+    calls: list[str] = []
+    monkeypatch.setattr(harness, "run_command", _fake_run_command(calls))
+    out = tmp_path / "out"
+
+    code = harness.main(_authorized_command_args(allowlist, hashes, tmp_path, out))
+
+    assert code == 2
+    assert calls == []
+    m = _manifest_at(out)
+    assert m["controlled_smoke"]["child_execution_authorized"] is False
+    for cmd in _tile_commands(m):
+        assert "--execute" not in cmd["argv"]
+
+
+def test_child_nonzero_return_stops_downstream_qa(tmp_path, monkeypatch):
+    """A real (non-dry-run) tile failure halts the sequence before qa_processed_outputs."""
+    allowlist, hashes = _make_allowlist(tmp_path)
+    monkeypatch.setattr(harness, "CONTROLLED_SMOKE_ALLOWLIST", allowlist)
+    monkeypatch.setattr(harness, "check_t7_read_only", _t7_ro_mock)
+    monkeypatch.setattr(harness, "REAL_DATA_EXECUTION_ENABLED", True)
+    monkeypatch.setenv(harness.GATE_ENV, "1")
+    calls: list[str] = []
+    monkeypatch.setattr(
+        harness, "run_command", _fake_run_command(calls, tile_returncodes={"318155": 1})
+    )
+    out = tmp_path / "out"
+
+    code = harness.main(_authorized_command_args(allowlist, hashes, tmp_path, out))
+
+    assert code == 1
+    assert "miami_processed_qa_json" not in calls
+    assert "building_characteristics_validator" not in calls
+    m = _manifest_at(out)
+    assert m["execution_status"] == "failed"
+    assert "returncode 1" in m["execution_failure_reason"]
+
+
+def test_child_success_returncode_with_no_output_is_still_failure(tmp_path, monkeypatch):
+    """A dry-run result (returncode 0, no processed output) must not be classified
+    as successful real execution — the overall run must fail, not silently pass."""
+    allowlist, hashes = _make_allowlist(tmp_path)
+    monkeypatch.setattr(harness, "CONTROLLED_SMOKE_ALLOWLIST", allowlist)
+    monkeypatch.setattr(harness, "check_t7_read_only", _t7_ro_mock)
+    monkeypatch.setattr(harness, "REAL_DATA_EXECUTION_ENABLED", True)
+    monkeypatch.setenv(harness.GATE_ENV, "1")
+    calls: list[str] = []
+    monkeypatch.setattr(
+        harness, "run_command", _fake_run_command(calls, write_tile_output=False)
+    )
+    out = tmp_path / "out"
+
+    code = harness.main(_authorized_command_args(allowlist, hashes, tmp_path, out))
+
+    assert code != 0
+    m = _manifest_at(out)
+    assert m["execution_status"] == "failed"
+
+
+def test_missing_tile_output_skips_qa_with_structured_finding(tmp_path, monkeypatch):
+    """Missing processed output produces a structured skip record, never an exception,
+    and qa_processed_outputs.py / the validator are never actually invoked."""
+    allowlist, hashes = _make_allowlist(tmp_path)
+    monkeypatch.setattr(harness, "CONTROLLED_SMOKE_ALLOWLIST", allowlist)
+    monkeypatch.setattr(harness, "check_t7_read_only", _t7_ro_mock)
+    monkeypatch.setattr(harness, "REAL_DATA_EXECUTION_ENABLED", True)
+    monkeypatch.setenv(harness.GATE_ENV, "1")
+    calls: list[str] = []
+    monkeypatch.setattr(
+        harness, "run_command", _fake_run_command(calls, write_tile_output=False)
+    )
+    out = tmp_path / "out"
+
+    code = harness.main(_authorized_command_args(allowlist, hashes, tmp_path, out))
+
+    assert code == 3
+    assert calls == ["run_tile_miami", "run_tile_miami"]
+    assert "miami_processed_qa_json" not in calls
+    assert "building_characteristics_validator" not in calls
+    m = _manifest_at(out)
+    qa_cmd = [c for c in m["commands"] if c["label"] == "miami_processed_qa_json"][0]
+    assert qa_cmd.get("skipped") is True
+    assert "no real processed-tile output" in qa_cmd["skip_reason"]
+    assert m["execution_status"] == "failed"
+    assert "no real processed-tile output" in m["execution_failure_reason"]
+    assert not (out / "tiles" / "318155" / "manifest").exists()
+
+
+def test_successful_synthetic_output_permits_downstream_sequencing(tmp_path, monkeypatch):
+    """Genuine synthetic tile output (manifest files present) lets qa and the
+    validator run in sequence, and a fully clean run returns 0."""
+    allowlist, hashes = _make_allowlist(tmp_path)
+    monkeypatch.setattr(harness, "CONTROLLED_SMOKE_ALLOWLIST", allowlist)
+    monkeypatch.setattr(harness, "check_t7_read_only", _t7_ro_mock)
+    monkeypatch.setattr(harness, "REAL_DATA_EXECUTION_ENABLED", True)
+    monkeypatch.setenv(harness.GATE_ENV, "1")
+    calls: list[str] = []
+    monkeypatch.setattr(harness, "run_command", _fake_run_command(calls))
+    out = tmp_path / "out"
+
+    code = harness.main(_authorized_command_args(allowlist, hashes, tmp_path, out))
+
+    assert code == 0
+    assert calls == [
+        "run_tile_miami", "run_tile_miami", "miami_processed_qa_json",
+        "building_characteristics_validator",
+    ]
+    m = _manifest_at(out)
+    assert m["execution_status"] == "passed"
+    assert "execution_failure_reason" not in m
+
+
+def test_runnable_true_does_not_bypass_refusal_gates(tmp_path, monkeypatch):
+    """command_record.runnable is reporting-only: even when every command is
+    recorded runnable=True (because --execute was supplied), an unauthorized
+    run (wrong token) must still result in zero commands actually executed."""
+    allowlist, hashes = _make_allowlist(tmp_path)
+    monkeypatch.setattr(harness, "CONTROLLED_SMOKE_ALLOWLIST", allowlist)
+    monkeypatch.setattr(harness, "check_t7_read_only", _t7_ro_mock)
+    monkeypatch.setenv(harness.GATE_ENV, "1")
+    calls: list[str] = []
+    monkeypatch.setattr(harness, "run_command", _fake_run_command(calls))
+    contract = _write_contract(tmp_path / "c.json", hashes)
+    out = tmp_path / "out"
+
+    code = harness.main([
+        "--controlled-smoke", "--execute",
+        "--controlled-smoke-authorization", "WRONG_TOKEN",
+        "--release-status", "CONDITIONAL_GO",
+        "--source-contract", str(contract),
+        "--output-root", str(out),
+        *_tile_flags(allowlist),
+    ])
+
+    assert code == 2
+    m = _manifest_at(out)
+    assert all(cmd["runnable"] is True for cmd in m["commands"])
+    assert all(cmd["returncode"] is None for cmd in m["commands"])
+    assert calls == []
+
+
+def test_module_locks_default_false_outside_authorized_window():
+    """Both execution locks default to False at import time (no authorized window active)."""
+    assert harness.REAL_DATA_EXECUTION_ENABLED is False
+    import importlib
+    miami_scripts = REPO_ROOT / "scripts" / "miami"
+    if str(miami_scripts) not in sys.path:
+        sys.path.insert(0, str(miami_scripts))
+    for name in ("run_tile_miami", "miami_city_config"):
+        sys.modules.pop(name, None)
+    try:
+        rtm = importlib.import_module("run_tile_miami")
+    except ImportError:
+        pytest.skip("pdal not installed; run_tile_miami cannot be imported in this environment")
+    assert rtm.REAL_DATA_EXECUTION_ENABLED is False
+
+
+def test_production_allowed_remains_false_in_miami_city_config():
+    """This repair must not have touched production_allowed anywhere in the Miami config."""
+    import json as _json
+    config_path = REPO_ROOT / "configs" / "cities" / "miami.json"
+    config = _json.loads(config_path.read_text(encoding="utf-8"))
+
+    def _walk(node):
+        if isinstance(node, dict):
+            if "production_allowed" in node:
+                assert node["production_allowed"] is False
+            for value in node.values():
+                _walk(value)
+        elif isinstance(node, list):
+            for item in node:
+                _walk(item)
+
+    _walk(config)
