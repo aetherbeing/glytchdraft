@@ -38,6 +38,34 @@ def read_masses_metadata() -> list[dict]:
         return list(csv.DictReader(f))
 
 
+def read_masses_geometry() -> dict[int, "Polygon"]:
+    """Read cluster_id -> footprint polygon from bikini_masses_metadata.geojson.
+
+    s05_masses.py writes this file alongside the CSV, keyed by the same
+    cluster_id, with the authoritative building polygon (county footprint or
+    convex hull) already used to compute the CSV row for that building.
+    Coordinates are absolute EPSG:32617 (UTM 17N meters, no shift applied) —
+    the same convention as the source footprint/masses geometry.
+    """
+    from shapely.geometry import MultiPolygon, shape
+
+    path = CFG.MASS_DIR / "bikini_masses_metadata.geojson"
+    if not path.exists():
+        return {}
+    gj = json.loads(path.read_text(encoding="utf-8"))
+    geometry_by_id: dict[int, "Polygon"] = {}
+    for feature in gj.get("features", []):
+        props = feature.get("properties", {})
+        if "cluster_id" not in props or props["cluster_id"] is None:
+            continue
+        cid = int(float(props["cluster_id"]))
+        geom = shape(feature["geometry"])
+        if isinstance(geom, MultiPolygon):
+            geom = max(geom.geoms, key=lambda g: g.area)
+        geometry_by_id[cid] = geom
+    return geometry_by_id
+
+
 def read_shift() -> dict:
     shift_file = CFG.SHIFT_DIR / "bikini.shift.txt"
     out = {
@@ -70,19 +98,36 @@ def read_normalization_provenance() -> dict | None:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
-def build_buildings_json(rows: list[dict]) -> list[dict]:
-    """Convert CSV rows to the per-building JSON format for the viewer."""
+def build_buildings_json(rows: list[dict], geometry_by_id: dict[int, "Polygon"],
+                         shift_x: float, shift_y: float) -> list[dict]:
+    """Convert CSV rows to the per-building JSON format for the viewer.
+
+    cx/cy are the true polygon centroid of each building's authoritative
+    footprint geometry (see read_masses_geometry), projected into the same
+    local-shifted EPSG:32617 convention as the exported GLB geometry and
+    tile_manifest.json ("coordinate_system.local_shift"): local = utm - shift.
+    """
     buildings = []
     for row in rows:
         try:
             cid    = int(float(row["cluster_id"]))
             height = float(row["estimated_height"] or 0)
-            cx     = float(row.get("centroid_x") or 0)  # not in CSV directly; derive below
-            cy     = float(row.get("centroid_y") or 0)
             quality = row.get("source_quality", "unknown")
             lod0   = str(row.get("lod0_included", "")).lower() in ("true", "1")
         except (ValueError, TypeError):
             continue
+
+        geom = geometry_by_id.get(cid)
+        if geom is None or geom.is_empty:
+            raise ValueError(
+                f"no matching footprint geometry for building cluster_id={cid} "
+                f"in bikini_masses_metadata.geojson; refusing to fall back to "
+                f"cx=0.0, cy=0.0"
+            )
+
+        centroid = geom.centroid
+        cx = centroid.x - shift_x
+        cy = centroid.y - shift_y
 
         buildings.append({
             "id":      cid,
@@ -143,7 +188,8 @@ def main() -> int:
 
     shift = read_shift()
     normalization_provenance = read_normalization_provenance()
-    buildings = build_buildings_json(rows)
+    geometry_by_id = read_masses_geometry()
+    buildings = build_buildings_json(rows, geometry_by_id, shift["shift_x"], shift["shift_y"])
     glbs = check_glb_inventory()
 
     quality_counts: dict[str, int] = {}
