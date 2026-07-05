@@ -146,7 +146,7 @@ The South Beach building commonly referred to as the Loews Miami Beach Hotel (16
 
 All of the following conditions are unresolved:
 
-1. **No address field in BIKINI output**: Buildings.json entry for cluster 4994 contains `{"id": 4994, "h": 182.1, "cx": 0.0, "cy": 0.0, ...}`. The `cx` and `cy` fields are zero (not populated). No address field is present. No stable address linkage is available from the BIKINI output.
+1. **No address field in BIKINI output**: Buildings.json entry for cluster 4994 contained `{"id": 4994, "h": 182.1, "cx": 0.0, "cy": 0.0, ...}` during this historical audit. The `cx` and `cy` fields were zero (not populated). No address field was present. No stable address linkage was available from the BIKINI output. The all-zero centroid portion of this finding is superseded by commit `95dbfd8`, which was verified by the controlled A/B run and independent review: the pre-fix run reproduced 34/34 all-zero centroids and the post-fix run eliminated them with 0/34 all-zero centroids and 0 centroid mismatches. Durable evidence: `/mnt/c/Users/Glytc/ATLANTID_SPRINT_20260704/evidence/ATLANTID_BIKINI_RECOVERY_AB_20260704_INSTANCE2.md` and `/mnt/c/Users/Glytc/ATLANTID_SPRINT_20260704/evidence/ATLANTID_BIKINI_RECOVERY_AB_INDEPENDENT_REVIEW_20260704_INSTANCE4.md`.
 
 2. **County unique_id not verified**: `D3_MDC_Building_12375 / object_id=695013` cannot be resolved to a named building or known address without access to the Miami-Dade County GIS parcel database. The county height field is null.
 
@@ -297,7 +297,7 @@ Gate descriptions are canonical from `MIAMI_TRUTH_RECONCILIATION.md`.
 | PM-5 | Tall-tower HAG retention on real data unverified (> 91.44m actual) | 2,114 sampled points from tile 318750 (SHA256 `1ee28720…`) have corrected HAG in [91.44m, 192.37m] — lost by old pipeline, retained by corrected. maxHAG old=91.44m, corrected=192.37m. Sampled at 8m radius; counts are NOT full-tile. (EA2) | **NO** | Real-data evidence gathered and verified. Production pipeline has not been corrected; gate requires corrected production run. |
 | PM-6 | s05 compatibility fix double-conversion guard not implemented | Guard implemented in `scripts/diagnostics/check_miami_vertical_units.py`; 29 tests pass. Guard is isolated — not imported by `s01_extract.py` or any production script. (EA5) | **NO** | Design and tests complete. Gate requires integration into the production extraction pipeline. |
 | PM-7 | Key Biscayne vertical unit not confirmed | Not in scope for this audit. | **NO** | No evidence gathered. |
-| PM-8 | Known-height landmark validation not performed | Cluster 4994 examined; building identity UNRESOLVED. Centroid at (25.789°N, −80.129°W) is spatially suggestive but unconfirmed. `county_height_m=None`; `cx/cy=0.0`; max HAG 80.0m inconsistent with ~55m expected; no address linkage; county ID unresolvable without GIS. (EA3) | **NO** | Landmark validation not completed. No building has been matched with defensible spatial + address + height confirmation. |
+| PM-8 | Known-height landmark validation not performed | Cluster 4994 examined; building identity UNRESOLVED. Centroid at (25.789°N, −80.129°W) is spatially suggestive but unconfirmed. `county_height_m=None`; historical `cx/cy=0.0` evidence superseded by commit `95dbfd8` and durable A/B evidence; max HAG 80.0m inconsistent with ~55m expected; no address linkage; county ID unresolvable without GIS. (EA3) | **NO** | Landmark validation not completed. No building has been matched with defensible spatial + address + height confirmation. |
 
 **Summary**: No PM gate is satisfied. All remain NO-GO.
 
@@ -327,7 +327,7 @@ Gate descriptions are canonical from `MIAMI_TRUTH_RECONCILIATION.md`.
 
 9. **Independent backup claim retracted**: `/mnt/e` and `/mnt/t7` both mount Windows `E:` (device ID 84, same filesystem). SHA256 comparisons between these paths compared a file to itself. No independent backup is confirmed.
 
-10. **Loews Miami Beach identification retracted**: Cluster 4994 is not confirmed as the Loews Miami Beach Hotel. Building identity is UNRESOLVED. `county_height_m=None`; `cx/cy=0.0` in export; `height_max` (80.0m actual) inconsistent with ~55m published Loews height; spatial proximity (centroid ~100–150m from address reference) is suggestive but insufficient without address linkage or county parcel lookup.
+10. **Loews Miami Beach identification retracted**: Cluster 4994 is not confirmed as the Loews Miami Beach Hotel. Building identity is UNRESOLVED. `county_height_m=None`; historical `cx/cy=0.0` in export is preserved as defect evidence but superseded by commit `95dbfd8`, with controlled A/B evidence reproducing the defect pre-fix and eliminating it post-fix; `height_max` (80.0m actual) inconsistent with ~55m published Loews height; spatial proximity (centroid ~100–150m from address reference) is suggestive but insufficient without address linkage or county parcel lookup.
 
 ### Not resolved in this audit
 
