@@ -17,7 +17,7 @@ from pathlib import Path
 from statistics import mean, median, pstdev
 from typing import Any
 
-from shapely.geometry import MultiPolygon, Polygon, mapping, shape
+from shapely.geometry import MultiLineString, MultiPolygon, Polygon, mapping, shape
 from shapely.ops import unary_union
 
 try:
@@ -49,6 +49,7 @@ PRIMARY_METRICS = [
     "centroid_distance_m",
     "symmetric_difference_ratio_against_union",
     "hausdorff_distance_m",
+    "exterior_ring_hausdorff_m",
 ]
 CSV_FIELDS = [
     "cluster_id",
@@ -78,6 +79,7 @@ CSV_FIELDS = [
     "symmetric_difference_area_m2",
     "symmetric_difference_ratio_against_union",
     "hausdorff_distance_m",
+    "exterior_ring_hausdorff_m",
     "derived_validity",
     "reference_validity",
 ]
@@ -263,6 +265,12 @@ def _hole_count(geom: Polygon | MultiPolygon) -> int:
     return sum(len(poly.interiors) for poly in polys)
 
 
+def _exterior_rings(geom: Polygon | MultiPolygon) -> Any:
+    if isinstance(geom, Polygon):
+        return geom.exterior
+    return MultiLineString([list(poly.exterior.coords) for poly in geom.geoms if not poly.is_empty])
+
+
 def _finite_metrics(row: dict[str, Any]) -> None:
     for key, value in row.items():
         if isinstance(value, float) and not math.isfinite(value):
@@ -288,6 +296,7 @@ def _metric_row(cluster_id: int, derived: dict[str, Any], reference: dict[str, A
     rcent = rgeom.centroid
     centroid_distance = float(dcent.distance(rcent))
     hausdorff = max(float(dgeom.hausdorff_distance(rgeom)), float(rgeom.hausdorff_distance(dgeom)))
+    exterior_ring_hausdorff = float(_exterior_rings(dgeom).hausdorff_distance(_exterior_rings(rgeom)))
     row = {
         "cluster_id": int(cluster_id),
         "derived_geometry_type": dgeom.geom_type,
@@ -316,6 +325,7 @@ def _metric_row(cluster_id: int, derived: dict[str, Any], reference: dict[str, A
         "symmetric_difference_area_m2": symdiff_area,
         "symmetric_difference_ratio_against_union": symdiff_area / union_area,
         "hausdorff_distance_m": hausdorff,
+        "exterior_ring_hausdorff_m": exterior_ring_hausdorff,
         "derived_validity": derived["validity"],
         "reference_validity": reference["validity"],
     }
