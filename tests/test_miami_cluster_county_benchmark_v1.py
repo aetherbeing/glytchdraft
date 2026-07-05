@@ -313,6 +313,27 @@ def test_zero_associated_cluster_stays_in_distribution(tmp_path):
     assert summary["clusters_with_zero_primary"] == 1
 
 
+def test_distribution_markdown_sparse_coverage_caveat_uses_summary_count(tmp_path):
+    clusters = {
+        3: utm_rect(0, 0, 10, 10),
+        7: utm_rect(40, 40, 50, 50),
+        11: utm_rect(70, 70, 80, 80),
+    }
+    features = [county_feature(1, rect_4326(2, 2, 6, 6))]
+    summary, out = run(tmp_path, clusters, features, expected_bbox_intersect_count=1)
+    assert summary["clusters_with_zero_primary"] == 2
+
+    text = (out / "cluster_county_footprint_distribution.md").read_text(encoding="utf-8")
+    assert "## Sparse County Coverage Caveat" in text
+    assert "The 2 zero-associated clusters are lower bounds under the pinned county AOI extract" in text
+    assert "not proven empty or spurious" in text
+    assert "must not be treated as zero-building segmentation targets" in text
+    assert "Positive measured counts are benchmark minima" in text
+    assert "County geometry remains diagnostic-only" in text
+    assert "not copied into Atlantid output geometry" in text
+    assert "The 28 zero-associated clusters" not in text
+
+
 def test_invalid_county_polygon_repaired_in_memory(tmp_path):
     clusters = {3: utm_rect(0, 0, 10, 10)}
     # Self-intersecting bowtie in 4326; make_valid must recover polygonal area.

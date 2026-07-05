@@ -619,6 +619,14 @@ def _write_distribution_md(path: Path, distribution: list[dict[str, Any]], summa
         "is never serialized. Publication licensing for county data is not",
         "confirmed; this table is internal diagnostic evidence.",
         "",
+        "## Sparse County Coverage Caveat",
+        "",
+        f"The {summary['clusters_with_zero_primary']} zero-associated clusters are lower bounds "
+        "under the pinned county AOI extract. They are not proven empty or spurious "
+        "and must not be treated as zero-building segmentation targets. Positive "
+        "measured counts are benchmark minima. County geometry remains diagnostic-only "
+        "and is not copied into Atlantid output geometry.",
+        "",
         "| " + " | ".join(DISTRIBUTION_FIELDS) + " |",
         "|" + "|".join(["---"] * len(DISTRIBUTION_FIELDS)) + "|",
     ]
