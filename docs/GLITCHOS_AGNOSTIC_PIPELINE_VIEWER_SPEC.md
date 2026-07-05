@@ -981,6 +981,48 @@ override that merged contract.
 }
 ```
 
+#### Miami Bikini buildings.json centroid contract
+
+The verified Miami Bikini `buildings.json` centroid fields are a durable
+viewer-contract surface for the Phase 1 export. For each building row:
+
+- `cx` and `cy` are local planar coordinates, not longitude and latitude.
+- `cx` and `cy` are derived from the true Shapely centroid of the matching
+  polygon in `bikini_masses_metadata.geojson`.
+- Building rows and source geometry are matched through stable `cluster_id`.
+- Source polygons are absolute `EPSG:32617` coordinates.
+- Emitted coordinates use the same shift convention as GLB geometry:
+  `local_x = utm_x - SHIFT_X` and `local_y = utm_y - SHIFT_Y`.
+- Silent fallback to `cx=0.0` and `cy=0.0` is prohibited.
+- Missing or empty matching geometry is a stage failure.
+- Building IDs, heights, quality fields, LOD flags, ordering, and other
+  metadata remain unchanged.
+
+Schema change is not required for this contract (`SCHEMA_CHANGE_NOT_REQUIRED`);
+the existing `cx` and `cy` fields are populated with the corrected semantics.
+
+Verified evidence:
+
+- Pre-fix commit: `3d55db6ce8c5efdb4d81853c6efee095f5aba732`
+- Post-fix merge commit: `ee7c55f3aa3b53b5f82ca0512fe2093e24951ecc`
+- Centroid-fix commit: `95dbfd8bcf33f438926fdee640e1eda4b6ec644c`
+- Exact tiles: `318155_0901` and `318455_0901`
+- Building count: `34`
+- Pre-fix all-zero centroid count: `34`
+- Post-fix all-zero centroid count: `0`
+- Post-fix centroid mismatch count: `0`
+- Tolerance: `0.01`
+- Maximum measured X delta: `0.004941859502`
+- Maximum measured Y delta: `0.004968856443`
+- Non-centroid regression: `PASS`
+- GLB inspection: `PASS`
+- Independent verdict: `RECOVERY_AB_INDEPENDENT_REVIEW_PASS`
+
+Durable evidence:
+
+- `/mnt/c/Users/Glytc/ATLANTID_SPRINT_20260704/evidence/ATLANTID_BIKINI_RECOVERY_AB_20260704_INSTANCE2.md`
+- `/mnt/c/Users/Glytc/ATLANTID_SPRINT_20260704/evidence/ATLANTID_BIKINI_RECOVERY_AB_INDEPENDENT_REVIEW_20260704_INSTANCE4.md`
+
 `paths.local.json` (UNTRACKED — gitignored — one per machine):
 ```json
 {
