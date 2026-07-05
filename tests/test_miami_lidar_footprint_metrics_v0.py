@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import csv
+import inspect
 import json
 import math
 import sys
@@ -69,6 +71,7 @@ def test_identical_polygons_produce_iou_1_and_zero_errors():
     assert row["absolute_area_error_m2"] == pytest.approx(0.0)
     assert row["centroid_distance_m"] == pytest.approx(0.0)
     assert row["hausdorff_distance_m"] == pytest.approx(0.0)
+    assert row["exterior_ring_hausdorff_m"] == pytest.approx(0.0)
 
 
 def test_partial_overlap_iou_precision_and_coverage():
@@ -96,6 +99,79 @@ def test_centroid_displacement_and_hausdorff_distance():
 
     assert row["centroid_distance_m"] == pytest.approx(5.0)
     assert row["hausdorff_distance_m"] == pytest.approx(5.0)
+    assert row["exterior_ring_hausdorff_m"] == pytest.approx(5.0)
+
+
+def test_exterior_ring_hausdorff_excludes_single_and_multiple_holes():
+    outer = [(500000, 2800000), (500010, 2800000), (500010, 2800010), (500000, 2800010)]
+    one_hole = [[(500004, 2800004), (500006, 2800004), (500006, 2800006), (500004, 2800006)]]
+    multiple_holes = [
+        [(500001, 2800001), (500002, 2800001), (500002, 2800002), (500001, 2800002)],
+        [(500007, 2800007), (500008, 2800007), (500008, 2800008), (500007, 2800008)],
+    ]
+    solid = Polygon(outer)
+    with_one_hole = Polygon(outer, holes=one_hole)
+    with_multiple_holes = Polygon(outer, holes=multiple_holes)
+
+    single_hole_row = metrics._metric_row(1, _record(with_one_hole), _record(solid))
+    multiple_hole_row = metrics._metric_row(1, _record(with_multiple_holes), _record(solid))
+
+    assert single_hole_row["exterior_ring_hausdorff_m"] == pytest.approx(0.0)
+    assert multiple_hole_row["exterior_ring_hausdorff_m"] == pytest.approx(0.0)
+    assert single_hole_row["hausdorff_distance_m"] == pytest.approx(4.0)
+    assert multiple_hole_row["hausdorff_distance_m"] > 0.0
+
+
+def test_exterior_ring_hausdorff_is_symmetric_finite_and_nonnegative():
+    derived = _square(500000, 2800000, 10)
+    reference = _square(500003, 2800004, 10)
+
+    forward = metrics._exterior_rings(derived).hausdorff_distance(metrics._exterior_rings(reference))
+    reverse = metrics._exterior_rings(reference).hausdorff_distance(metrics._exterior_rings(derived))
+    row = metrics._metric_row(1, _record(derived), _record(reference))
+
+    assert forward == pytest.approx(5.0)
+    assert reverse == pytest.approx(forward)
+    assert math.isfinite(row["exterior_ring_hausdorff_m"])
+    assert row["exterior_ring_hausdorff_m"] >= 0.0
+
+
+def test_exterior_ring_hausdorff_does_not_mutate_input_polygons_or_rings():
+    outer = [(500000, 2800000), (500010, 2800000), (500010, 2800010), (500000, 2800010)]
+    hole = [[(500004, 2800004), (500006, 2800004), (500006, 2800006), (500004, 2800006)]]
+    derived = Polygon(outer, holes=hole)
+    reference = _square(500000, 2800000, 10)
+    before_derived_wkb = derived.wkb
+    before_reference_wkb = reference.wkb
+    before_derived_exterior = list(derived.exterior.coords)
+    before_reference_exterior = list(reference.exterior.coords)
+
+    row = metrics._metric_row(1, _record(derived), _record(reference))
+
+    assert row["exterior_ring_hausdorff_m"] == pytest.approx(0.0)
+    assert derived.wkb == before_derived_wkb
+    assert reference.wkb == before_reference_wkb
+    assert list(derived.exterior.coords) == before_derived_exterior
+    assert list(reference.exterior.coords) == before_reference_exterior
+
+
+def test_exterior_ring_hausdorff_uses_only_exterior_rings_without_substitution():
+    source = inspect.getsource(metrics._exterior_rings)
+
+    assert ".exterior" in source
+    for forbidden in [
+        ".boundary",
+        ".buffer",
+        ".simplify",
+        ".interpolate",
+        ".centroid",
+        ".convex_hull",
+        ".envelope",
+        "minimum_rotated_rectangle",
+        "threshold",
+        "county",
+    ]:
+        assert forbidden not in source
 
 
 def test_polygon_multipolygon_hole_and_component_counts():
@@ -183,6 +259,56 @@ def test_deterministic_json_csv_ranking_geojson_and_svg_outputs(tmp_path: Path):
     assert summary["joined_cluster_count"] == 34
     assert summary["thresholds_defined"] is False
     assert "score" not in json.dumps(summary).lower()
+    assert "hausdorff_distance_m" in summary["primary_metric_summaries"]
+    assert "exterior_ring_hausdorff_m" in summary["primary_metric_summaries"]
+    assert set(summary["primary_metric_summaries"]["exterior_ring_hausdorff_m"]) == set(
+        summary["primary_metric_summaries"]["hausdorff_distance_m"]
+    )
+
+    metrics_json = json.loads(first["paths"]["metrics_json"].read_text(encoding="utf-8"))
+    first_metric = metrics_json["metrics"][0]
+    assert "hausdorff_distance_m" in first_metric
+    assert "exterior_ring_hausdorff_m" in first_metric
+    assert first_metric["exterior_ring_hausdorff_m"] == pytest.approx(first_metric["hausdorff_distance_m"])
+
+    with first["paths"]["metrics_csv"].open("r", encoding="utf-8", newline="") as handle:
+        csv_reader = csv.DictReader(handle)
+        assert csv_reader.fieldnames is not None
+        existing_columns = {
+            "cluster_id",
+            "derived_geometry_type",
+            "reference_geometry_type",
+            "derived_component_count",
+            "reference_component_count",
+            "derived_hole_count",
+            "reference_hole_count",
+            "derived_area_m2",
+            "reference_area_m2",
+            "intersection_area_m2",
+            "union_area_m2",
+            "iou",
+            "derived_precision",
+            "reference_coverage",
+            "area_ratio",
+            "signed_area_error_m2",
+            "absolute_area_error_m2",
+            "signed_area_error_percent",
+            "absolute_area_error_percent",
+            "derived_centroid_x",
+            "derived_centroid_y",
+            "reference_centroid_x",
+            "reference_centroid_y",
+            "centroid_distance_m",
+            "symmetric_difference_area_m2",
+            "symmetric_difference_ratio_against_union",
+            "hausdorff_distance_m",
+            "derived_validity",
+            "reference_validity",
+        }
+        assert existing_columns <= set(csv_reader.fieldnames)
+        assert "exterior_ring_hausdorff_m" in csv_reader.fieldnames
+        csv_row = next(csv_reader)
+        assert csv_row["exterior_ring_hausdorff_m"] == csv_row["hausdorff_distance_m"]
 
     worst = json.loads(first["paths"]["worst_10_json"].read_text(encoding="utf-8"))["clusters"]
     assert len(worst) == 10
