@@ -39,9 +39,16 @@ metadata only; no local shift is applied to the diagnostic footprints.
 - Closing structuring element: square, side length `2 * radius + 1`
 - Polygonization: occupied closed raster cells become EPSG:32617 meter boxes
   and are dissolved with Shapely `unary_union`
-- Validity policy: accept valid Polygon/MultiPolygon; otherwise use
+- Validity normalization: accept valid Polygon/MultiPolygon; otherwise use
   `shapely.make_valid` when available, else `buffer(0)`; fail if the repaired
   geometry is empty, zero-area, invalid, or non-polygonal
+- Largest-region selection (after validity normalization): extract the valid
+  connected Polygon components, ignore invalid, empty, or zero-area
+  components, and select exactly one largest valid positive-area component.
+  Equal-area ties are broken deterministically by component bounds, then WKT.
+  The final serialized geometry is always a single Polygon; a MultiPolygon
+  must never reach final serialization. If no valid positive-area component
+  remains, the cluster fails explicitly — geometry is never fabricated.
 
 ## Output Contract
 
@@ -52,9 +59,10 @@ The output root receives:
 - `lidar_footprints_v0_parameters.json`
 
 The GeoJSON contains one feature per processed expected cluster, including
-cluster ID, source point count, geometry type, area, component count, validity
-result, algorithm version, cell size, closing parameter, coordinate convention,
-and source run provenance.
+cluster ID, source point count, geometry type (always `Polygon`), area,
+component count (always `1`), pre-selection component count, removed component
+count and removed component area, validity result, algorithm version, cell
+size, closing parameter, coordinate convention, and source run provenance.
 
 The summary records cluster counts, valid and failed geometry counts, missing
 and duplicate IDs, empty and zero-area counts, non-finite coordinate count,

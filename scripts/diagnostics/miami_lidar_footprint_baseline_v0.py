@@ -7,7 +7,8 @@ footprint per existing Bikini building cluster from that cluster's LiDAR XY
 points only:
 
     points -> occupancy raster -> morphological closing -> cell polygonization
-    -> dissolved valid diagnostic footprint
+    -> dissolve -> validity normalization -> largest valid connected region
+    -> single-Polygon diagnostic footprint
 
 Authoritative footprint geometry is intentionally not read or used for
 construction, clipping, tuning, repair, ranking, or pass/fail decisions.
@@ -262,12 +263,38 @@ def _valid_polygonal(geom: Polygon | MultiPolygon) -> tuple[Polygon | MultiPolyg
     return out, "repaired_make_valid" if make_valid is not None else "repaired_buffer0"
 
 
+def _largest_valid_component(geom: Polygon | MultiPolygon) -> tuple[Polygon, dict[str, Any]]:
+    """Select exactly one largest valid positive-area connected component.
+
+    Runs after validity normalization. Invalid, empty, or zero-area components
+    are ignored during selection; if no valid positive-area component remains,
+    this fails explicitly rather than fabricating geometry. Equal-area ties are
+    broken deterministically by component bounds, then WKT.
+    """
+    components = list(geom.geoms) if isinstance(geom, MultiPolygon) else [geom]
+    candidates = [
+        c for c in components
+        if isinstance(c, Polygon) and not c.is_empty and c.is_valid and c.area > 0
+    ]
+    if not candidates:
+        raise BaselineInputError(
+            "no valid positive-area connected component remains after validity normalization"
+        )
+    selected = sorted(candidates, key=lambda c: (-c.area, c.bounds, c.wkt))[0]
+    removed_area = float(sum(c.area for c in components) - selected.area)
+    return selected, {
+        "pre_selection_component_count": int(len(components)),
+        "removed_component_count": int(len(components) - 1),
+        "removed_component_area_m2": round(removed_area, 6),
+    }
+
+
 def derive_cluster_geometry(
     points_xy: np.ndarray,
     *,
     cell_size_m: float = DEFAULT_CELL_SIZE_M,
     closing_radius_cells: int = DEFAULT_CLOSING_RADIUS_CELLS,
-) -> tuple[Polygon | MultiPolygon, dict[str, Any]]:
+) -> tuple[Polygon, dict[str, Any]]:
     if points_xy.ndim != 2 or points_xy.shape[1] != 2:
         raise BaselineInputError("cluster point array must have shape (N, 2)")
     if len(points_xy) == 0:
@@ -279,15 +306,22 @@ def derive_cluster_geometry(
     closed = morphological_closing(grid, closing_radius_cells)
     geom = _polygonize_cells(closed, origin_x, origin_y, cell_size_m)
     geom, validity_result = _valid_polygonal(geom)
+    geom, selection = _largest_valid_component(geom)
     if geom.area <= 0 or geom.is_empty:
         raise BaselineInputError("derived geometry is empty or zero-area")
-    component_count = len(geom.geoms) if isinstance(geom, MultiPolygon) else 1
+    if not isinstance(geom, Polygon):
+        raise BaselineInputError(
+            f"largest-region selection produced non-Polygon geometry: {geom.geom_type}"
+        )
     return geom, {
         "occupancy_cell_count": int(grid.sum()),
         "closed_cell_count": int(closed.sum()),
         "raster_rows": int(grid.shape[0]),
         "raster_cols": int(grid.shape[1]),
-        "component_count": int(component_count),
+        "component_count": 1,
+        "pre_selection_component_count": selection["pre_selection_component_count"],
+        "removed_component_count": selection["removed_component_count"],
+        "removed_component_area_m2": selection["removed_component_area_m2"],
         "validity_result": validity_result,
     }
 
@@ -342,10 +376,16 @@ def build_outputs(
             empty_geometry_count += 1
         if geom.area <= 0:
             zero_area_geometry_count += 1
-        if isinstance(geom, Polygon):
-            polygon_count += 1
-        elif isinstance(geom, MultiPolygon):
-            multipolygon_count += 1
+        if not isinstance(geom, Polygon):
+            if isinstance(geom, MultiPolygon):
+                multipolygon_count += 1
+            failures.append({
+                "cluster_id": cluster_id,
+                "error": f"non-Polygon geometry must never reach final serialization: {geom.geom_type}",
+                "point_count": point_count,
+            })
+            continue
+        polygon_count += 1
 
         features.append({
             "type": "Feature",
@@ -355,6 +395,9 @@ def build_outputs(
                 "geometry_type": geom.geom_type,
                 "derived_area_m2": round(float(geom.area), 6),
                 "component_count": stats["component_count"],
+                "pre_selection_component_count": stats["pre_selection_component_count"],
+                "removed_component_count": stats["removed_component_count"],
+                "removed_component_area_m2": stats["removed_component_area_m2"],
                 "validity_result": stats["validity_result"],
                 "algorithm_version": ALGORITHM_VERSION,
                 "cell_size_m": float(cell_size_m),
@@ -392,6 +435,7 @@ def build_outputs(
         "morphological_closing": "square structuring element with side length 2*radius+1 cells",
         "polygonization": "occupied closed raster cells converted to EPSG:32617 meter boxes and dissolved with shapely unary_union",
         "validity_repair_policy": "accept valid Polygon/MultiPolygon; otherwise shapely.make_valid when available, else buffer(0); fail if non-polygonal, empty, invalid, or zero-area",
+        "largest_region_selection": "after validity normalization, extract valid connected Polygon components, ignore invalid/empty/zero-area components, select exactly one largest valid positive-area component with deterministic area-then-bounds-then-WKT tie-breaking, and serialize exactly one Polygon; fail explicitly if no valid positive-area component remains; MultiPolygon never reaches final serialization",
         "coordinate_convention": coordinate_convention,
         "authoritative_geometry_used": False,
         "authoritative_geometry_policy": "authoritative footprint geometry is not read for construction, clipping, tuning, repair, ranking, or pass/fail decisions",

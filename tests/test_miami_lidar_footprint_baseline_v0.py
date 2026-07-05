@@ -233,3 +233,99 @@ def test_authoritative_geometry_is_not_required_as_input(tmp_path: Path):
     assert result["geojson"].exists()
     assert params["authoritative_geometry_used"] is False
     assert not (run / "corrected" / "footprints").exists()
+
+
+def test_disconnected_cluster_retains_only_largest_component(tmp_path: Path):
+    large = {(r, c) for r in range(4) for c in range(4)}
+    small = {(r, c) for r in range(2) for c in range(20, 22)}
+    run = _write_run(tmp_path / "run", {11: _grid_points(large | small)})
+    result = baseline.build_outputs(run, tmp_path / "out")
+
+    feature = _read_geojson(result["geojson"])["features"][0]
+    geom = shape(feature["geometry"])
+    props = feature["properties"]
+    summary = json.loads(result["summary"].read_text(encoding="utf-8"))
+
+    assert feature["geometry"]["type"] == "Polygon"
+    assert geom.geom_type == "Polygon"
+    assert geom.area == pytest.approx(16.0)
+    assert geom.bounds == pytest.approx((1000.0, 2000.0, 1004.0, 2004.0))
+    assert props["component_count"] == 1
+    assert props["pre_selection_component_count"] == 2
+    assert props["removed_component_count"] == 1
+    assert props["removed_component_area_m2"] == pytest.approx(4.0)
+    assert summary["Polygon_count"] == 1
+    assert summary["MultiPolygon_count"] == 0
+    assert summary["failed_geometry_count"] == 0
+
+
+def test_equal_area_tie_resolves_deterministically(tmp_path: Path):
+    left = {(r, c) for r in range(2) for c in range(2)}
+    right = {(r, c) for r in range(2) for c in range(20, 22)}
+    run = _write_run(tmp_path / "run", {13: _grid_points(left | right)})
+
+    first = baseline.build_outputs(run, tmp_path / "out_a")
+    second = baseline.build_outputs(run, tmp_path / "out_b")
+
+    assert first["geojson"].read_bytes() == second["geojson"].read_bytes()
+    geom = shape(_read_geojson(first["geojson"])["features"][0]["geometry"])
+    assert geom.geom_type == "Polygon"
+    assert geom.area == pytest.approx(4.0)
+    assert geom.bounds == pytest.approx((1000.0, 2000.0, 1002.0, 2002.0))
+
+
+def test_largest_valid_component_unit_selection():
+    from shapely.geometry import MultiPolygon, Polygon
+
+    large = Polygon([(0, 0), (4, 0), (4, 4), (0, 4)])
+    small = Polygon([(10, 0), (12, 0), (12, 2), (10, 2)])
+    selected, stats = baseline._largest_valid_component(MultiPolygon([large, small]))
+
+    assert selected.equals(large)
+    assert stats["pre_selection_component_count"] == 2
+    assert stats["removed_component_count"] == 1
+    assert stats["removed_component_area_m2"] == pytest.approx(4.0)
+
+
+def test_no_valid_component_fails_explicitly():
+    from shapely.geometry import Polygon
+
+    zero_area = Polygon([(0, 0), (1, 1), (2, 2)])
+    with pytest.raises(baseline.BaselineInputError, match="no valid positive-area connected component"):
+        baseline._largest_valid_component(zero_area)
+
+
+def test_single_polygon_cluster_output_unchanged_by_selection(tmp_path: Path):
+    cells = {(r, c) for r in range(3) for c in range(4)}
+    run = _write_run(tmp_path / "run", {7: _grid_points(cells)})
+    result = baseline.build_outputs(run, tmp_path / "out")
+
+    feature = _read_geojson(result["geojson"])["features"][0]
+    geom = shape(feature["geometry"])
+    props = feature["properties"]
+
+    assert geom.geom_type == "Polygon"
+    assert geom.area == pytest.approx(12.0)
+    assert props["component_count"] == 1
+    assert props["pre_selection_component_count"] == 1
+    assert props["removed_component_count"] == 0
+    assert props["removed_component_area_m2"] == pytest.approx(0.0)
+
+
+FROZEN_SOURCE_RUN = Path("/mnt/c/Users/Glytc/ATLANTID_SPRINT_20260704/runs/post_fix_20260704T232342Z")
+
+
+@pytest.mark.skipif(not FROZEN_SOURCE_RUN.exists(), reason="frozen source run not available")
+def test_all_frozen_clusters_remain_processable(tmp_path: Path):
+    result = baseline.build_outputs(FROZEN_SOURCE_RUN, tmp_path / "out")
+    summary = result["summary_payload"]
+
+    assert summary["expected_cluster_count"] == 34
+    assert summary["processed_cluster_count"] == 34
+    assert summary["valid_geometry_count"] == 34
+    assert summary["failed_geometry_count"] == 0
+    assert summary["Polygon_count"] == 34
+    assert summary["MultiPolygon_count"] == 0
+    assert summary["total_source_point_count"] == 157979
+    for feature in _read_geojson(result["geojson"])["features"]:
+        assert feature["geometry"]["type"] == "Polygon"
