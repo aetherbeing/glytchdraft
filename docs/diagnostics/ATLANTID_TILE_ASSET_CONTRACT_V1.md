@@ -6,6 +6,8 @@
 
 **Branch:** `design/atlantid-tile-asset-contract-v1`
 
+**Governance:** This specification is governed by `docs/ATLANTID_RELEASE_CONTRACT_GOVERNANCE.md`. Contract compliance is a binary gate that precedes substantive review. The release captain has no waiver authority. Routine deviations default to bounded enforcement without operator interruption. Any genuine operator-level deviation requires STOP-AND-DECIDE and an explicit operator decision before merge, freeze, implementation, or downstream use.
+
 **Scope:** Schema, documentation, synthetic example, and tests only. No LAZ file has been processed. No GLB has been generated. No PDAL, Blender, or cloud command has been executed. `/mnt/t7` has not been accessed. Neither `REAL_DATA_EXECUTION_ENABLED` lock (`scripts/miami/run_tile_miami.py`, `scripts/diagnostics/miami_metric_smoke_harness.py`) has been modified — both remain `False`.
 
 This document is written for the **Atlantid** pipeline. It is a candidate contract, not a frozen one: `contract_status` in every manifest instance must read `"CANDIDATE"` until a controlled smoke test and a determinism comparison (re-running the same tile and diffing outputs byte-for-byte or field-for-field) have both completed and been independently reviewed. Do not declare this contract v1 frozen before that review completes.
