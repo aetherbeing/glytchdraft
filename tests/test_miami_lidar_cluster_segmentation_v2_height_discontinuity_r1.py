@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import math
+import subprocess
 import sys
 from pathlib import Path
 
@@ -29,6 +31,41 @@ def _merge(*parts):
     for part in parts:
         out.update(part)
     return out
+
+
+def _write_attestation(tmp_path, npz_path, **overrides):
+    payload = {
+        "normalization_version": "miami_metric_normalization_v1",
+        "feature_gate_enabled": True,
+        "target_unit": "meters",
+        "output_root": str(npz_path.parent.resolve()),
+    }
+    payload.update(overrides)
+    path = tmp_path / "normalization_provenance.json"
+    path.write_text(json.dumps(payload, sort_keys=True) + "\n", encoding="utf-8")
+    digest = hashlib.sha256(path.read_bytes()).hexdigest()
+    return path, digest
+
+
+def _blocked_z_gate(tmp_path, attestation_path, digest, z_values):
+    entered = []
+
+    def segment():
+        entered.append(True)
+        raise AssertionError("segmentation must not execute after a failed Z-unit gate")
+
+    npz_path = tmp_path / "corrected" / "clusters" / "building_clusters.npz"
+    npz_path.parent.mkdir(parents=True, exist_ok=True)
+    out_root = tmp_path / "blocked_out"
+    result = h.run_after_z_unit_gate(
+        attestation_path,
+        digest,
+        npz_path,
+        np.asarray(z_values, dtype=np.float64),
+        segment,
+        out_root=out_root,
+    )
+    return result, entered, out_root
 
 
 def test_T01_flat_roof_one_component():
@@ -247,3 +284,111 @@ def test_T26_evaluation_baseline_proxy_family_and_authorization_boundaries():
     decision = h.build_family_decision("RUN_VALID", height_counts)
     for field in h.AUTHORIZATION_FALSE_FIELDS:
         assert decision[field] is False
+
+
+def test_T27_straddle_halving_fixture_welds_by_frozen_median_and_equality_rule():
+    # Frozen M4 straddle case: a wall-bisected 1 m cell has two roof returns,
+    # so median([10, 14]) halves the observable 4 m step to equality deltas.
+    result = h.segment_cells(
+        0,
+        {
+            (0, 0): [10.0],
+            (0, 1): [10.0, 14.0],
+            (0, 2): [14.0],
+        },
+    )
+    assert result["rep_z"][(0, 1)] == 12.0
+    assert [edge["delta"] for edge in result["edges"]] == [2.0, 2.0]
+    assert all(edge["cut"] is False for edge in result["edges"])
+    assert result["parent_summary"]["child_count"] == 1
+    assert result["children"][0]["cell_set"] == result["support_cells"]
+    assert result["children"][0]["no_cut_identity"] is True
+
+
+def test_T28_z_unit_missing_attestation_serializes_blocked_without_segmentation(tmp_path):
+    missing = tmp_path / "missing_normalization_provenance.json"
+    result, entered, out_root = _blocked_z_gate(tmp_path, missing, "0" * 64, [0.0, 20.0])
+    assert entered == []
+    assert result["run_validity"] == "RUN_BLOCKED"
+    assert result["height_mechanism_productive"] == "NOT_EVALUABLE"
+    assert result["family_decision"]["run_validity"] == "RUN_BLOCKED"
+    assert result["family_decision"]["height_mechanism_productive"] == "NOT_EVALUABLE"
+    assert result["segmentation_entered"] is False
+    assert result["segmentation_outputs_serialized"] is False
+    assert "segmentation_result" not in result
+    assert "connected_components" not in result
+    assert "child_assignments" not in result
+    assert "children" not in result
+    assert json.loads((out_root / "family_decision.json").read_text(encoding="utf-8"))["run_validity"] == "RUN_BLOCKED"
+
+
+def test_T29_z_unit_invalid_attestation_serializes_blocked_without_segmentation(tmp_path):
+    npz_path = tmp_path / "corrected" / "clusters" / "building_clusters.npz"
+    npz_path.parent.mkdir(parents=True, exist_ok=True)
+    attestation, digest = _write_attestation(tmp_path, npz_path, target_unit="feet")
+    result, entered, out_root = _blocked_z_gate(tmp_path, attestation, digest, [0.0, 20.0])
+    reread = json.loads((out_root / "z_unit_gate.json").read_text(encoding="utf-8"))
+    assert entered == []
+    assert result == reread
+    assert result["run_validity"] == "RUN_BLOCKED"
+    assert result["height_mechanism_productive"] == "NOT_EVALUABLE"
+    assert result["family_decision"]["conjuncts"] == []
+    assert result["family_decision"]["height_mechanism_productive"] == "NOT_EVALUABLE"
+
+
+@pytest.mark.parametrize("z_values", ([10.0, 19.999999999], [0.0, 350.000000001]))
+def test_T30_z_unit_relief_outside_band_serializes_blocked_without_segmentation(tmp_path, z_values):
+    npz_path = tmp_path / "corrected" / "clusters" / "building_clusters.npz"
+    npz_path.parent.mkdir(parents=True, exist_ok=True)
+    attestation, digest = _write_attestation(tmp_path, npz_path)
+    result, entered, _ = _blocked_z_gate(tmp_path, attestation, digest, z_values)
+    assert entered == []
+    assert result["run_validity"] == "RUN_BLOCKED"
+    assert result["height_mechanism_productive"] == "NOT_EVALUABLE"
+    assert result["blocked_gate"] == "G-Z1/G-Z2"
+    assert "canonical Z relief outside [10, 350] m" in result["blocked_reason"]
+
+
+def test_T31_z_unit_valid_path_enters_segmentation_callback(tmp_path):
+    npz_path = tmp_path / "corrected" / "clusters" / "building_clusters.npz"
+    npz_path.parent.mkdir(parents=True, exist_ok=True)
+    attestation, digest = _write_attestation(tmp_path, npz_path)
+    entered = []
+
+    def segment():
+        entered.append(True)
+        return h.segment_cells(0, _strip([10.0, 13.0]))["parent_summary"]
+
+    result = h.run_after_z_unit_gate(
+        attestation,
+        digest,
+        npz_path,
+        np.asarray([0.0, 10.0, 350.0], dtype=np.float64),
+        segment,
+    )
+    assert entered == [True]
+    assert result["run_validity"] == "RUN_VALID"
+    assert result["z_unit_gate"]["observed_relief_m"] == 350.0
+    assert result["segmentation_result"]["child_count"] == 2
+
+
+def test_T32_import_height_r1_does_not_import_prohibited_diagnostics():
+    code = """
+import importlib
+import json
+import sys
+
+prohibited = {
+    "scripts.diagnostics.miami_lidar_cluster_segmentation_v2",
+    "scripts.diagnostics.miami_lidar_cluster_segmentation_v2_neck_r2",
+    "scripts.diagnostics.miami_lidar_footprint_baseline_v0",
+    "scripts.miami.run_tile_miami",
+    "scripts.phases.phase_03_extract",
+}
+before = set(sys.modules)
+importlib.import_module("scripts.diagnostics.miami_lidar_cluster_segmentation_v2_height_discontinuity_r1")
+after = set(sys.modules)
+print(json.dumps(sorted(prohibited & (after - before))))
+"""
+    proc = subprocess.run([sys.executable, "-c", code], check=True, capture_output=True, text=True)
+    assert json.loads(proc.stdout) == []

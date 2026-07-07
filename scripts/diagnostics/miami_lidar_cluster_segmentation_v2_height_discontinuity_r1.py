@@ -20,23 +20,16 @@ from statistics import median
 from typing import Any
 
 import numpy as np
-from shapely.geometry import MultiPolygon, Point, Polygon, mapping, shape
+from shapely.geometry import MultiPolygon, Polygon, box, mapping
 from shapely.ops import unary_union
 
 if __package__ in {None, ""}:  # pragma: no cover - CLI execution
     sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from scripts.diagnostics import miami_lidar_cluster_segmentation_v2 as neck_r1
-from scripts.diagnostics.miami_lidar_footprint_baseline_v0 import (
-    CRS_TAG,
-    DEFAULT_CELL_SIZE_M,
-    DEFAULT_CLOSING_RADIUS_CELLS,
-    _largest_valid_component,
-    _occupancy_grid,
-    _polygonize_cells,
-    _valid_polygonal,
-    morphological_closing,
-)
+try:
+    from shapely.validation import make_valid
+except ImportError:  # pragma: no cover - depends on Shapely version
+    make_valid = None
 
 
 class SegmentationInputError(ValueError):
@@ -46,6 +39,9 @@ class SegmentationInputError(ValueError):
 METHOD_IDENTITY = "miami_lidar_cluster_segmentation_v2_height_discontinuity_r1"
 ALGORITHM_VERSION = "miami_lidar_cluster_segmentation_v2"
 EXPERIMENT_NAME = "miami_lidar_cluster_segmentation_v2_height_discontinuity"
+DEFAULT_CELL_SIZE_M = 1.0
+DEFAULT_CLOSING_RADIUS_CELLS = 1
+CRS_TAG = {"type": "name", "properties": {"name": "urn:ogc:def:crs:EPSG::32617"}}
 VERTICAL_STEP_THRESHOLD_M = 2.0
 REPRESENTATIVE_Z_STATISTIC = "median"
 MIN_POINTS_PER_CELL_FOR_Z = 1
@@ -59,10 +55,13 @@ EXPECTED_NPZ_ROWS = 158059
 EXPECTED_PARENT_ROWS = 157979
 EXPECTED_EXCLUDED_ROWS = 74
 EXPECTED_NOISE_ROWS = 6
-EXPECTED_PARENT_IDS = neck_r1.EXPECTED_PARENT_IDS
-EXPECTED_EXCLUDED_LABELS = neck_r1.EXPECTED_EXCLUDED_LABELS
-BENCHMARK_MINIMA = neck_r1.BENCHMARK_MINIMA
-COHORT_REPORT_IDS = neck_r1.COHORT_REPORT_IDS
+EXPECTED_PARENT_IDS = [
+    0, 1, 2, 3, 4, 5, 6, 7, 8, 10, 11, 12, 13, 14, 15, 16, 17,
+    18, 22, 23, 24, 25, 26, 27, 28, 29, 30, 32, 33, 34, 35, 36, 37, 38,
+]
+EXPECTED_EXCLUDED_LABELS = [9, 19, 20, 21, 31]
+BENCHMARK_MINIMA = {0: 19, 1: 10, 6: 5, 18: 5, 29: 2, 34: 1}
+COHORT_REPORT_IDS = [0, 1, 6, 18, 29, 34, 13, 22]
 FALSE_SPLIT_PROXY_CAVEAT = (
     "The frozen county value of one is a sparse benchmark count, not independent proof of exactly "
     "one physical building; the metric is an evaluation proxy; a violation flags a potential false "
@@ -278,11 +277,62 @@ def verify_crs_feature_collection(payload: dict[str, Any]) -> None:
         raise SegmentationInputError("canonical-v0 CRS must be urn:ogc:def:crs:EPSG::32617")
 
 
+def _polygonize_cells(grid: np.ndarray, origin_x: float, origin_y: float, cell_size_m: float) -> Polygon | MultiPolygon:
+    rows, cols = np.nonzero(grid)
+    if len(rows) == 0:
+        raise SegmentationInputError("closing produced no occupied cells")
+    cells = [
+        box(
+            origin_x + float(col) * cell_size_m,
+            origin_y + float(row) * cell_size_m,
+            origin_x + float(col + 1) * cell_size_m,
+            origin_y + float(row + 1) * cell_size_m,
+        )
+        for row, col in zip(rows.tolist(), cols.tolist())
+    ]
+    dissolved = unary_union(cells)
+    if isinstance(dissolved, (Polygon, MultiPolygon)):
+        return dissolved
+    raise SegmentationInputError(f"polygonization produced unsupported geometry type: {dissolved.geom_type}")
+
+
+def _valid_polygonal(geom: Polygon | MultiPolygon) -> tuple[Polygon | MultiPolygon, str]:
+    if geom.is_empty:
+        raise SegmentationInputError("derived geometry is empty")
+    if geom.area <= 0:
+        raise SegmentationInputError("derived geometry has zero area")
+    if geom.is_valid:
+        return geom, "valid"
+
+    repaired = make_valid(geom) if make_valid is not None else geom.buffer(0)
+    if isinstance(repaired, Polygon):
+        candidates = [repaired]
+    elif isinstance(repaired, MultiPolygon):
+        candidates = list(repaired.geoms)
+    else:
+        candidates = [g for g in getattr(repaired, "geoms", []) if isinstance(g, Polygon)]
+    candidates = [g for g in candidates if not g.is_empty and g.area > 0]
+    if not candidates:
+        raise SegmentationInputError("validity repair produced no polygonal positive-area geometry")
+    out: Polygon | MultiPolygon
+    out = candidates[0] if len(candidates) == 1 else MultiPolygon(candidates)
+    if not out.is_valid:
+        raise SegmentationInputError("derived geometry remains invalid after deterministic repair")
+    return out, "repaired_make_valid" if make_valid is not None else "repaired_buffer0"
+
+
 def verify_z_unit_gate(attestation_path: Path, expected_sha256: str, npz_path: Path, z_values: np.ndarray) -> dict[str, Any]:
     reject_t7_paths(attestation_path, npz_path)
-    if _sha256_file(attestation_path) != expected_sha256:
+    try:
+        actual_sha256 = _sha256_file(attestation_path)
+    except OSError as exc:
+        raise SegmentationInputError("Z-unit attestation is absent or unreadable") from exc
+    if actual_sha256 != expected_sha256:
         raise SegmentationInputError("Z-unit attestation SHA-256 mismatch")
-    payload = json.loads(attestation_path.read_text(encoding="utf-8"))
+    try:
+        payload = json.loads(attestation_path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        raise SegmentationInputError("Z-unit attestation is not valid JSON") from exc
     output_root = str(payload.get("output_root", ""))
     if (
         payload.get("normalization_version") != "miami_metric_normalization_v1"
@@ -295,6 +345,45 @@ def verify_z_unit_gate(attestation_path: Path, expected_sha256: str, npz_path: P
     if relief < 10.0 or relief > 350.0:
         raise SegmentationInputError("canonical Z relief outside [10, 350] m")
     return {"attestation_sha256": expected_sha256, "target_unit": "meters", "observed_relief_m": relief}
+
+
+def serialize_z_unit_blocked_result(reason: str, out_root: Path | None = None) -> dict[str, Any]:
+    payload = {
+        "status": BLOCKED_STATUS,
+        "run_validity": "RUN_BLOCKED",
+        "height_mechanism_productive": "NOT_EVALUABLE",
+        "blocked_gate": "G-Z1/G-Z2",
+        "blocked_reason": reason,
+        "segmentation_entered": False,
+        "segmentation_outputs_serialized": False,
+        "family_decision": build_family_decision("RUN_BLOCKED"),
+    }
+    if out_root is not None:
+        out_root.mkdir(parents=True, exist_ok=True)
+        _write_json(out_root / "z_unit_gate.json", payload)
+        _write_json(out_root / "family_decision.json", payload["family_decision"])
+    return _stable_value(payload)
+
+
+def run_after_z_unit_gate(
+    attestation_path: Path,
+    expected_sha256: str,
+    npz_path: Path,
+    z_values: np.ndarray,
+    segmentation_callback: Any,
+    *,
+    out_root: Path | None = None,
+) -> dict[str, Any]:
+    try:
+        gate = verify_z_unit_gate(attestation_path, expected_sha256, npz_path, z_values)
+    except SegmentationInputError as exc:
+        return serialize_z_unit_blocked_result(str(exc), out_root)
+    return {
+        "status": RUN_STATUS,
+        "run_validity": "RUN_VALID",
+        "z_unit_gate": _stable_value(gate),
+        "segmentation_result": segmentation_callback(),
+    }
 
 
 def histogram_label(delta: float) -> str:
