@@ -11,12 +11,14 @@ from __future__ import annotations
 
 import hashlib
 import json
+import platform
 import subprocess
 import sys
 from pathlib import Path
 
 import numpy as np
 import pytest
+import shapely
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
@@ -391,7 +393,151 @@ def test_cli_output_is_deterministic_for_identical_synthetic_inputs(tmp_path):
             continue
         content_a = (out_root_a / name).read_bytes()
         content_b = (out_root_b / name).read_bytes()
+        if name == "experiment_parameters.json":
+            # The embedded full CLI echo (`command`) legitimately varies with --out-root,
+            # exactly like command.txt already does; every other field must be identical.
+            params_a = json.loads(content_a)
+            params_b = json.loads(content_b)
+            assert params_a.pop("command") != params_b.pop("command")
+            assert params_a == params_b
+            continue
         assert content_a == content_b, name
+
+
+def test_experiment_parameters_json_satisfies_o3_schema(tmp_path):
+    """Frozen §O3 (output_package_contract.md) schema coverage for experiment_parameters.json:
+    every frozen_constants value, all six input hashes, the full CLI echo, environment capture,
+    the z_unit_gate record, run_status, the nine isolation booleans, the input-readiness evidence
+    block, and the per-parent Stage A diagnostics — parsed and asserted exactly, not keyword-
+    searched."""
+    fixture = build_fixture(tmp_path, productive=True)
+    out_root = tmp_path / "out"
+    implementation_sha = "a" * 40
+    argv = _full_argv(fixture, out_root, implementation_sha=implementation_sha)
+    proc = _run_cli(argv)
+    assert proc.returncode == 0, proc.stderr
+
+    manifest_lines = (out_root / "FREEZE_MANIFEST.sha256").read_text(encoding="utf-8").splitlines()
+    manifest_names = sorted(line.split("  ", 2)[2] for line in manifest_lines)
+    assert manifest_names == sorted(h.OUTPUT_CONTENT_FILES)
+    assert len(h.OUTPUT_CONTENT_FILES) == 25
+    on_disk = sorted(p.name for p in out_root.iterdir())
+    assert on_disk == sorted([*h.OUTPUT_CONTENT_FILES, "FREEZE_MANIFEST.sha256"])
+    assert len(on_disk) == 26
+
+    params = json.loads((out_root / "experiment_parameters.json").read_text(encoding="utf-8"))
+
+    # --- environment capture: exact five fields, meaningful (non-empty, real) values ---
+    assert params["python_version"] == platform.python_version()
+    assert params["numpy_version"] == np.__version__
+    assert params["shapely_version"] == shapely.__version__
+    assert params["validity_repair_backend"] in {"shapely.validation.make_valid", "geometry.buffer(0)"}
+    assert params["implementation_sha"] == implementation_sha
+
+    # --- every frozen_constants value (exactly 8 keys, exact frozen values) ---
+    assert params["frozen_constants"] == {
+        "VERTICAL_STEP_THRESHOLD_M": 2.0,
+        "DEFAULT_CELL_SIZE_M": 1.0,
+        "DEFAULT_CLOSING_RADIUS_CELLS": 1,
+        "REPRESENTATIVE_Z_STATISTIC": "median",
+        "MIN_POINTS_PER_CELL_FOR_Z": 1,
+        "EDGE_CONNECTIVITY": 4,
+        "COMPONENT_CONNECTIVITY": 4,
+        "SERIALIZATION_DECIMAL_PLACES": 9,
+    }
+
+    # --- full CLI echo embedded in the file itself, not merely in command.txt ---
+    command_txt = (out_root / "command.txt").read_text(encoding="utf-8").strip()
+    assert params["command"] == command_txt
+    assert params["command"].split()[0] == SCRIPT_PATH.name
+    for token in argv:
+        assert token in params["command"]
+
+    # --- all six input hashes, exact keys and values ---
+    assert params["input_hashes"] == {
+        "npz": fixture["expected_npz_sha256"],
+        "canonical_v0": fixture["expected_v0_sha256"],
+        "metadata_csv": fixture["expected_metadata_csv_sha256"],
+        "frozen_r1_manifest": fixture["expected_r1_freeze_manifest_sha256"],
+        "frozen_r2_manifest": fixture["expected_r2_freeze_manifest_sha256"],
+        "z_unit_attestation": fixture["expected_z_unit_attestation_sha256"],
+    }
+
+    # --- z_unit_gate record: attestation path + SHA-256 + attested facts + observed relief ---
+    gate = params["z_unit_gate"]
+    assert gate["attestation_path"] == str(fixture["attestation_path"])
+    assert gate["attestation_sha256"] == fixture["expected_z_unit_attestation_sha256"]
+    assert gate["attested_facts"]["normalization_version"] == "miami_metric_normalization_v1"
+    assert gate["attested_facts"]["feature_gate_enabled"] is True
+    assert gate["attested_facts"]["target_unit"] == "meters"
+    assert isinstance(gate["observed_relief_m"], float)
+    assert 10.0 <= gate["observed_relief_m"] <= 350.0
+
+    # --- run_status ---
+    assert params["run_status"] == h.RUN_STATUS
+
+    # --- the nine isolation booleans, exact keys, all false ---
+    for key in (
+        "county_geometry_read", "county_objectid_used", "featureserver_accessed", "t7_accessed",
+        "buffer_used", "morphology_used", "alpha_shape_used", "eave_offset_used", "regularization_used",
+    ):
+        assert params[key] is False
+
+    # --- input-readiness evidence block: census, cell counts, all-finite confirmation ---
+    readiness = params["input_readiness_evidence"]
+    census = readiness["census"]
+    assert census["canonical_rows"] == h.EXPECTED_PARENT_ROWS
+    assert census["excluded_noncanonical_rows"] == h.EXPECTED_EXCLUDED_ROWS
+    assert census["noise_rows"] == h.EXPECTED_NOISE_ROWS
+    assert census["total_rows"] == h.EXPECTED_NPZ_ROWS
+    assert census["reconciliation"] == (
+        f"{h.EXPECTED_PARENT_ROWS} + {h.EXPECTED_EXCLUDED_ROWS} + {h.EXPECTED_NOISE_ROWS} = {h.EXPECTED_NPZ_ROWS}"
+    )
+    assert set(census["excluded_label_counts"]) == {str(label) for label in h.EXPECTED_EXCLUDED_LABELS}
+    assert sum(census["excluded_label_counts"].values()) == h.EXPECTED_EXCLUDED_ROWS
+    assert readiness["all_input_values_finite"] is True
+
+    diagnostics = json.loads((out_root / "height_discontinuity_diagnostics.json").read_text(encoding="utf-8"))
+    assert readiness["one_point_cell_count"] == sum(
+        row["one_point_cell_count"] for row in diagnostics["parents"]
+    )
+    assert readiness["multi_point_cell_count"] == sum(
+        row["multi_point_cell_count"] for row in diagnostics["parents"]
+    )
+    assert readiness["occupied_cell_count"] == sum(row["occupancy_cell_count"] for row in params["stage_a"])
+
+    # --- per-parent Stage A diagnostics: deterministic parent ordering, exact field set ---
+    stage_a = params["stage_a"]
+    assert [row["parent_cluster_id"] for row in stage_a] == h.EXPECTED_PARENT_IDS
+    for row in stage_a:
+        assert set(row) == {
+            "parent_cluster_id", "occupancy_cell_count", "closed_cell_count",
+            "validity_result", "canonical_area_m2", "reproduced_area_m2",
+        }
+        assert row["occupancy_cell_count"] >= 1
+        assert row["closed_cell_count"] >= 1
+        assert row["validity_result"] in {"valid", "repaired_make_valid", "repaired_buffer0"}
+
+    # --- the eleven authorization booleans, all false ---
+    assert len(h.AUTHORIZATION_FALSE_FIELDS) == 11
+    for field in h.AUTHORIZATION_FALSE_FIELDS:
+        assert params[field] is False
+
+
+def test_experiment_parameters_json_identical_across_runs_except_permitted_fields(tmp_path):
+    fixture = build_fixture(tmp_path, productive=True)
+    out_root_a = tmp_path / "out_a"
+    out_root_b = tmp_path / "out_b"
+    proc_a = _run_cli(_full_argv(fixture, out_root_a))
+    proc_b = _run_cli(_full_argv(fixture, out_root_b))
+    assert proc_a.returncode == 0, proc_a.stderr
+    assert proc_b.returncode == 0, proc_b.stderr
+    params_a = json.loads((out_root_a / "experiment_parameters.json").read_text(encoding="utf-8"))
+    params_b = json.loads((out_root_b / "experiment_parameters.json").read_text(encoding="utf-8"))
+    command_a = params_a.pop("command")
+    command_b = params_b.pop("command")
+    assert command_a != command_b
+    assert params_a == params_b
 
 
 def test_scientific_suite_still_collects_exactly_33(tmp_path):

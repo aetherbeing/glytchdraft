@@ -15,6 +15,7 @@ import hashlib
 import io
 import json
 import math
+import platform
 import sys
 from collections import deque
 from pathlib import Path
@@ -22,6 +23,7 @@ from statistics import median
 from typing import Any
 
 import numpy as np
+import shapely
 from shapely.geometry import MultiPolygon, Point, Polygon, box, mapping, shape
 from shapely.ops import unary_union
 
@@ -32,6 +34,8 @@ try:
     from shapely.validation import make_valid
 except ImportError:  # pragma: no cover - depends on Shapely version
     make_valid = None
+
+VALIDITY_REPAIR_BACKEND = "shapely.validation.make_valid" if make_valid is not None else "geometry.buffer(0)"
 
 
 class SegmentationInputError(ValueError):
@@ -557,7 +561,13 @@ def verify_z_unit_gate(attestation_path: Path, expected_sha256: str, npz_path: P
     relief = float(np.max(z_values) - np.min(z_values))
     if relief < 10.0 or relief > 350.0:
         raise SegmentationInputError("canonical Z relief outside [10, 350] m")
-    return {"attestation_sha256": expected_sha256, "target_unit": "meters", "observed_relief_m": relief}
+    return {
+        "attestation_path": str(attestation_path),
+        "attestation_sha256": expected_sha256,
+        "attested_facts": payload,
+        "target_unit": "meters",
+        "observed_relief_m": relief,
+    }
 
 
 def serialize_z_unit_blocked_result(reason: str, out_root: Path | None = None) -> dict[str, Any]:
@@ -1144,6 +1154,8 @@ def build_real_output_package(
     frozen_r2_root: Path,
     r1_counts: dict[int, int],
     r2_counts: dict[int, int],
+    r1_manifest_sha256: str,
+    r2_manifest_sha256: str,
     z_unit_gate: dict[str, Any],
     implementation_sha: str,
     command: str,
@@ -1158,6 +1170,7 @@ def build_real_output_package(
     parent_summaries: list[dict[str, Any]] = []
     child_summaries: list[dict[str, Any]] = []
     dimension_f_rows: list[dict[str, Any]] = []
+    stage_a_rows: list[dict[str, Any]] = []
     height_counts: dict[int, int] = {}
 
     for parent_id in EXPECTED_PARENT_IDS:
@@ -1180,6 +1193,7 @@ def build_real_output_package(
             child_summaries.append({key: value for key, value in child.items() if key != "cell_set"})
         features.extend(result["features"])
         dimension_f_rows.append(result["dimension_f"])
+        stage_a_rows.append({"parent_cluster_id": int(parent_id), **result["stage_a"]})
 
     parent_rows_total = sum(row["source_point_count"] for row in parent_summaries)
     assigned_total = sum(row["assigned_child_point_count"] for row in parent_summaries)
@@ -1374,6 +1388,45 @@ def build_real_output_package(
         decision_lines.append(f"{field}: false")
     (out_root / "family_decision.md").write_text("\n".join(decision_lines) + "\n", encoding="utf-8")
 
+    # Input-readiness evidence (§O3): every value below is derived from the arrays and census
+    # already validated by validate_real_inputs()/validate_readiness_arrays() upstream; none is
+    # recomputed by a different method and none is a literal frozen constant.
+    total_rows_actual = int(labels.shape[0])
+    count_by_label = validation["census"]["count_by_label"]
+    excluded_rows_actual = sum(count_by_label.get(label, 0) for label in EXPECTED_EXCLUDED_LABELS)
+    noise_rows_actual = validation["census"]["noise_rows"]
+    assert -1 not in EXPECTED_EXCLUDED_LABELS  # noise and excluded-label counts must be disjoint
+    assert parent_rows_total + excluded_rows_actual + noise_rows_actual == total_rows_actual
+    all_input_values_finite = bool(
+        np.isfinite(arrays["X"]).all()
+        and np.isfinite(arrays["Y"]).all()
+        and np.isfinite(arrays["Z"]).all()
+    )
+    assert all_input_values_finite  # safe_load_npz already rejects non-finite X/Y/Z upstream
+    input_readiness_evidence = {
+        "census": {
+            "total_rows": total_rows_actual,
+            "canonical_rows": parent_rows_total,
+            "excluded_noncanonical_rows": excluded_rows_actual,
+            "noise_rows": noise_rows_actual,
+            "excluded_label_counts": {
+                str(label): count_by_label.get(label, 0) for label in EXPECTED_EXCLUDED_LABELS
+            },
+            "reconciliation": f"{parent_rows_total} + {excluded_rows_actual} + {noise_rows_actual} = {total_rows_actual}",
+        },
+        "occupied_cell_count": sum(row["occupancy_cell_count"] for row in stage_a_rows),
+        "one_point_cell_count": sum(row["one_point_cell_count"] for row in parent_summaries),
+        "multi_point_cell_count": sum(row["multi_point_cell_count"] for row in parent_summaries),
+        "all_input_values_finite": all_input_values_finite,
+    }
+    input_hashes = dict(validation["hashes"])
+    input_hashes["frozen_r1_manifest"] = r1_manifest_sha256
+    input_hashes["frozen_r2_manifest"] = r2_manifest_sha256
+    input_hashes["z_unit_attestation"] = z_unit_gate["attestation_sha256"]
+    assert sorted(input_hashes) == sorted(
+        ["npz", "canonical_v0", "metadata_csv", "frozen_r1_manifest", "frozen_r2_manifest", "z_unit_attestation"]
+    )
+
     params = {
         "experiment_name": EXPERIMENT_NAME,
         "algorithm_version": ALGORITHM_VERSION,
@@ -1384,14 +1437,31 @@ def build_real_output_package(
         "component_connectivity": COMPONENT_CONNECTIVITY,
         "cell_size_m": DEFAULT_CELL_SIZE_M,
         "closing_radius_cells": DEFAULT_CLOSING_RADIUS_CELLS,
+        "frozen_constants": {
+            "VERTICAL_STEP_THRESHOLD_M": VERTICAL_STEP_THRESHOLD_M,
+            "DEFAULT_CELL_SIZE_M": DEFAULT_CELL_SIZE_M,
+            "DEFAULT_CLOSING_RADIUS_CELLS": DEFAULT_CLOSING_RADIUS_CELLS,
+            "REPRESENTATIVE_Z_STATISTIC": REPRESENTATIVE_Z_STATISTIC,
+            "MIN_POINTS_PER_CELL_FOR_Z": MIN_POINTS_PER_CELL_FOR_Z,
+            "EDGE_CONNECTIVITY": EDGE_CONNECTIVITY,
+            "COMPONENT_CONNECTIVITY": COMPONENT_CONNECTIVITY,
+            "SERIALIZATION_DECIMAL_PLACES": SERIALIZATION_DECIMAL_PLACES,
+        },
         "source_run": str(source_run),
         "canonical_v0": str(canonical_v0),
         "frozen_r1_root": str(frozen_r1_root),
         "frozen_r2_root": str(frozen_r2_root),
-        "input_hashes": validation["hashes"],
+        "input_hashes": input_hashes,
+        "input_readiness_evidence": input_readiness_evidence,
+        "stage_a": stage_a_rows,
         "z_unit_gate": z_unit_gate,
         "crs": "EPSG:32617",
         "units": "horizontal meters; Z meters",
+        "command": command,
+        "python_version": platform.python_version(),
+        "numpy_version": np.__version__,
+        "shapely_version": shapely.__version__,
+        "validity_repair_backend": VALIDITY_REPAIR_BACKEND,
         "implementation_sha": implementation_sha,
         "county_geometry_read": False,
         "county_objectid_used": False,
@@ -1514,6 +1584,8 @@ def _execute_real_route(args: argparse.Namespace, command_text: str) -> tuple[in
             frozen_r2_root=args.frozen_r2_root.resolve(),
             r1_counts=r1_counts,
             r2_counts=r2_counts,
+            r1_manifest_sha256=args.expected_r1_freeze_manifest_sha256,
+            r2_manifest_sha256=args.expected_r2_freeze_manifest_sha256,
             z_unit_gate=gate,
             implementation_sha=args.implementation_sha,
             command=command_text,
