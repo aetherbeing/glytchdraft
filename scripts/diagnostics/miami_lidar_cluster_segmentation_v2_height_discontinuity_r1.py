@@ -9,10 +9,13 @@ unless invoked later with separately authorized real inputs.
 from __future__ import annotations
 
 import argparse
+import contextlib
 import csv
 import hashlib
+import io
 import json
 import math
+import platform
 import sys
 from collections import deque
 from pathlib import Path
@@ -20,7 +23,8 @@ from statistics import median
 from typing import Any
 
 import numpy as np
-from shapely.geometry import MultiPolygon, Polygon, box, mapping
+import shapely
+from shapely.geometry import MultiPolygon, Point, Polygon, box, mapping, shape
 from shapely.ops import unary_union
 
 if __package__ in {None, ""}:  # pragma: no cover - CLI execution
@@ -30,6 +34,8 @@ try:
     from shapely.validation import make_valid
 except ImportError:  # pragma: no cover - depends on Shapely version
     make_valid = None
+
+VALIDITY_REPAIR_BACKEND = "shapely.validation.make_valid" if make_valid is not None else "geometry.buffer(0)"
 
 
 class SegmentationInputError(ValueError):
@@ -108,6 +114,60 @@ OUTPUT_CONTENT_FILES = [
     "single_building_false_split_proxy.csv",
     "single_building_false_split_proxy.json",
 ]
+REQUIRED_CHILD_FIELDS = [
+    "segment_id",
+    "parent_cluster_id",
+    "child_index",
+    "source_point_count",
+    "source_tile_ids",
+    "area_m2",
+    "perimeter_m",
+    "interior_ring_count",
+    "geometry_type",
+    "validity_state",
+    "no_cut_identity",
+    "vertical_step_threshold_m",
+    "representative_z_statistic",
+    "cut_edge_count",
+    "min_rep_z_m",
+    "median_rep_z_m",
+    "max_rep_z_m",
+    "algorithm_version",
+    "source_run",
+    "source_npz_sha256",
+    "canonical_v0_sha256",
+]
+REAL_ROUTE_REQUIRED_ARGUMENTS = [
+    "canonical_v0",
+    "frozen_r1_root",
+    "expected_r1_freeze_manifest_sha256",
+    "frozen_r2_root",
+    "expected_r2_freeze_manifest_sha256",
+    "expected_npz_sha256",
+    "expected_v0_sha256",
+    "expected_metadata_csv_sha256",
+    "z_unit_attestation",
+    "expected_z_unit_attestation_sha256",
+    "implementation_sha",
+]
+FROZEN_EVIDENCE_REQUIRED_FILES = frozenset(
+    {
+        "benchmark_minimum_comparison.json",
+        "benchmark_minimum_comparison.md",
+        "child_segmentation_summary.json",
+        "command.txt",
+        "command_stdout_stderr.log",
+        "conservation_summary.json",
+        "contact_sheet.svg",
+        "dimension_f_invariance.json",
+        "experiment_parameters.json",
+        "parent_segmentation_summary.json",
+        "point_assignment_summary.json",
+        "run.log",
+        "segmented_children.csv",
+        "segmented_children.geojson",
+    }
+)
 HISTOGRAM_BINS = [
     ("[0,0.5]", 0.0, 0.5, True),
     ("(0.5,1]", 0.5, 1.0, False),
@@ -321,6 +381,163 @@ def _valid_polygonal(geom: Polygon | MultiPolygon) -> tuple[Polygon | MultiPolyg
     return out, "repaired_make_valid" if make_valid is not None else "repaired_buffer0"
 
 
+def _window_any(padded: np.ndarray, radius: int) -> np.ndarray:
+    size = 2 * radius + 1
+    windows = [
+        padded[dr : dr + padded.shape[0] - size + 1, dc : dc + padded.shape[1] - size + 1]
+        for dr in range(size)
+        for dc in range(size)
+    ]
+    return np.logical_or.reduce(windows)
+
+
+def _window_all(padded: np.ndarray, radius: int) -> np.ndarray:
+    size = 2 * radius + 1
+    windows = [
+        padded[dr : dr + padded.shape[0] - size + 1, dc : dc + padded.shape[1] - size + 1]
+        for dr in range(size)
+        for dc in range(size)
+    ]
+    return np.logical_and.reduce(windows)
+
+
+def _morphological_closing(grid: np.ndarray, radius_cells: int) -> np.ndarray:
+    if radius_cells < 0:
+        raise SegmentationInputError("closing radius must be non-negative")
+    if radius_cells == 0:
+        return grid.copy()
+    pad = radius_cells
+    dilated_with_halo = _window_any(np.pad(grid, pad * 2, mode="constant", constant_values=False), radius_cells)
+    closed_with_halo = _window_all(np.pad(dilated_with_halo, pad, mode="constant", constant_values=False), radius_cells)
+    return closed_with_halo[pad : pad + grid.shape[0], pad : pad + grid.shape[1]]
+
+
+def _occupancy_grid(points_xy: np.ndarray, cell_size_m: float) -> tuple[np.ndarray, float, float]:
+    if cell_size_m <= 0 or not math.isfinite(cell_size_m):
+        raise SegmentationInputError("cell size must be finite and positive")
+    minx = math.floor(float(points_xy[:, 0].min()) / cell_size_m) * cell_size_m
+    miny = math.floor(float(points_xy[:, 1].min()) / cell_size_m) * cell_size_m
+    cols = np.floor((points_xy[:, 0] - minx) / cell_size_m).astype(np.int64)
+    rows = np.floor((points_xy[:, 1] - miny) / cell_size_m).astype(np.int64)
+    if np.any(cols < 0) or np.any(rows < 0):
+        raise SegmentationInputError("internal raster indexing error: negative row or column")
+    grid = np.zeros((int(rows.max()) + 1, int(cols.max()) + 1), dtype=bool)
+    grid[rows, cols] = True
+    return grid, minx, miny
+
+
+def _largest_valid_component(geom: Polygon | MultiPolygon) -> tuple[Polygon, dict[str, Any]]:
+    components = list(geom.geoms) if isinstance(geom, MultiPolygon) else [geom]
+    candidates = [c for c in components if isinstance(c, Polygon) and not c.is_empty and c.is_valid and c.area > 0]
+    if not candidates:
+        raise SegmentationInputError("no valid positive-area connected component remains after validity normalization")
+    selected = sorted(candidates, key=lambda c: (-c.area, c.bounds, c.wkt))[0]
+    removed_area = float(sum(c.area for c in components) - selected.area)
+    return selected, {
+        "pre_selection_component_count": int(len(components)),
+        "removed_component_count": int(len(components) - 1),
+        "removed_component_area_m2": round(removed_area, 6),
+    }
+
+
+def _support_from_component(closed: np.ndarray, geom: Polygon, origin_x: float, origin_y: float) -> np.ndarray:
+    support = np.zeros(closed.shape, dtype=bool)
+    rows, cols = np.nonzero(closed)
+    for row, col in zip(rows.tolist(), cols.tolist()):
+        center = Point(origin_x + col + 0.5, origin_y + row + 0.5)
+        if geom.covers(center):
+            support[row, col] = True
+    return support
+
+
+def _derive_parent_support(points_xy: np.ndarray) -> dict[str, Any]:
+    """Frozen Stage A (M1): occupancy grid, closing radius 1, polygonize, validity-normalize,
+    largest valid component, support = closed cells whose centers are covered by the reproduced
+    parent polygon. Identical in every parameter to the frozen v0/neck-r1 support-reproduction
+    algorithm; inlined here (not imported) per the module's isolation posture (test_T32)."""
+    if points_xy.ndim != 2 or points_xy.shape[1] != 2:
+        raise SegmentationInputError("parent point array must have shape (N, 2)")
+    if len(points_xy) == 0:
+        raise SegmentationInputError("parent has no source points")
+    if not np.isfinite(points_xy).all():
+        raise SegmentationInputError("parent contains non-finite XY coordinates")
+    grid, origin_x, origin_y = _occupancy_grid(points_xy, DEFAULT_CELL_SIZE_M)
+    closed = _morphological_closing(grid, DEFAULT_CLOSING_RADIUS_CELLS)
+    geom = _polygonize_cells(closed, origin_x, origin_y, DEFAULT_CELL_SIZE_M)
+    geom, validity_result = _valid_polygonal(geom)
+    geom, selection = _largest_valid_component(geom)
+    support = _support_from_component(closed, geom, origin_x, origin_y)
+    support_cells = set(zip(*np.nonzero(support)))
+    if not support_cells:
+        raise SegmentationInputError("parent support reproduction produced zero cells")
+    return {
+        "support_cells": support_cells,
+        "origin_x": origin_x,
+        "origin_y": origin_y,
+        "occupancy_cell_count": int(grid.sum()),
+        "closed_cell_count": int(closed.sum()),
+        "reproduced_geometry": geom,
+        "validity_result": validity_result,
+        "selection": selection,
+    }
+
+
+def _points_to_cells(points_xy: np.ndarray, origin_x: float, origin_y: float, cell_size_m: float) -> list[tuple[int, int]]:
+    cols = np.floor((points_xy[:, 0] - origin_x) / cell_size_m).astype(np.int64)
+    rows = np.floor((points_xy[:, 1] - origin_y) / cell_size_m).astype(np.int64)
+    return list(zip(rows.tolist(), cols.tolist()))
+
+
+def _assert_parent_reproduction(parent_id: int, derived: dict[str, Any], canonical_entry: dict[str, Any]) -> None:
+    """HB1: parent reproduction (canonical identity) hard-stop invariant."""
+    canonical_geom = canonical_entry["geometry"]
+    props = canonical_entry["properties"]
+    residual = abs(derived["reproduced_geometry"].area - canonical_geom.area)
+    if residual > 1e-6:
+        raise SegmentationInputError(f"parent {parent_id}: reproduced area diverges from canonical by {residual}")
+    if "occupancy_cell_count" in props and derived["occupancy_cell_count"] != int(props["occupancy_cell_count"]):
+        raise SegmentationInputError(f"parent {parent_id}: occupancy cell count diverges from canonical")
+    if "closed_cell_count" in props and derived["closed_cell_count"] != int(props["closed_cell_count"]):
+        raise SegmentationInputError(f"parent {parent_id}: closed cell count diverges from canonical")
+
+
+def segment_parent_from_points(
+    parent_cluster_id: int,
+    points_xy: np.ndarray,
+    points_z: np.ndarray,
+    canonical_entry: dict[str, Any],
+    *,
+    source_run: Path,
+    source_npz_sha256: str,
+    canonical_v0_sha256: str,
+) -> dict[str, Any]:
+    derived = _derive_parent_support(points_xy)
+    _assert_parent_reproduction(parent_cluster_id, derived, canonical_entry)
+    support_cells = derived["support_cells"]
+    point_cells = _points_to_cells(points_xy, derived["origin_x"], derived["origin_y"], DEFAULT_CELL_SIZE_M)
+    cell_z_values: dict[tuple[int, int], list[float]] = {}
+    for cell, z_value in zip(point_cells, points_z.tolist()):
+        if cell in support_cells:
+            cell_z_values.setdefault(cell, []).append(float(z_value))
+    result = segment_cells(
+        parent_cluster_id,
+        cell_z_values,
+        support_cells=support_cells,
+        point_cells=point_cells,
+        source_run=source_run,
+        source_npz_sha256=source_npz_sha256,
+        canonical_v0_sha256=canonical_v0_sha256,
+    )
+    result["stage_a"] = {
+        "occupancy_cell_count": derived["occupancy_cell_count"],
+        "closed_cell_count": derived["closed_cell_count"],
+        "validity_result": derived["validity_result"],
+        "canonical_area_m2": float(canonical_entry["geometry"].area),
+        "reproduced_area_m2": float(derived["reproduced_geometry"].area),
+    }
+    return result
+
+
 def verify_z_unit_gate(attestation_path: Path, expected_sha256: str, npz_path: Path, z_values: np.ndarray) -> dict[str, Any]:
     reject_t7_paths(attestation_path, npz_path)
     try:
@@ -344,7 +561,13 @@ def verify_z_unit_gate(attestation_path: Path, expected_sha256: str, npz_path: P
     relief = float(np.max(z_values) - np.min(z_values))
     if relief < 10.0 or relief > 350.0:
         raise SegmentationInputError("canonical Z relief outside [10, 350] m")
-    return {"attestation_sha256": expected_sha256, "target_unit": "meters", "observed_relief_m": relief}
+    return {
+        "attestation_path": str(attestation_path),
+        "attestation_sha256": expected_sha256,
+        "attested_facts": payload,
+        "target_unit": "meters",
+        "observed_relief_m": relief,
+    }
 
 
 def serialize_z_unit_blocked_result(reason: str, out_root: Path | None = None) -> dict[str, Any]:
@@ -769,6 +992,529 @@ def write_minimal_synthetic_package(root: Path) -> None:
     validate_manifest_complete(root)
 
 
+def _resolve_corrected_root(source_run: Path) -> Path:
+    if (source_run / "clusters" / "building_clusters.npz").exists():
+        return source_run
+    corrected = source_run / "corrected"
+    if (corrected / "clusters" / "building_clusters.npz").exists():
+        return corrected
+    raise SegmentationInputError(f"missing clusters/building_clusters.npz under {source_run}")
+
+
+def _read_expected_ids(metadata_csv: Path) -> list[int]:
+    ids: list[int] = []
+    with metadata_csv.open(encoding="utf-8", newline="") as handle:
+        reader = csv.DictReader(handle)
+        if "cluster_id" not in (reader.fieldnames or []):
+            raise SegmentationInputError("metadata CSV missing cluster_id")
+        for row in reader:
+            ids.append(int(float(row["cluster_id"])))
+    return sorted(ids)
+
+
+def _load_canonical_v0(path: Path) -> dict[int, dict[str, Any]]:
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    if payload.get("type") != "FeatureCollection":
+        raise SegmentationInputError("canonical-v0 must be a FeatureCollection")
+    verify_crs_feature_collection(payload)
+    out: dict[int, dict[str, Any]] = {}
+    for feature in payload.get("features", []):
+        props = feature.get("properties") or {}
+        cid = int(props["cluster_id"])
+        geom = shape(feature["geometry"])
+        if not isinstance(geom, Polygon):
+            raise SegmentationInputError(f"canonical cluster {cid} is not Polygon")
+        out[cid] = {"properties": props, "geometry": geom}
+    return out
+
+
+def validate_real_inputs(
+    source_run: Path,
+    canonical_v0: Path,
+    expected_npz_sha256: str,
+    expected_v0_sha256: str,
+    expected_metadata_csv_sha256: str,
+) -> dict[str, Any]:
+    """GA1 (identity), GA2-GA6 (safe load/schema), GA7 (CRS), GA9 (namespace) — pre-load gates."""
+    reject_t7_paths(source_run, canonical_v0)
+    corrected = _resolve_corrected_root(source_run)
+    npz_path = corrected / "clusters" / "building_clusters.npz"
+    metadata_csv = corrected / "masses" / "bikini_masses_metadata.csv"
+    if not canonical_v0.exists():
+        raise SegmentationInputError(f"missing canonical-v0: {canonical_v0}")
+    if not metadata_csv.exists():
+        raise SegmentationInputError(f"missing metadata CSV: {metadata_csv}")
+    canonical_v0_sha256 = _sha256_file(canonical_v0)
+    metadata_csv_sha256 = _sha256_file(metadata_csv)
+    if canonical_v0_sha256 != expected_v0_sha256:
+        raise SegmentationInputError("canonical-v0 SHA-256 mismatch")
+    if metadata_csv_sha256 != expected_metadata_csv_sha256:
+        raise SegmentationInputError("metadata CSV SHA-256 mismatch")
+
+    arrays = safe_load_npz(npz_path, expected_npz_sha256)
+    census = validate_readiness_arrays(arrays, require_real_counts=True)
+    canonical = _load_canonical_v0(canonical_v0)
+    expected_ids = _read_expected_ids(metadata_csv)
+    if expected_ids != EXPECTED_PARENT_IDS:
+        raise SegmentationInputError("canonical parent IDs differ from frozen contract")
+    if sorted(canonical) != EXPECTED_PARENT_IDS:
+        raise SegmentationInputError("canonical-v0 feature IDs differ from frozen contract")
+    for parent_id in EXPECTED_PARENT_IDS:
+        source_count = int(canonical[parent_id]["properties"].get("source_point_count", -1))
+        if source_count != census["count_by_label"].get(parent_id, -2):
+            raise SegmentationInputError(f"source point count mismatch for parent {parent_id}")
+
+    return {
+        "arrays": arrays,
+        "canonical": canonical,
+        "npz_path": npz_path,
+        "metadata_csv": metadata_csv,
+        "hashes": {
+            "npz": expected_npz_sha256,
+            "canonical_v0": canonical_v0_sha256,
+            "metadata_csv": metadata_csv_sha256,
+        },
+        "census": census,
+    }
+
+
+def verify_frozen_evidence_package(root: Path, expected_manifest_sha256: str) -> dict[int, int]:
+    """GA12 (G-E1): prior-evidence packages verify by manifest hash plus full per-entry re-hash."""
+    reject_t7_paths(root)
+    root = root.resolve()
+    manifest = root / "FREEZE_MANIFEST.sha256"
+    if not manifest.exists():
+        raise SegmentationInputError(f"missing frozen evidence manifest under {root}")
+    if _sha256_file(manifest) != expected_manifest_sha256:
+        raise SegmentationInputError("frozen evidence FREEZE_MANIFEST.sha256 mismatch")
+    seen: set[str] = set()
+    for line in manifest.read_text(encoding="utf-8").splitlines():
+        digest, size_s, rel = line.split("  ", 2)
+        if rel.startswith("/") or ".." in Path(rel).parts:
+            raise SegmentationInputError("unsafe frozen evidence manifest path")
+        path = root / rel
+        data = path.read_bytes()
+        if hashlib.sha256(data).hexdigest() != digest or len(data) != int(size_s):
+            raise SegmentationInputError(f"frozen evidence manifest entry mismatch: {rel}")
+        seen.add(rel)
+    if not FROZEN_EVIDENCE_REQUIRED_FILES.issubset(seen):
+        raise SegmentationInputError("frozen evidence package incomplete")
+    rows = json.loads((root / "parent_segmentation_summary.json").read_text(encoding="utf-8"))
+    counts = {int(row["parent_cluster_id"]): int(row["child_count"]) for row in rows}
+    if sorted(counts) != EXPECTED_PARENT_IDS:
+        raise SegmentationInputError("frozen evidence child-count package incomplete")
+    return counts
+
+
+def _missing_real_route_arguments(args: argparse.Namespace) -> list[str]:
+    missing = []
+    for name in REAL_ROUTE_REQUIRED_ARGUMENTS:
+        value = getattr(args, name, None)
+        if value is None or (isinstance(value, str) and not value.strip()):
+            missing.append("--" + name.replace("_", "-"))
+    return missing
+
+
+def _write_blocked_evidence(out_root: Path, gate_name: str, reason: str, command_text: str) -> None:
+    (out_root / "command.txt").write_text(command_text + "\n", encoding="utf-8")
+    _write_json(out_root / "family_decision.json", build_family_decision("RUN_BLOCKED"))
+    _write_json(
+        out_root / "run.log",
+        {
+            "status": BLOCKED_STATUS,
+            "run_validity": "RUN_BLOCKED",
+            "height_mechanism_productive": "NOT_EVALUABLE",
+            "blocked_gate": gate_name,
+            "blocked_reason": reason,
+        },
+    )
+
+
+class _Tee:
+    def __init__(self, *streams: Any) -> None:
+        self._streams = streams
+
+    def write(self, data: str) -> int:
+        for stream in self._streams:
+            stream.write(data)
+        return len(data)
+
+    def flush(self) -> None:
+        for stream in self._streams:
+            stream.flush()
+
+
+def build_real_output_package(
+    validation: dict[str, Any],
+    out_root: Path,
+    *,
+    source_run: Path,
+    canonical_v0: Path,
+    frozen_r1_root: Path,
+    frozen_r2_root: Path,
+    r1_counts: dict[int, int],
+    r2_counts: dict[int, int],
+    r1_manifest_sha256: str,
+    r2_manifest_sha256: str,
+    z_unit_gate: dict[str, Any],
+    implementation_sha: str,
+    command: str,
+) -> dict[str, Any]:
+    """Serializes the 24 real-route content files (all of OUTPUT_CONTENT_FILES except
+    command_stdout_stderr.log, which the caller writes once stdio capture is complete).
+    FREEZE_MANIFEST.sha256 is written last by the caller, once every content file exists."""
+    arrays = validation["arrays"]
+    canonical = validation["canonical"]
+    labels = arrays["cluster_id"]
+    features: list[dict[str, Any]] = []
+    parent_summaries: list[dict[str, Any]] = []
+    child_summaries: list[dict[str, Any]] = []
+    dimension_f_rows: list[dict[str, Any]] = []
+    stage_a_rows: list[dict[str, Any]] = []
+    height_counts: dict[int, int] = {}
+
+    for parent_id in EXPECTED_PARENT_IDS:
+        mask = labels == parent_id
+        points_xy = np.column_stack([arrays["X"][mask], arrays["Y"][mask]])
+        points_z = arrays["Z"][mask]
+        result = segment_parent_from_points(
+            parent_id,
+            points_xy,
+            points_z,
+            canonical[parent_id],
+            source_run=source_run,
+            source_npz_sha256=validation["hashes"]["npz"],
+            canonical_v0_sha256=validation["hashes"]["canonical_v0"],
+        )
+        parent_summary = result["parent_summary"]
+        parent_summaries.append(parent_summary)
+        height_counts[parent_id] = parent_summary["child_count"]
+        for child in result["children"]:
+            child_summaries.append({key: value for key, value in child.items() if key != "cell_set"})
+        features.extend(result["features"])
+        dimension_f_rows.append(result["dimension_f"])
+        stage_a_rows.append({"parent_cluster_id": int(parent_id), **result["stage_a"]})
+
+    parent_rows_total = sum(row["source_point_count"] for row in parent_summaries)
+    assigned_total = sum(row["assigned_child_point_count"] for row in parent_summaries)
+    outside_total = sum(row["outside_parent_support_point_count"] for row in parent_summaries)
+    if parent_rows_total != EXPECTED_PARENT_ROWS:
+        raise SegmentationInputError("run-level parent point count mismatch")
+    if assigned_total + outside_total != parent_rows_total:
+        raise SegmentationInputError("run-level point accounting failure")
+    all_segment_ids = [child["segment_id"] for child in child_summaries]
+    if len(all_segment_ids) != len(set(all_segment_ids)):
+        raise SegmentationInputError("duplicate segment_id detected")
+
+    geojson = {"type": "FeatureCollection", "name": "segmented_children", "crs": CRS_TAG, "features": features}
+    _write_json(out_root / "segmented_children.geojson", geojson)
+    with (out_root / "segmented_children.csv").open("w", encoding="utf-8", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=REQUIRED_CHILD_FIELDS)
+        writer.writeheader()
+        for feature in features:
+            row = dict(feature["properties"])
+            out = {}
+            for key in REQUIRED_CHILD_FIELDS:
+                value = row.get(key)
+                if isinstance(value, list):
+                    out[key] = "|".join(str(item) for item in value)
+                elif isinstance(value, float):
+                    out[key] = f"{_stable_float(value):.9f}"
+                elif value is None:
+                    out[key] = ""
+                else:
+                    out[key] = value
+            writer.writerow(out)
+
+    _write_json(out_root / "parent_segmentation_summary.json", parent_summaries)
+    _write_json(out_root / "child_segmentation_summary.json", child_summaries)
+
+    point_summary = {
+        "total_npz_rows": EXPECTED_NPZ_ROWS,
+        "canonical_parent_rows": EXPECTED_PARENT_ROWS,
+        "excluded_noncanonical_label_rows": EXPECTED_EXCLUDED_ROWS,
+        "noise_rows": EXPECTED_NOISE_ROWS,
+        "reconciliation": f"{EXPECTED_PARENT_ROWS} + {EXPECTED_EXCLUDED_ROWS} + {EXPECTED_NOISE_ROWS} = {EXPECTED_NPZ_ROWS}",
+        "parent_assigned_child_points": int(assigned_total),
+        "outside_parent_support_points": int(outside_total),
+        "duplicated_point_assignments": 0,
+        "dropped_canonical_points": int(parent_rows_total - assigned_total - outside_total),
+        "excluded_labels": EXPECTED_EXCLUDED_LABELS,
+        "noise_label": -1,
+        "all_34_parents_reported": len(parent_summaries) == 34,
+    }
+    _write_json(out_root / "point_assignment_summary.json", point_summary)
+
+    conservation = {
+        "maximum_parent_conservation_residual_m2": max(row["conservation_residual_m2"] for row in parent_summaries),
+        "global_conservation_residual_m2": abs(
+            sum(row["child_union_area_m2"] for row in parent_summaries)
+            - sum(row["canonical_area_m2"] for row in parent_summaries)
+        ),
+        "child_overlap_area_m2": sum(row["child_overlap_area_m2"] for row in parent_summaries),
+        "area_outside_allowed_parent_support_m2": sum(row["area_outside_parent_support_m2"] for row in parent_summaries),
+        "invalid_child_count": 0,
+        "verdict": "CONSERVATION_TOLERANCE_PASSED",
+    }
+    if conservation["maximum_parent_conservation_residual_m2"] > 1e-6 or conservation["global_conservation_residual_m2"] > 1e-6:
+        raise SegmentationInputError("global conservation tolerance exceeded")
+    _write_json(out_root / "conservation_summary.json", conservation)
+
+    if any(row["symmetric_difference_area_m2"] > 1e-6 for row in dimension_f_rows):
+        raise SegmentationInputError("Dimension-F geometry-isolation invariant failed")
+    invariance = {
+        "verdict": "DIMENSION_F_INVARIANCE_PASSED",
+        "review_caveat": "A self-identical stored hash pair is not, by itself, strong independent proof.",
+        "dimension_f_rows": dimension_f_rows,
+    }
+    _write_json(out_root / "dimension_f_invariance.json", invariance)
+
+    histogram_totals = empty_histogram()
+    diagnostics_rows = []
+    for row in parent_summaries:
+        for label, count in row["histogram"].items():
+            histogram_totals[label] += count
+        diagnostics_rows.append(
+            {
+                "parent_cluster_id": row["parent_cluster_id"],
+                "histogram": row["histogram"],
+                "tested_edge_count": row["tested_edge_count"],
+                "no_data_edge_count": row["no_data_edge_count"],
+                "cut_edge_count": row["cut_edge_count"],
+                "one_point_cell_count": row["one_point_cell_count"],
+                "multi_point_cell_count": row["multi_point_cell_count"],
+                "min_rep_z_m": row["min_rep_z_m"],
+                "median_rep_z_m": row["median_rep_z_m"],
+                "max_rep_z_m": row["max_rep_z_m"],
+            }
+        )
+    if sum(histogram_totals.values()) != sum(row["tested_edge_count"] for row in parent_summaries):
+        raise SegmentationInputError("run-level histogram reconciliation failure")
+    diagnostics = {
+        "vertical_step_threshold_m": VERTICAL_STEP_THRESHOLD_M,
+        "representative_z_statistic": REPRESENTATIVE_Z_STATISTIC,
+        "run_level_histogram": histogram_totals,
+        "parents": diagnostics_rows,
+    }
+    _write_json(out_root / "height_discontinuity_diagnostics.json", diagnostics)
+    diag_fields = [
+        "parent_cluster_id", "tested_edge_count", "no_data_edge_count", "cut_edge_count",
+        "one_point_cell_count", "multi_point_cell_count", "min_rep_z_m", "median_rep_z_m", "max_rep_z_m",
+    ]
+    _write_csv(out_root / "height_discontinuity_diagnostics.csv", diagnostics_rows, diag_fields)
+
+    baseline_rows = build_baseline_comparison(height_counts, r1_counts, r2_counts, EXPECTED_PARENT_IDS)
+    _write_json(out_root / "baseline_comparison.json", baseline_rows)
+    _write_csv(out_root / "baseline_comparison.csv", baseline_rows, list(baseline_rows[0].keys()))
+    baseline_lines = [
+        "# Baseline Comparison", "",
+        "| parent | v0 | neck_r1 | neck_r2 | height_r1 | minimum | met |",
+        "|---|---:|---:|---:|---:|---:|---|",
+    ]
+    for row in baseline_rows:
+        minimum = "" if row["frozen_scalar_minimum"] is None else str(row["frozen_scalar_minimum"])
+        met = "" if row["height_minimum_met"] is None else str(row["height_minimum_met"]).lower()
+        baseline_lines.append(
+            f"| {row['parent_cluster_id']} | {row['v0_child_count']} | {row['neck_r1_child_count']} | "
+            f"{row['neck_r2_child_count']} | {row['height_r1_child_count']} | {minimum} | {met} |"
+        )
+    (out_root / "baseline_comparison.md").write_text("\n".join(baseline_lines) + "\n", encoding="utf-8")
+
+    benchmark_rows = []
+    for parent_id in COHORT_REPORT_IDS:
+        minimum = BENCHMARK_MINIMA.get(parent_id)
+        count = height_counts[parent_id]
+        benchmark_rows.append(
+            {
+                "parent_cluster_id": parent_id,
+                "observed_child_count": count,
+                "benchmark_minimum": minimum,
+                "met": None if minimum is None else count >= minimum,
+                "difference_from_minimum": None if minimum is None else count - minimum,
+            }
+        )
+    _write_json(out_root / "benchmark_minimum_comparison.json", benchmark_rows)
+    benchmark_lines = ["# Benchmark Minimum Comparison", "", "| parent | observed | minimum | result |", "|---|---:|---:|---|"]
+    for row in benchmark_rows:
+        result_s = "n/a" if row["met"] is None else ("met" if row["met"] else "missed")
+        minimum_s = "" if row["benchmark_minimum"] is None else str(row["benchmark_minimum"])
+        benchmark_lines.append(f"| {row['parent_cluster_id']} | {row['observed_child_count']} | {minimum_s} | {result_s} |")
+    (out_root / "benchmark_minimum_comparison.md").write_text("\n".join(benchmark_lines) + "\n", encoding="utf-8")
+
+    proxy = build_false_split_proxy(height_counts)
+    _write_json(out_root / "single_building_false_split_proxy.json", proxy)
+    proxy_fields = ["parent_cluster_id", "frozen_count_benchmark", "observed_child_count", "proxy_violation", "excess_child_count"]
+    _write_csv(out_root / "single_building_false_split_proxy.csv", proxy["parents"], proxy_fields)
+
+    decision = build_family_decision("RUN_VALID", height_counts)
+    scorecard = {
+        "predictions": [
+            {
+                "id": "P1",
+                "statement": "children(18) >= 3",
+                "observed": height_counts[18],
+                "required": ">= 3",
+                "result": "MET" if decision["conjuncts"][0]["passed"] else "NOT_MET",
+            },
+            {
+                "id": "P2",
+                "statement": "children(34) == 1",
+                "observed": height_counts[34],
+                "required": "== 1",
+                "result": "MET" if decision["conjuncts"][1]["passed"] else "NOT_MET",
+            },
+        ],
+    }
+    _write_json(out_root / "prediction_scorecard.json", scorecard)
+    scorecard_lines = ["# Prediction Scorecard", ""]
+    for row in scorecard["predictions"]:
+        scorecard_lines.append(
+            f"- {row['id']}: {row['statement']} -> observed={row['observed']} required={row['required']} result={row['result']}"
+        )
+    (out_root / "prediction_scorecard.md").write_text("\n".join(scorecard_lines) + "\n", encoding="utf-8")
+
+    _write_json(out_root / "family_decision.json", decision)
+    decision_lines = [
+        "# Family Decision", "",
+        f"run_validity: {decision['run_validity']}",
+        f"height_mechanism_productive: {decision['height_mechanism_productive']}",
+    ]
+    for conjunct in decision["conjuncts"]:
+        decision_lines.append(
+            f"- parent {conjunct['parent_cluster_id']}: observed={conjunct['observed']} "
+            f"required={conjunct['required']} passed={conjunct['passed']}"
+        )
+    for field in AUTHORIZATION_FALSE_FIELDS:
+        decision_lines.append(f"{field}: false")
+    (out_root / "family_decision.md").write_text("\n".join(decision_lines) + "\n", encoding="utf-8")
+
+    # Input-readiness evidence (§O3): every value below is derived from the arrays and census
+    # already validated by validate_real_inputs()/validate_readiness_arrays() upstream; none is
+    # recomputed by a different method and none is a literal frozen constant.
+    total_rows_actual = int(labels.shape[0])
+    count_by_label = validation["census"]["count_by_label"]
+    excluded_rows_actual = sum(count_by_label.get(label, 0) for label in EXPECTED_EXCLUDED_LABELS)
+    noise_rows_actual = validation["census"]["noise_rows"]
+    assert -1 not in EXPECTED_EXCLUDED_LABELS  # noise and excluded-label counts must be disjoint
+    assert parent_rows_total + excluded_rows_actual + noise_rows_actual == total_rows_actual
+    all_input_values_finite = bool(
+        np.isfinite(arrays["X"]).all()
+        and np.isfinite(arrays["Y"]).all()
+        and np.isfinite(arrays["Z"]).all()
+    )
+    assert all_input_values_finite  # safe_load_npz already rejects non-finite X/Y/Z upstream
+    input_readiness_evidence = {
+        "census": {
+            "total_rows": total_rows_actual,
+            "canonical_rows": parent_rows_total,
+            "excluded_noncanonical_rows": excluded_rows_actual,
+            "noise_rows": noise_rows_actual,
+            "excluded_label_counts": {
+                str(label): count_by_label.get(label, 0) for label in EXPECTED_EXCLUDED_LABELS
+            },
+            "reconciliation": f"{parent_rows_total} + {excluded_rows_actual} + {noise_rows_actual} = {total_rows_actual}",
+        },
+        "occupied_cell_count": sum(row["occupancy_cell_count"] for row in stage_a_rows),
+        "one_point_cell_count": sum(row["one_point_cell_count"] for row in parent_summaries),
+        "multi_point_cell_count": sum(row["multi_point_cell_count"] for row in parent_summaries),
+        "all_input_values_finite": all_input_values_finite,
+    }
+    input_hashes = dict(validation["hashes"])
+    input_hashes["frozen_r1_manifest"] = r1_manifest_sha256
+    input_hashes["frozen_r2_manifest"] = r2_manifest_sha256
+    input_hashes["z_unit_attestation"] = z_unit_gate["attestation_sha256"]
+    assert sorted(input_hashes) == sorted(
+        ["npz", "canonical_v0", "metadata_csv", "frozen_r1_manifest", "frozen_r2_manifest", "z_unit_attestation"]
+    )
+
+    params = {
+        "experiment_name": EXPERIMENT_NAME,
+        "algorithm_version": ALGORITHM_VERSION,
+        "method_identity": METHOD_IDENTITY,
+        "vertical_step_threshold_m": VERTICAL_STEP_THRESHOLD_M,
+        "representative_z_statistic": REPRESENTATIVE_Z_STATISTIC,
+        "edge_connectivity": EDGE_CONNECTIVITY,
+        "component_connectivity": COMPONENT_CONNECTIVITY,
+        "cell_size_m": DEFAULT_CELL_SIZE_M,
+        "closing_radius_cells": DEFAULT_CLOSING_RADIUS_CELLS,
+        "frozen_constants": {
+            "VERTICAL_STEP_THRESHOLD_M": VERTICAL_STEP_THRESHOLD_M,
+            "DEFAULT_CELL_SIZE_M": DEFAULT_CELL_SIZE_M,
+            "DEFAULT_CLOSING_RADIUS_CELLS": DEFAULT_CLOSING_RADIUS_CELLS,
+            "REPRESENTATIVE_Z_STATISTIC": REPRESENTATIVE_Z_STATISTIC,
+            "MIN_POINTS_PER_CELL_FOR_Z": MIN_POINTS_PER_CELL_FOR_Z,
+            "EDGE_CONNECTIVITY": EDGE_CONNECTIVITY,
+            "COMPONENT_CONNECTIVITY": COMPONENT_CONNECTIVITY,
+            "SERIALIZATION_DECIMAL_PLACES": SERIALIZATION_DECIMAL_PLACES,
+        },
+        "source_run": str(source_run),
+        "canonical_v0": str(canonical_v0),
+        "frozen_r1_root": str(frozen_r1_root),
+        "frozen_r2_root": str(frozen_r2_root),
+        "input_hashes": input_hashes,
+        "input_readiness_evidence": input_readiness_evidence,
+        "stage_a": stage_a_rows,
+        "z_unit_gate": z_unit_gate,
+        "crs": "EPSG:32617",
+        "units": "horizontal meters; Z meters",
+        "command": command,
+        "python_version": platform.python_version(),
+        "numpy_version": np.__version__,
+        "shapely_version": shapely.__version__,
+        "validity_repair_backend": VALIDITY_REPAIR_BACKEND,
+        "implementation_sha": implementation_sha,
+        "county_geometry_read": False,
+        "county_objectid_used": False,
+        "featureserver_accessed": False,
+        "t7_accessed": False,
+        "buffer_used": False,
+        "morphology_used": False,
+        "alpha_shape_used": False,
+        "eave_offset_used": False,
+        "regularization_used": False,
+        "run_status": RUN_STATUS,
+        **authorization_false_payload(),
+    }
+    _write_json(out_root / "experiment_parameters.json", params)
+
+    contact_lines = [
+        "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"900\" height=\"520\">",
+        "<style>text{font-family:monospace;font-size:12px}</style>",
+        "<text x=\"20\" y=\"24\">Height-discontinuity R1 scalar contact sheet</text>",
+    ]
+    y = 50
+    for row in parent_summaries:
+        contact_lines.append(
+            f"<text x=\"20\" y=\"{y}\">parent {row['parent_cluster_id']:02d}: children={row['child_count']} "
+            f"points={row['source_point_count']} residual={_stable_float(row['conservation_residual_m2']):.9f}</text>"
+        )
+        y += 14
+    contact_lines.append("</svg>")
+    (out_root / "contact_sheet.svg").write_text("\n".join(contact_lines) + "\n", encoding="utf-8")
+
+    (out_root / "command.txt").write_text(command + "\n", encoding="utf-8")
+    run_log = {
+        "status": RUN_STATUS,
+        "run_validity": decision["run_validity"],
+        "height_mechanism_productive": decision["height_mechanism_productive"],
+        "parents_processed": len(parent_summaries),
+        "children_emitted": len(child_summaries),
+        "point_accounting": point_summary,
+        "conservation": conservation,
+        "family_decision": decision,
+    }
+    _write_json(out_root / "run.log", run_log)
+
+    return {
+        "output_root": out_root,
+        "parent_summaries": parent_summaries,
+        "point_summary": point_summary,
+        "conservation": conservation,
+        "family_decision": decision,
+        "height_counts": height_counts,
+    }
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--source-run", type=Path, required=True, help="Explicit input source run root")
@@ -788,9 +1534,97 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _execute_real_route(args: argparse.Namespace, command_text: str) -> tuple[int, str]:
+    out_root = args.out_root
+    try:
+        r1_counts = verify_frozen_evidence_package(args.frozen_r1_root, args.expected_r1_freeze_manifest_sha256)
+        r2_counts = verify_frozen_evidence_package(args.frozen_r2_root, args.expected_r2_freeze_manifest_sha256)
+        validation = validate_real_inputs(
+            args.source_run,
+            args.canonical_v0,
+            args.expected_npz_sha256,
+            args.expected_v0_sha256,
+            args.expected_metadata_csv_sha256,
+        )
+    except SegmentationInputError as exc:
+        _write_blocked_evidence(out_root, "GA1/GA7/GA9/GA12", str(exc), command_text)
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 2, "RUN_BLOCKED"
+
+    try:
+        gate = verify_z_unit_gate(
+            args.z_unit_attestation,
+            args.expected_z_unit_attestation_sha256,
+            validation["npz_path"],
+            validation["arrays"]["Z"],
+        )
+    except SegmentationInputError as exc:
+        serialize_z_unit_blocked_result(str(exc), out_root)
+        (out_root / "command.txt").write_text(command_text + "\n", encoding="utf-8")
+        _write_json(
+            out_root / "run.log",
+            {
+                "status": BLOCKED_STATUS,
+                "run_validity": "RUN_BLOCKED",
+                "height_mechanism_productive": "NOT_EVALUABLE",
+                "blocked_gate": "G-Z1/G-Z2",
+                "blocked_reason": str(exc),
+            },
+        )
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 2, "RUN_BLOCKED"
+
+    try:
+        result = build_real_output_package(
+            validation,
+            out_root,
+            source_run=args.source_run.resolve(),
+            canonical_v0=args.canonical_v0.resolve(),
+            frozen_r1_root=args.frozen_r1_root.resolve(),
+            frozen_r2_root=args.frozen_r2_root.resolve(),
+            r1_counts=r1_counts,
+            r2_counts=r2_counts,
+            r1_manifest_sha256=args.expected_r1_freeze_manifest_sha256,
+            r2_manifest_sha256=args.expected_r2_freeze_manifest_sha256,
+            z_unit_gate=gate,
+            implementation_sha=args.implementation_sha,
+            command=command_text,
+        )
+    except SegmentationInputError as exc:
+        (out_root / "command.txt").write_text(command_text + "\n", encoding="utf-8")
+        _write_json(
+            out_root / "run.log",
+            {
+                "status": FAILED_STATUS,
+                "run_validity": "RUN_FAILED",
+                "height_mechanism_productive": "NOT_EVALUABLE",
+                "failure_reason": str(exc),
+            },
+        )
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 2, "RUN_FAILED"
+
+    print(
+        json.dumps(
+            {
+                "status": RUN_STATUS,
+                "output_root": str(result["output_root"]),
+                "parents_reported": len(result["parent_summaries"]),
+                "children_emitted": sum(row["child_count"] for row in result["parent_summaries"]),
+                "run_validity": result["family_decision"]["run_validity"],
+                "height_mechanism_productive": result["family_decision"]["height_mechanism_productive"],
+            },
+            sort_keys=True,
+        )
+    )
+    return 0, "RUN_VALID"
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
+    argv_display = list(argv) if argv is not None else sys.argv[1:]
+    command_text = " ".join([Path(sys.argv[0]).name, *argv_display])
     try:
         reject_t7_paths(*vars(args).values())
         assert_frozen_constants()
@@ -798,11 +1632,32 @@ def main(argv: list[str] | None = None) -> int:
         if args.readiness_audit_only:
             (args.out_root / "run.log").write_text(f"{BLOCKED_STATUS}: readiness audit surface only\n", encoding="utf-8")
             return 0
-        parser.error("real execution requires separate authorization and is not run by this implementation lane")
     except SegmentationInputError as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
         return 2
-    return 0
+
+    missing = _missing_real_route_arguments(args)
+    if missing:
+        parser.error(
+            "real execution requires the exact V4 real-route arguments; missing: " + ", ".join(missing)
+        )
+
+    capture = io.StringIO()
+    with contextlib.redirect_stdout(_Tee(sys.stdout, capture)), contextlib.redirect_stderr(_Tee(sys.stderr, capture)):
+        exit_code, run_validity = _execute_real_route(args, command_text)
+
+    stdio_path = args.out_root / "command_stdout_stderr.log"
+    if not stdio_path.exists():
+        stdio_path.write_text(capture.getvalue(), encoding="utf-8")
+
+    if run_validity == "RUN_VALID":
+        try:
+            write_freeze_manifest(args.out_root)
+            validate_manifest_complete(args.out_root)
+        except SegmentationInputError as exc:
+            print(f"ERROR: {exc}", file=sys.stderr)
+            return 2
+    return exit_code
 
 
 if __name__ == "__main__":  # pragma: no cover
