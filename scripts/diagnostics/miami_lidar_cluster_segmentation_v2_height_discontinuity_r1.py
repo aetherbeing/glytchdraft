@@ -17,7 +17,9 @@ import json
 import math
 import platform
 import sys
+import tempfile
 from collections import deque
+from datetime import datetime, timezone
 from pathlib import Path
 from statistics import median
 from typing import Any
@@ -54,9 +56,22 @@ MIN_POINTS_PER_CELL_FOR_Z = 1
 EDGE_CONNECTIVITY = 4
 COMPONENT_CONNECTIVITY = 4
 SERIALIZATION_DECIMAL_PLACES = 9
+# D1 (forward remediation): declarative constants named by the frozen 14-key
+# experiment_contract.json frozen_constants block. NO_DATA_EDGE_RULE/EQUALITY_RULE record
+# already-enforced G3 behavior (build_edges: an edge incident to a no-data cell always
+# preserves; |delta| == VERTICAL_STEP_THRESHOLD_M does not cut) as a pinned declarative value,
+# not a runtime branch. Z_UNIT_RELIEF_BAND_M is genuinely consumed by verify_z_unit_gate below.
+NO_DATA_EDGE_RULE = "preserve"
+EQUALITY_RULE = "preserve"
+Z_UNIT_RELIEF_BAND_M = [10.0, 350.0]
 RUN_STATUS = "LIDAR_CLUSTER_SEGMENTATION_V2_HEIGHT_DISCONTINUITY_R1_RUN_FROZEN"
 BLOCKED_STATUS = "LIDAR_CLUSTER_SEGMENTATION_V2_HEIGHT_DISCONTINUITY_R1_RUN_BLOCKED"
 FAILED_STATUS = "LIDAR_CLUSTER_SEGMENTATION_V2_HEIGHT_DISCONTINUITY_R1_RUN_FAILED"
+# P4 (point_assignment_contract.md), inlined verbatim per the module's isolation posture
+# (test_T32): tile-seam attribution is identical to neck-r1's, reporting-only.
+TILE_SEAM_Y_M = 2852621.18647587
+TILE_318455 = "USGS_LPC_FL_MiamiDade_D23_LID2024_318455_0901"
+TILE_318155 = "USGS_LPC_FL_MiamiDade_D23_LID2024_318155_0901"
 EXPECTED_NPZ_ROWS = 158059
 EXPECTED_PARENT_ROWS = 157979
 EXPECTED_EXCLUDED_ROWS = 74
@@ -73,6 +88,31 @@ FALSE_SPLIT_PROXY_CAVEAT = (
     "one physical building; the metric is an evaluation proxy; a violation flags a potential false "
     "split for scrutiny, not definitive proof; county geometry must not be read to adjudicate; "
     "the proxy must not influence segmentation or parameter selection."
+)
+# E4 (evaluation_contract.md), verbatim.
+BENCHMARK_CAVEAT = (
+    "The frozen benchmark minima are sparse corroborating lower bounds derived from a sparse "
+    "county extract, not targets; zero-coverage parents have no target; meeting or missing a "
+    "minimum proves nothing about physical building counts."
+)
+# E3 (evaluation_contract.md), verbatim: P4 pre-declared-miss framing.
+P4_PRE_DECLARED_MISS_FRAMING = (
+    "a low cluster-0 child count is confirmation of the mechanism's declared scope, not failure "
+    "of the experiment."
+)
+# O6 / F0 (family_decision_contract.md), verbatim.
+FAMILY_DECISION_RULE_TEXT = (
+    "Two verdicts are reported separately and never conflated. (1) run_validity: RUN_VALID iff "
+    "every abort-only gate passed and every hard-stop invariant held and the package serialized "
+    "completely; otherwise RUN_BLOCKED (gate failure) or RUN_FAILED (invariant failure), in which "
+    "case height_mechanism_productive is serialized as NOT_EVALUABLE. (2) height_mechanism_productive, "
+    "evaluable only when run_validity == RUN_VALID: HEIGHT_MECHANISM_PRODUCTIVE == (children(18) >= 3) "
+    "AND (children(34) == 1). Each conjunct is reported with observed and required values. Under every "
+    "outcome the decision artifact serializes production_adoption_authorized=false, "
+    "height_r2_authorized=false, hybrid_method_authorized=false, morphology_authorized=false, "
+    "neck_r3_authorized=false, sweep_authorized=false. A valid unfavorable result is frozen as-is: no "
+    "retuning, no second threshold, no automatic height-r2, no hybrid authorization, no morphology "
+    "authorization, no neck-r3, no buffer work, no production integration."
 )
 AUTHORIZATION_FALSE_FIELDS = [
     "production_adoption_authorized",
@@ -182,6 +222,15 @@ HISTOGRAM_BINS = [
 ]
 
 
+def _utc_now_iso() -> str:
+    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def _log_line(message: str) -> str:
+    """B13/I5: the only output fields permitted to carry a timestamp are command.txt/run.log."""
+    return f"{_utc_now_iso()} {message}"
+
+
 def _sha256_file(path: Path) -> str:
     h = hashlib.sha256()
     with path.open("rb") as handle:
@@ -233,27 +282,46 @@ def _write_csv(path: Path, rows: list[dict[str, Any]], fieldnames: list[str]) ->
             writer.writerow(out)
 
 
-def assert_frozen_constants() -> None:
-    expected = {
-        "VERTICAL_STEP_THRESHOLD_M": 2.0,
-        "DEFAULT_CELL_SIZE_M": 1.0,
-        "DEFAULT_CLOSING_RADIUS_CELLS": 1,
-        "REPRESENTATIVE_Z_STATISTIC": "median",
-        "MIN_POINTS_PER_CELL_FOR_Z": 1,
-        "EDGE_CONNECTIVITY": 4,
-        "COMPONENT_CONNECTIVITY": 4,
-        "SERIALIZATION_DECIMAL_PLACES": 9,
-    }
-    actual = {
+def frozen_constants_block() -> dict[str, Any]:
+    """D1: the exact 14-key experiment_contract.json `frozen_constants` block, contract key
+    names, sourced from the module's own constants (CELL_SIZE_M/CLOSING_RADIUS_CELLS map from
+    this module's DEFAULT_-prefixed names; values are unchanged)."""
+    return {
         "VERTICAL_STEP_THRESHOLD_M": VERTICAL_STEP_THRESHOLD_M,
-        "DEFAULT_CELL_SIZE_M": DEFAULT_CELL_SIZE_M,
-        "DEFAULT_CLOSING_RADIUS_CELLS": DEFAULT_CLOSING_RADIUS_CELLS,
+        "CELL_SIZE_M": DEFAULT_CELL_SIZE_M,
+        "CLOSING_RADIUS_CELLS": DEFAULT_CLOSING_RADIUS_CELLS,
         "REPRESENTATIVE_Z_STATISTIC": REPRESENTATIVE_Z_STATISTIC,
         "MIN_POINTS_PER_CELL_FOR_Z": MIN_POINTS_PER_CELL_FOR_Z,
+        "NO_DATA_EDGE_RULE": NO_DATA_EDGE_RULE,
+        "EQUALITY_RULE": EQUALITY_RULE,
         "EDGE_CONNECTIVITY": EDGE_CONNECTIVITY,
         "COMPONENT_CONNECTIVITY": COMPONENT_CONNECTIVITY,
         "SERIALIZATION_DECIMAL_PLACES": SERIALIZATION_DECIMAL_PLACES,
+        "Z_UNIT_RELIEF_BAND_M": list(Z_UNIT_RELIEF_BAND_M),
+        "RUN_STATUS": RUN_STATUS,
+        "BLOCKED_STATUS": BLOCKED_STATUS,
+        "FAILED_STATUS": FAILED_STATUS,
     }
+
+
+def assert_frozen_constants() -> None:
+    expected = {
+        "VERTICAL_STEP_THRESHOLD_M": 2.0,
+        "CELL_SIZE_M": 1.0,
+        "CLOSING_RADIUS_CELLS": 1,
+        "REPRESENTATIVE_Z_STATISTIC": "median",
+        "MIN_POINTS_PER_CELL_FOR_Z": 1,
+        "NO_DATA_EDGE_RULE": "preserve",
+        "EQUALITY_RULE": "preserve",
+        "EDGE_CONNECTIVITY": 4,
+        "COMPONENT_CONNECTIVITY": 4,
+        "SERIALIZATION_DECIMAL_PLACES": 9,
+        "Z_UNIT_RELIEF_BAND_M": [10.0, 350.0],
+        "RUN_STATUS": "LIDAR_CLUSTER_SEGMENTATION_V2_HEIGHT_DISCONTINUITY_R1_RUN_FROZEN",
+        "BLOCKED_STATUS": "LIDAR_CLUSTER_SEGMENTATION_V2_HEIGHT_DISCONTINUITY_R1_RUN_BLOCKED",
+        "FAILED_STATUS": "LIDAR_CLUSTER_SEGMENTATION_V2_HEIGHT_DISCONTINUITY_R1_RUN_FAILED",
+    }
+    actual = frozen_constants_block()
     if actual != expected:
         raise SegmentationInputError(f"frozen constant mismatch: {actual}")
 
@@ -470,6 +538,16 @@ def _derive_parent_support(points_xy: np.ndarray) -> dict[str, Any]:
     support_cells = set(zip(*np.nonzero(support)))
     if not support_cells:
         raise SegmentationInputError("parent support reproduction produced zero cells")
+    # D3: cell-count semantics use the finite, canonical, post-exclusion population — the raw
+    # per-parent occupancy grid over ALL parent points (matching input_readiness.json semantics),
+    # not the support-filtered population. Computed from the same origin/cell-size mapping as
+    # `grid` itself, so `one_point_cell_count + multi_point_cell_count == occupancy_cell_count`
+    # holds by construction.
+    raw_cell_point_counts: dict[tuple[int, int], int] = {}
+    for cell in _points_to_cells(points_xy, origin_x, origin_y, DEFAULT_CELL_SIZE_M):
+        raw_cell_point_counts[cell] = raw_cell_point_counts.get(cell, 0) + 1
+    readiness_one_point_cell_count = sum(1 for count in raw_cell_point_counts.values() if count == 1)
+    readiness_multi_point_cell_count = sum(1 for count in raw_cell_point_counts.values() if count > 1)
     return {
         "support_cells": support_cells,
         "origin_x": origin_x,
@@ -479,6 +557,8 @@ def _derive_parent_support(points_xy: np.ndarray) -> dict[str, Any]:
         "reproduced_geometry": geom,
         "validity_result": validity_result,
         "selection": selection,
+        "readiness_one_point_cell_count": readiness_one_point_cell_count,
+        "readiness_multi_point_cell_count": readiness_multi_point_cell_count,
     }
 
 
@@ -527,6 +607,12 @@ def segment_parent_from_points(
         source_run=source_run,
         source_npz_sha256=source_npz_sha256,
         canonical_v0_sha256=canonical_v0_sha256,
+        # B1: thread Stage A's absolute EPSG:32617 origin into polygonization so child (and
+        # parent-support) geometry serializes in the real-world frame, not raster-index space.
+        origin_x=derived["origin_x"],
+        origin_y=derived["origin_y"],
+        # B6/B5: point_cells is parallel to point_y_values, enabling tile-seam attribution.
+        point_y_values=points_xy[:, 1].tolist(),
     )
     result["stage_a"] = {
         "occupancy_cell_count": derived["occupancy_cell_count"],
@@ -535,6 +621,34 @@ def segment_parent_from_points(
         "canonical_area_m2": float(canonical_entry["geometry"].area),
         "reproduced_area_m2": float(derived["reproduced_geometry"].area),
     }
+    result["readiness_cell_counts"] = {
+        "occupied_cell_count": derived["occupancy_cell_count"],
+        "one_point_cell_count": derived["readiness_one_point_cell_count"],
+        "multi_point_cell_count": derived["readiness_multi_point_cell_count"],
+    }
+    # B4: neck-r1-inherited per-parent fields not produced by segment_cells() itself (it lacks
+    # the canonical geometry and Stage A selection metadata).
+    children = result["children"]
+    areas = sorted(child["area_m2"] for child in children)
+    result["parent_summary"].update(
+        {
+            "coverage": 1.0,
+            "parent_hole_count": _hole_count(canonical_entry["geometry"]),
+            "child_hole_count_sum": int(sum(child["interior_ring_count"] for child in children)),
+            "benchmark_minimum": BENCHMARK_MINIMA.get(parent_cluster_id),
+            "benchmark_minimum_met": (
+                None
+                if parent_cluster_id not in BENCHMARK_MINIMA
+                else len(children) >= BENCHMARK_MINIMA[parent_cluster_id]
+            ),
+            "area_min_m2": areas[0],
+            "area_median_m2": float(median(areas)),
+            "area_max_m2": areas[-1],
+            "parent_validity_state": derived["validity_result"],
+            "parent_pre_selection_component_count": derived["selection"]["pre_selection_component_count"],
+            "orphan_fragment_count": int(sum(1 for child in children if child["area_m2"] < 9.0)),
+        }
+    )
     return result
 
 
@@ -559,7 +673,7 @@ def verify_z_unit_gate(attestation_path: Path, expected_sha256: str, npz_path: P
     ):
         raise SegmentationInputError("Z-unit attestation is not the frozen metric provenance")
     relief = float(np.max(z_values) - np.min(z_values))
-    if relief < 10.0 or relief > 350.0:
+    if relief < Z_UNIT_RELIEF_BAND_M[0] or relief > Z_UNIT_RELIEF_BAND_M[1]:
         raise SegmentationInputError("canonical Z relief outside [10, 350] m")
     return {
         "attestation_path": str(attestation_path),
@@ -716,6 +830,24 @@ def _bounds_shape(cells: set[tuple[int, int]]) -> tuple[int, int]:
     return max(row for row, _ in cells) + 1, max(col for _, col in cells) + 1
 
 
+def _tile_counts(y_values: np.ndarray) -> dict[str, int]:
+    """P4, inlined verbatim from neck-r1: reporting-only tile-seam attribution."""
+    if y_values.size == 0:
+        return {}
+    left = int((y_values <= TILE_SEAM_Y_M).sum())
+    right = int((y_values > TILE_SEAM_Y_M).sum())
+    out: dict[str, int] = {}
+    if left:
+        out[TILE_318455] = left
+    if right:
+        out[TILE_318155] = right
+    return out
+
+
+def _source_tile_ids(counts: dict[str, int]) -> list[str]:
+    return [tile for tile in (TILE_318455, TILE_318155) if counts.get(tile, 0)]
+
+
 def segment_cells(
     parent_cluster_id: int,
     cell_z_values: dict[tuple[int, int], list[float]],
@@ -725,6 +857,9 @@ def segment_cells(
     source_run: Path = Path("/tmp/source_run"),
     source_npz_sha256: str = "n" * 64,
     canonical_v0_sha256: str = "v" * 64,
+    origin_x: float = 0.0,
+    origin_y: float = 0.0,
+    point_y_values: list[float] | None = None,
 ) -> dict[str, Any]:
     assert_frozen_constants()
     support = set(support_cells or cell_z_values.keys())
@@ -732,6 +867,8 @@ def segment_cells(
         raise SegmentationInputError("empty support")
     if point_cells is None:
         point_cells = [cell for cell, values in sorted(cell_z_values.items()) for _ in values]
+    if point_y_values is not None and len(point_y_values) != len(point_cells):
+        raise SegmentationInputError("point_y_values must be parallel to point_cells")
     rep_z = representative_z(cell_z_values)
     edges = build_edges(support, rep_z)
     components = connected_components(support, edges)
@@ -741,13 +878,19 @@ def segment_cells(
     assigned = 0
     outside = 0
     child_point_counts = [0 for _ in components]
-    for cell in point_cells:
+    child_y_values: list[list[float]] = [[] for _ in components]
+    outside_y_values: list[float] = []
+    for index, cell in enumerate(point_cells):
         child_index = cell_to_child.get(cell)
         if child_index is None:
             outside += 1
+            if point_y_values is not None:
+                outside_y_values.append(point_y_values[index])
         else:
             assigned += 1
             child_point_counts[child_index] += 1
+            if point_y_values is not None:
+                child_y_values[child_index].append(point_y_values[index])
     if assigned + outside != len(point_cells):
         raise SegmentationInputError("point accounting failure")
 
@@ -758,12 +901,15 @@ def segment_cells(
         raise SegmentationInputError("duplicate child cell assignment")
 
     shape_ = _bounds_shape(support)
-    parent_geom, _ = _valid_polygonal(_polygonize_cells(_cells_to_grid(support, shape_), 0.0, 0.0, 1.0))
+    # B1: parent-support and child polygons are polygonized at the parent's real EPSG:32617
+    # origin (default 0.0/0.0 preserves the frozen scientific-suite behavior, which never
+    # passes an origin and stays in the translation-invariant local frame).
+    parent_geom, _ = _valid_polygonal(_polygonize_cells(_cells_to_grid(support, shape_), origin_x, origin_y, 1.0))
     child_geoms: list[Polygon | MultiPolygon] = []
     children: list[dict[str, Any]] = []
     features: list[dict[str, Any]] = []
     for child_index, cells in enumerate(components):
-        geom, validity = _polygonize_child(cells, shape_, 0.0, 0.0)
+        geom, validity = _polygonize_child(cells, shape_, origin_x, origin_y)
         if isinstance(geom, MultiPolygon) and validity == "valid":
             raise SegmentationInputError("valid MultiPolygon child is not permitted")
         child_geoms.append(geom)
@@ -771,12 +917,19 @@ def segment_cells(
         z_min = min(child_rep_values) if child_rep_values else None
         z_med = float(np.median(np.asarray(child_rep_values, dtype=np.float64))) if child_rep_values else None
         z_max = max(child_rep_values) if child_rep_values else None
+        # B6/P4: tile-seam attribution, reporting-only; empty only for a genuine zero-point
+        # child (e.g. a no-data-only fragment), never for a wiring gap on the real route.
+        tile_counts = (
+            _tile_counts(np.asarray(child_y_values[child_index], dtype=np.float64))
+            if point_y_values is not None
+            else {}
+        )
         props = {
             "segment_id": f"{parent_cluster_id:04d}-{child_index:03d}",
             "parent_cluster_id": int(parent_cluster_id),
             "child_index": int(child_index),
             "source_point_count": int(child_point_counts[child_index]),
-            "source_tile_ids": [],
+            "source_tile_ids": _source_tile_ids(tile_counts),
             "area_m2": float(geom.area),
             "perimeter_m": float(geom.length),
             "interior_ring_count": _hole_count(geom),
@@ -838,6 +991,20 @@ def segment_cells(
         "max_rep_z_m": max(rep_z.values()) if rep_z else None,
         "one_point_cell_count": sum(1 for values in cell_z_values.values() if len(values) == 1),
         "multi_point_cell_count": sum(1 for values in cell_z_values.values() if len(values) > 1),
+        # B5/P4: per-parent tile-seam attribution for the two point-assignment buckets.
+        "assigned_child_tile_counts": (
+            _tile_counts(np.asarray([y for values in child_y_values for y in values], dtype=np.float64))
+            if point_y_values is not None
+            else {}
+        ),
+        "outside_parent_support_tile_counts": (
+            _tile_counts(np.asarray(outside_y_values, dtype=np.float64)) if point_y_values is not None else {}
+        ),
+        # O2: provenance quartet, present on every summary row.
+        "algorithm_version": ALGORITHM_VERSION,
+        "source_run": str(source_run),
+        "source_npz_sha256": source_npz_sha256,
+        "canonical_v0_sha256": canonical_v0_sha256,
     }
     return {
         "parent_summary": parent_summary,
@@ -931,7 +1098,12 @@ def authorization_false_payload() -> dict[str, bool]:
 def build_family_decision(run_validity: str, height_counts: dict[int, int] | None = None) -> dict[str, Any]:
     if run_validity not in {"RUN_VALID", "RUN_BLOCKED", "RUN_FAILED"}:
         raise SegmentationInputError("invalid run_validity")
-    payload: dict[str, Any] = {"run_validity": run_validity, **authorization_false_payload()}
+    # B11 (family_decision_contract.md F0/O6): the canonical rule text, verbatim, on every outcome.
+    payload: dict[str, Any] = {
+        "run_validity": run_validity,
+        "family_decision_rule": FAMILY_DECISION_RULE_TEXT,
+        **authorization_false_payload(),
+    }
     if run_validity != "RUN_VALID":
         payload.update({"height_mechanism_productive": "NOT_EVALUABLE", "conjuncts": []})
         return payload
@@ -946,6 +1118,72 @@ def build_family_decision(run_validity: str, height_counts: dict[int, int] | Non
     productive = all(item["passed"] for item in conjuncts)
     payload.update({"height_mechanism_productive": productive, "conjuncts": conjuncts})
     return payload
+
+
+def build_prediction_scorecard(height_counts: dict[int, int]) -> dict[str, Any]:
+    """B10 (evaluation_contract.md E3): the registered P1-P6 predictions
+    (experiment_contract.json `registered_predictions`), each MET/NOT_MET with observed values,
+    P4 carrying the pre-declared-miss framing verbatim."""
+    total = sum(height_counts.values())
+    c18, c6, c1, c0, c34 = (
+        int(height_counts[18]),
+        int(height_counts[6]),
+        int(height_counts[1]),
+        int(height_counts[0]),
+        int(height_counts[34]),
+    )
+    predictions = [
+        {
+            "id": "P1",
+            "parent_cluster_id": 18,
+            "statement": "children in [3, 6]",
+            "observed": c18,
+            "required": "[3, 6]",
+            "result": "MET" if 3 <= c18 <= 6 else "NOT_MET",
+        },
+        {
+            "id": "P2",
+            "parent_cluster_id": 6,
+            "statement": "children >= 3",
+            "observed": c6,
+            "required": ">= 3",
+            "result": "MET" if c6 >= 3 else "NOT_MET",
+        },
+        {
+            "id": "P3",
+            "parent_cluster_id": 1,
+            "statement": "children in [4, 7]",
+            "observed": c1,
+            "required": "[4, 7]",
+            "result": "MET" if 4 <= c1 <= 7 else "NOT_MET",
+        },
+        {
+            "id": "P4",
+            "parent_cluster_id": 0,
+            "statement": "children in [1, 3]",
+            "observed": c0,
+            "required": "[1, 3]",
+            "result": "MET" if 1 <= c0 <= 3 else "NOT_MET",
+            "pre_declared_miss_framing": P4_PRE_DECLARED_MISS_FRAMING,
+        },
+        {
+            "id": "P5",
+            "parent_cluster_id": 34,
+            "statement": "children == 1",
+            "observed": c34,
+            "required": "== 1",
+            "result": "MET" if c34 == 1 else "NOT_MET",
+        },
+        {
+            "id": "P6",
+            "parent_cluster_id": "all",
+            "statement": "total children in [50, 65]",
+            "observed": total,
+            "required": "[50, 65]",
+            "result": "MET" if 50 <= total <= 65 else "NOT_MET",
+        },
+    ]
+    return {"predictions": predictions}
 
 
 def validate_manifest_complete(root: Path) -> None:
@@ -1116,7 +1354,17 @@ def _missing_real_route_arguments(args: argparse.Namespace) -> list[str]:
 
 
 def _write_blocked_evidence(out_root: Path, gate_name: str, reason: str, command_text: str) -> None:
+    """D2 (operator ruling, prospective amendment to output_package_contract.md O5): every
+    BLOCKED run emits exactly five files — the O5 four (a gate-report artifact, command.txt,
+    command_stdout_stderr.log [written by the caller once stdio capture completes], run.log)
+    plus family_decision.json. `gate_report.json` is this route's "failing gate's report" (O5's
+    parenthetical), the pre-Z-gate analogue of z_unit_gate.json; it is NOT one of the 25
+    RUN_VALID content files, matching z_unit_gate.json's own conditional-artifact status (O1)."""
     (out_root / "command.txt").write_text(command_text + "\n", encoding="utf-8")
+    _write_json(
+        out_root / "gate_report.json",
+        {"gate": gate_name, "reason": reason, "verdict": "RUN_BLOCKED"},
+    )
     _write_json(out_root / "family_decision.json", build_family_decision("RUN_BLOCKED"))
     _write_json(
         out_root / "run.log",
@@ -1144,6 +1392,82 @@ class _Tee:
             stream.flush()
 
 
+def _orient_geom(geom: Polygon | MultiPolygon) -> Polygon | MultiPolygon:
+    from shapely.geometry.polygon import orient
+
+    if isinstance(geom, Polygon):
+        return orient(geom, sign=1.0)
+    if isinstance(geom, MultiPolygon):
+        return MultiPolygon([orient(part, sign=1.0) for part in geom.geoms])
+    raise SegmentationInputError(f"unexpected geometry type for GI2 hashing: {geom.geom_type}")
+
+
+def _round_geom_coords(geom: Polygon | MultiPolygon, decimals: int) -> Polygon | MultiPolygon:
+    from shapely.ops import transform
+
+    def _round(*coords: float) -> tuple[float, ...]:
+        return tuple(round(float(value), decimals) for value in coords)
+
+    return transform(_round, geom)
+
+
+def _normalized_wkb_sha256(geom: Polygon | MultiPolygon) -> str:
+    """GI2: SHA-256 of the normalized WKB (oriented +1, coordinates rounded to the frozen
+    9 decimals) — used only to serialize a comparison hash, never to assert region equality."""
+    normalized = _round_geom_coords(_orient_geom(geom), SERIALIZATION_DECIMAL_PLACES)
+    return hashlib.sha256(normalized.wkb).hexdigest()
+
+
+def _reverify_canonical_v0_for_gi2(canonical_v0: Path, expected_sha256: str) -> dict[int, dict[str, Any]]:
+    """GI2 Side B: independently re-hash and re-parse the canonical v0 file from disk — never
+    reuse the in-memory `validation["canonical"]` object parsed earlier by validate_real_inputs."""
+    if _sha256_file(canonical_v0) != expected_sha256:
+        raise SegmentationInputError("GI2 Side B canonical-v0 re-verification hash mismatch")
+    return _load_canonical_v0(canonical_v0)
+
+
+def build_gi2_dimension_f_rows(
+    out_root: Path,
+    canonical_v0: Path,
+    canonical_v0_sha256: str,
+    parent_ids: list[int],
+) -> list[dict[str, Any]]:
+    """GI2 (geometry_isolation_contract.md): non-tautological dimension-F evidence. Side A is
+    the child union re-read from the just-written `segmented_children.geojson` on disk (not the
+    in-memory features); Side B is the canonical parent polygon, independently re-hashed and
+    re-parsed from the canonical v0 file. The two WKB hashes are expected to differ in general;
+    region equality is asserted via symmetric_difference_area_m2, never hash equality."""
+    reread = json.loads((out_root / "segmented_children.geojson").read_text(encoding="utf-8"))
+    by_parent: dict[int, list[Polygon | MultiPolygon]] = {pid: [] for pid in parent_ids}
+    for feature in reread["features"]:
+        pid = int(feature["properties"]["parent_cluster_id"])
+        by_parent[pid].append(shape(feature["geometry"]))
+    canonical_reverified = _reverify_canonical_v0_for_gi2(canonical_v0, canonical_v0_sha256)
+    rows = []
+    for parent_id in parent_ids:
+        side_a = unary_union(by_parent[parent_id])
+        side_b = canonical_reverified[parent_id]["geometry"]
+        union_area = float(side_a.area)
+        canonical_area = float(side_b.area)
+        rows.append(
+            {
+                "parent_cluster_id": int(parent_id),
+                "union_area_m2": union_area,
+                "canonical_area_m2": canonical_area,
+                "area_error_m2": union_area - canonical_area,
+                "symmetric_difference_area_m2": float(side_a.symmetric_difference(side_b).area),
+                "iou": float(side_a.intersection(side_b).area / side_a.union(side_b).area),
+                "centroid_distance_m": float(side_a.centroid.distance(side_b.centroid)),
+                "hausdorff_distance_m": float(
+                    max(side_a.hausdorff_distance(side_b), side_b.hausdorff_distance(side_a))
+                ),
+                "side_a_wkb_sha256": _normalized_wkb_sha256(side_a),
+                "side_b_wkb_sha256": _normalized_wkb_sha256(side_b),
+            }
+        )
+    return rows
+
+
 def build_real_output_package(
     validation: dict[str, Any],
     out_root: Path,
@@ -1159,6 +1483,7 @@ def build_real_output_package(
     z_unit_gate: dict[str, Any],
     implementation_sha: str,
     command: str,
+    resolved_arguments: dict[str, Any],
 ) -> dict[str, Any]:
     """Serializes the 24 real-route content files (all of OUTPUT_CONTENT_FILES except
     command_stdout_stderr.log, which the caller writes once stdio capture is complete).
@@ -1169,8 +1494,8 @@ def build_real_output_package(
     features: list[dict[str, Any]] = []
     parent_summaries: list[dict[str, Any]] = []
     child_summaries: list[dict[str, Any]] = []
-    dimension_f_rows: list[dict[str, Any]] = []
     stage_a_rows: list[dict[str, Any]] = []
+    readiness_cell_count_rows: list[dict[str, Any]] = []
     height_counts: dict[int, int] = {}
 
     for parent_id in EXPECTED_PARENT_IDS:
@@ -1192,8 +1517,8 @@ def build_real_output_package(
         for child in result["children"]:
             child_summaries.append({key: value for key, value in child.items() if key != "cell_set"})
         features.extend(result["features"])
-        dimension_f_rows.append(result["dimension_f"])
         stage_a_rows.append({"parent_cluster_id": int(parent_id), **result["stage_a"]})
+        readiness_cell_count_rows.append(result["readiness_cell_counts"])
 
     parent_rows_total = sum(row["source_point_count"] for row in parent_summaries)
     assigned_total = sum(row["assigned_child_point_count"] for row in parent_summaries)
@@ -1229,6 +1554,18 @@ def build_real_output_package(
     _write_json(out_root / "parent_segmentation_summary.json", parent_summaries)
     _write_json(out_root / "child_segmentation_summary.json", child_summaries)
 
+    # B5 (point_assignment_contract.md P1-P4): per-parent rows plus per-tile counts.
+    point_assignment_rows = [
+        {
+            "parent_cluster_id": row["parent_cluster_id"],
+            "source_point_count": row["source_point_count"],
+            "assigned_child_point_count": row["assigned_child_point_count"],
+            "outside_parent_support_point_count": row["outside_parent_support_point_count"],
+            "assigned_child_tile_counts": row["assigned_child_tile_counts"],
+            "outside_parent_support_tile_counts": row["outside_parent_support_tile_counts"],
+        }
+        for row in parent_summaries
+    ]
     point_summary = {
         "total_npz_rows": EXPECTED_NPZ_ROWS,
         "canonical_parent_rows": EXPECTED_PARENT_ROWS,
@@ -1242,33 +1579,65 @@ def build_real_output_package(
         "excluded_labels": EXPECTED_EXCLUDED_LABELS,
         "noise_label": -1,
         "all_34_parents_reported": len(parent_summaries) == 34,
+        "parents": point_assignment_rows,
     }
     _write_json(out_root / "point_assignment_summary.json", point_summary)
 
+    # B3 (conservation_contract.md C4): per-parent rows, independently recomputable from the
+    # frozen package alone. canonical_area_m2 here is the hash-verified canonical geometry's own
+    # area (from stage_a), not the support-derived reproduction polygon used internally for the
+    # cut/conservation invariant, per the audit's C4 finding.
+    canonical_area_by_parent = {row["parent_cluster_id"]: row["canonical_area_m2"] for row in stage_a_rows}
+    conservation_parent_rows = []
+    for row in parent_summaries:
+        true_canonical_area = canonical_area_by_parent[row["parent_cluster_id"]]
+        if abs(row["child_union_area_m2"] - true_canonical_area) > 2e-6:
+            raise SegmentationInputError(
+                f"parent {row['parent_cluster_id']}: C4 child-union/canonical-area cross-check failed"
+            )
+        conservation_parent_rows.append(
+            {
+                "parent_cluster_id": row["parent_cluster_id"],
+                "child_union_area_m2": row["child_union_area_m2"],
+                "canonical_area_m2": true_canonical_area,
+                "conservation_residual_m2": row["conservation_residual_m2"],
+                "child_overlap_area_m2": row["child_overlap_area_m2"],
+                "area_outside_parent_support_m2": row["area_outside_parent_support_m2"],
+                "no_data_cell_count": row["no_data_cell_count"],
+                "support_cell_count": row["support_cell_count"],
+            }
+        )
     conservation = {
         "maximum_parent_conservation_residual_m2": max(row["conservation_residual_m2"] for row in parent_summaries),
         "global_conservation_residual_m2": abs(
             sum(row["child_union_area_m2"] for row in parent_summaries)
             - sum(row["canonical_area_m2"] for row in parent_summaries)
         ),
+        "global_conservation_residual_sum_of_abs_m2": sum(
+            abs(row["child_union_area_m2"] - row["canonical_area_m2"]) for row in parent_summaries
+        ),
         "child_overlap_area_m2": sum(row["child_overlap_area_m2"] for row in parent_summaries),
         "area_outside_allowed_parent_support_m2": sum(row["area_outside_parent_support_m2"] for row in parent_summaries),
         "invalid_child_count": 0,
         "verdict": "CONSERVATION_TOLERANCE_PASSED",
+        "parents": conservation_parent_rows,
     }
     if conservation["maximum_parent_conservation_residual_m2"] > 1e-6 or conservation["global_conservation_residual_m2"] > 1e-6:
         raise SegmentationInputError("global conservation tolerance exceeded")
     _write_json(out_root / "conservation_summary.json", conservation)
 
-    if any(row["symmetric_difference_area_m2"] > 1e-6 for row in dimension_f_rows):
+    # B2/GI2: independent, non-tautological dimension-F evidence — Side A re-read from the
+    # just-written segmented_children.geojson, Side B re-hashed and re-parsed from canonical v0.
+    gi2_rows = build_gi2_dimension_f_rows(out_root, canonical_v0, validation["hashes"]["canonical_v0"], EXPECTED_PARENT_IDS)
+    if any(row["symmetric_difference_area_m2"] > 1e-6 for row in gi2_rows):
         raise SegmentationInputError("Dimension-F geometry-isolation invariant failed")
     invariance = {
         "verdict": "DIMENSION_F_INVARIANCE_PASSED",
-        "review_caveat": "A self-identical stored hash pair is not, by itself, strong independent proof.",
-        "dimension_f_rows": dimension_f_rows,
+        "dimension_f_rows": gi2_rows,
     }
     _write_json(out_root / "dimension_f_invariance.json", invariance)
 
+    # B7/E2: per-parent diagnostics fields, including the support/data/no-data cell fields.
     histogram_totals = empty_histogram()
     diagnostics_rows = []
     for row in parent_summaries:
@@ -1277,6 +1646,10 @@ def build_real_output_package(
         diagnostics_rows.append(
             {
                 "parent_cluster_id": row["parent_cluster_id"],
+                "support_cell_count": row["support_cell_count"],
+                "data_cell_count": row["data_cell_count"],
+                "no_data_cell_count": row["no_data_cell_count"],
+                "no_data_cell_fraction": row["no_data_cell_fraction"],
                 "histogram": row["histogram"],
                 "tested_edge_count": row["tested_edge_count"],
                 "no_data_edge_count": row["no_data_edge_count"],
@@ -1298,7 +1671,8 @@ def build_real_output_package(
     }
     _write_json(out_root / "height_discontinuity_diagnostics.json", diagnostics)
     diag_fields = [
-        "parent_cluster_id", "tested_edge_count", "no_data_edge_count", "cut_edge_count",
+        "parent_cluster_id", "support_cell_count", "data_cell_count", "no_data_cell_count",
+        "no_data_cell_fraction", "tested_edge_count", "no_data_edge_count", "cut_edge_count",
         "one_point_cell_count", "multi_point_cell_count", "min_rep_z_m", "median_rep_z_m", "max_rep_z_m",
     ]
     _write_csv(out_root / "height_discontinuity_diagnostics.csv", diagnostics_rows, diag_fields)
@@ -1306,39 +1680,71 @@ def build_real_output_package(
     baseline_rows = build_baseline_comparison(height_counts, r1_counts, r2_counts, EXPECTED_PARENT_IDS)
     _write_json(out_root / "baseline_comparison.json", baseline_rows)
     _write_csv(out_root / "baseline_comparison.csv", baseline_rows, list(baseline_rows[0].keys()))
+    # B9 (baseline_comparison_contract.md B5): caveat verbatim, cohort callouts, totals row.
+    baseline_totals = {
+        "v0": sum(row["v0_child_count"] for row in baseline_rows),
+        "neck_r1": sum(row["neck_r1_child_count"] for row in baseline_rows),
+        "neck_r2": sum(row["neck_r2_child_count"] for row in baseline_rows),
+        "height_r1": sum(row["height_r1_child_count"] for row in baseline_rows),
+    }
     baseline_lines = [
         "# Baseline Comparison", "",
-        "| parent | v0 | neck_r1 | neck_r2 | height_r1 | minimum | met |",
-        "|---|---:|---:|---:|---:|---:|---|",
+        BENCHMARK_CAVEAT, "",
+        "Cohort callouts: " + ", ".join(str(pid) for pid in COHORT_REPORT_IDS), "",
+        "| parent | v0 | neck_r1 | neck_r2 | height_r1 | minimum | fraction | met |",
+        "|---|---:|---:|---:|---:|---:|---:|---|",
     ]
     for row in baseline_rows:
         minimum = "" if row["frozen_scalar_minimum"] is None else str(row["frozen_scalar_minimum"])
+        fraction = "" if row["height_fraction_of_minimum"] is None else f"{row['height_fraction_of_minimum']:.3f}"
         met = "" if row["height_minimum_met"] is None else str(row["height_minimum_met"]).lower()
         baseline_lines.append(
             f"| {row['parent_cluster_id']} | {row['v0_child_count']} | {row['neck_r1_child_count']} | "
-            f"{row['neck_r2_child_count']} | {row['height_r1_child_count']} | {minimum} | {met} |"
+            f"{row['neck_r2_child_count']} | {row['height_r1_child_count']} | {minimum} | {fraction} | {met} |"
         )
+    baseline_lines.append(
+        f"| **total** | {baseline_totals['v0']} | {baseline_totals['neck_r1']} | "
+        f"{baseline_totals['neck_r2']} | {baseline_totals['height_r1']} | | | |"
+    )
     (out_root / "baseline_comparison.md").write_text("\n".join(baseline_lines) + "\n", encoding="utf-8")
 
+    # B8 (baseline_comparison_contract.md B6): exactly the six benchmarked parents, exact §O3
+    # key set, reconciled field-by-field with baseline_comparison.json.
+    baseline_by_parent = {row["parent_cluster_id"]: row for row in baseline_rows}
     benchmark_rows = []
-    for parent_id in COHORT_REPORT_IDS:
-        minimum = BENCHMARK_MINIMA.get(parent_id)
+    for parent_id in sorted(BENCHMARK_MINIMA):
+        minimum = BENCHMARK_MINIMA[parent_id]
         count = height_counts[parent_id]
         benchmark_rows.append(
             {
                 "parent_cluster_id": parent_id,
-                "observed_child_count": count,
-                "benchmark_minimum": minimum,
-                "met": None if minimum is None else count >= minimum,
-                "difference_from_minimum": None if minimum is None else count - minimum,
+                "frozen_scalar_minimum": minimum,
+                "height_r1_child_count": count,
+                "height_fraction_of_minimum": count / minimum,
+                "height_minimum_met": count >= minimum,
             }
         )
-    _write_json(out_root / "benchmark_minimum_comparison.json", benchmark_rows)
-    benchmark_lines = ["# Benchmark Minimum Comparison", "", "| parent | observed | minimum | result |", "|---|---:|---:|---|"]
     for row in benchmark_rows:
-        result_s = "n/a" if row["met"] is None else ("met" if row["met"] else "missed")
-        minimum_s = "" if row["benchmark_minimum"] is None else str(row["benchmark_minimum"])
-        benchmark_lines.append(f"| {row['parent_cluster_id']} | {row['observed_child_count']} | {minimum_s} | {result_s} |")
+        b = baseline_by_parent[row["parent_cluster_id"]]
+        if (
+            b["frozen_scalar_minimum"] != row["frozen_scalar_minimum"]
+            or b["height_r1_child_count"] != row["height_r1_child_count"]
+            or b["height_fraction_of_minimum"] != row["height_fraction_of_minimum"]
+            or b["height_minimum_met"] != row["height_minimum_met"]
+        ):
+            raise SegmentationInputError(f"parent {row['parent_cluster_id']}: benchmark/baseline reconciliation mismatch")
+    benchmark_payload = {"benchmark_caveat": BENCHMARK_CAVEAT, "parents": benchmark_rows}
+    _write_json(out_root / "benchmark_minimum_comparison.json", benchmark_payload)
+    benchmark_lines = [
+        "# Benchmark Minimum Comparison", "", BENCHMARK_CAVEAT, "",
+        "| parent | frozen_scalar_minimum | height_r1_child_count | height_fraction_of_minimum | height_minimum_met |",
+        "|---|---:|---:|---:|---|",
+    ]
+    for row in benchmark_rows:
+        benchmark_lines.append(
+            f"| {row['parent_cluster_id']} | {row['frozen_scalar_minimum']} | {row['height_r1_child_count']} | "
+            f"{row['height_fraction_of_minimum']:.3f} | {str(row['height_minimum_met']).lower()} |"
+        )
     (out_root / "benchmark_minimum_comparison.md").write_text("\n".join(benchmark_lines) + "\n", encoding="utf-8")
 
     proxy = build_false_split_proxy(height_counts)
@@ -1347,35 +1753,25 @@ def build_real_output_package(
     _write_csv(out_root / "single_building_false_split_proxy.csv", proxy["parents"], proxy_fields)
 
     decision = build_family_decision("RUN_VALID", height_counts)
-    scorecard = {
-        "predictions": [
-            {
-                "id": "P1",
-                "statement": "children(18) >= 3",
-                "observed": height_counts[18],
-                "required": ">= 3",
-                "result": "MET" if decision["conjuncts"][0]["passed"] else "NOT_MET",
-            },
-            {
-                "id": "P2",
-                "statement": "children(34) == 1",
-                "observed": height_counts[34],
-                "required": "== 1",
-                "result": "MET" if decision["conjuncts"][1]["passed"] else "NOT_MET",
-            },
-        ],
-    }
+    # B10 (evaluation_contract.md E3): the registered P1-P6 predictions, verbatim P4 framing.
+    scorecard = build_prediction_scorecard(height_counts)
     _write_json(out_root / "prediction_scorecard.json", scorecard)
     scorecard_lines = ["# Prediction Scorecard", ""]
     for row in scorecard["predictions"]:
         scorecard_lines.append(
-            f"- {row['id']}: {row['statement']} -> observed={row['observed']} required={row['required']} result={row['result']}"
+            f"- {row['id']} (parent {row['parent_cluster_id']}): {row['statement']} -> "
+            f"observed={row['observed']} required={row['required']} result={row['result']}"
         )
+        if "pre_declared_miss_framing" in row:
+            scorecard_lines.append(f"  {row['pre_declared_miss_framing']}")
     (out_root / "prediction_scorecard.md").write_text("\n".join(scorecard_lines) + "\n", encoding="utf-8")
 
+    # B11 (family_decision_contract.md F0/O6): the canonical rule text is embedded by
+    # build_family_decision() itself, alongside the pre-existing verdicts/conjuncts/booleans.
     _write_json(out_root / "family_decision.json", decision)
     decision_lines = [
         "# Family Decision", "",
+        decision["family_decision_rule"], "",
         f"run_validity: {decision['run_validity']}",
         f"height_mechanism_productive: {decision['height_mechanism_productive']}",
     ]
@@ -1403,6 +1799,14 @@ def build_real_output_package(
         and np.isfinite(arrays["Z"]).all()
     )
     assert all_input_values_finite  # safe_load_npz already rejects non-finite X/Y/Z upstream
+    # D3: cell counts use the finite, canonical, post-exclusion Stage A/input-readiness
+    # population (raw per-parent occupancy grids), not the support-filtered population computed
+    # inside segment_cells() for the per-parent diagnostics artifact. This guarantees
+    # one_point_cell_count + multi_point_cell_count == occupied_cell_count by construction.
+    occupied_cell_count_total = sum(row["occupied_cell_count"] for row in readiness_cell_count_rows)
+    one_point_cell_count_total = sum(row["one_point_cell_count"] for row in readiness_cell_count_rows)
+    multi_point_cell_count_total = sum(row["multi_point_cell_count"] for row in readiness_cell_count_rows)
+    assert one_point_cell_count_total + multi_point_cell_count_total == occupied_cell_count_total
     input_readiness_evidence = {
         "census": {
             "total_rows": total_rows_actual,
@@ -1414,9 +1818,9 @@ def build_real_output_package(
             },
             "reconciliation": f"{parent_rows_total} + {excluded_rows_actual} + {noise_rows_actual} = {total_rows_actual}",
         },
-        "occupied_cell_count": sum(row["occupancy_cell_count"] for row in stage_a_rows),
-        "one_point_cell_count": sum(row["one_point_cell_count"] for row in parent_summaries),
-        "multi_point_cell_count": sum(row["multi_point_cell_count"] for row in parent_summaries),
+        "occupied_cell_count": occupied_cell_count_total,
+        "one_point_cell_count": one_point_cell_count_total,
+        "multi_point_cell_count": multi_point_cell_count_total,
         "all_input_values_finite": all_input_values_finite,
     }
     input_hashes = dict(validation["hashes"])
@@ -1437,16 +1841,8 @@ def build_real_output_package(
         "component_connectivity": COMPONENT_CONNECTIVITY,
         "cell_size_m": DEFAULT_CELL_SIZE_M,
         "closing_radius_cells": DEFAULT_CLOSING_RADIUS_CELLS,
-        "frozen_constants": {
-            "VERTICAL_STEP_THRESHOLD_M": VERTICAL_STEP_THRESHOLD_M,
-            "DEFAULT_CELL_SIZE_M": DEFAULT_CELL_SIZE_M,
-            "DEFAULT_CLOSING_RADIUS_CELLS": DEFAULT_CLOSING_RADIUS_CELLS,
-            "REPRESENTATIVE_Z_STATISTIC": REPRESENTATIVE_Z_STATISTIC,
-            "MIN_POINTS_PER_CELL_FOR_Z": MIN_POINTS_PER_CELL_FOR_Z,
-            "EDGE_CONNECTIVITY": EDGE_CONNECTIVITY,
-            "COMPONENT_CONNECTIVITY": COMPONENT_CONNECTIVITY,
-            "SERIALIZATION_DECIMAL_PLACES": SERIALIZATION_DECIMAL_PLACES,
-        },
+        # D1: the exact 14-key experiment_contract.json frozen_constants block.
+        "frozen_constants": frozen_constants_block(),
         "source_run": str(source_run),
         "canonical_v0": str(canonical_v0),
         "frozen_r1_root": str(frozen_r1_root),
@@ -1458,6 +1854,9 @@ def build_real_output_package(
         "crs": "EPSG:32617",
         "units": "horizontal meters; Z meters",
         "command": command,
+        # D4: deterministic parser-effective resolved arguments, distinct from the exact
+        # invocation echo above (`command`, which also matches command.txt byte-for-byte).
+        "resolved_arguments": resolved_arguments,
         "python_version": platform.python_version(),
         "numpy_version": np.__version__,
         "shapely_version": shapely.__version__,
@@ -1477,6 +1876,7 @@ def build_real_output_package(
     }
     _write_json(out_root / "experiment_parameters.json", params)
 
+    # B12: per-parent contact-sheet lines add cut edges and no-data fraction (scalar-only).
     contact_lines = [
         "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"900\" height=\"520\">",
         "<style>text{font-family:monospace;font-size:12px}</style>",
@@ -1486,24 +1886,47 @@ def build_real_output_package(
     for row in parent_summaries:
         contact_lines.append(
             f"<text x=\"20\" y=\"{y}\">parent {row['parent_cluster_id']:02d}: children={row['child_count']} "
-            f"points={row['source_point_count']} residual={_stable_float(row['conservation_residual_m2']):.9f}</text>"
+            f"points={row['source_point_count']} residual={_stable_float(row['conservation_residual_m2']):.9f} "
+            f"cut_edges={row['cut_edge_count']} "
+            f"no_data_fraction={_stable_float(row['no_data_cell_fraction']):.9f}</text>"
         )
         y += 14
     contact_lines.append("</svg>")
     (out_root / "contact_sheet.svg").write_text("\n".join(contact_lines) + "\n", encoding="utf-8")
 
     (out_root / "command.txt").write_text(command + "\n", encoding="utf-8")
-    run_log = {
-        "status": RUN_STATUS,
-        "run_validity": decision["run_validity"],
-        "height_mechanism_productive": decision["height_mechanism_productive"],
-        "parents_processed": len(parent_summaries),
-        "children_emitted": len(child_summaries),
-        "point_accounting": point_summary,
-        "conservation": conservation,
-        "family_decision": decision,
-    }
-    _write_json(out_root / "run.log", run_log)
+    # B13: run.log is a UTC-timestamped text log (gate outcomes, per-parent progress, invariant
+    # results, run_status); the determinism-double-run result line is appended by the caller
+    # (main()) once the L6.4 double-run has executed, before FREEZE_MANIFEST.sha256 is written.
+    run_log_lines = [
+        _log_line("gate G-P0 (/mnt/t7 path check): PASSED"),
+        _log_line("gate G-I1 (input file identity): PASSED"),
+        _log_line("gate G-E1 (frozen r1/r2 evidence verification): PASSED"),
+        _log_line("gate G-Z1/G-Z2 (Z-unit provenance + relief band): PASSED"),
+    ]
+    for row in parent_summaries:
+        run_log_lines.append(
+            _log_line(
+                f"parent {row['parent_cluster_id']:04d}: processed child_count={row['child_count']} "
+                f"cut_edge_count={row['cut_edge_count']}"
+            )
+        )
+    run_log_lines.extend(
+        [
+            _log_line("invariant HB1 (parent reproduction): PASSED"),
+            _log_line("invariant HB2/HB3 (point conservation, no duplication): PASSED"),
+            _log_line("invariant HB4/HB5/HB6 (parent-child membership, ID, no cross-parent migration): PASSED"),
+            _log_line("invariant HB9 (finite serialized outputs): PASSED"),
+            _log_line("invariant HB10 (aggregate reconciliation): PASSED"),
+            _log_line("invariant HB11 (geometry isolation / GI2 non-tautological): PASSED"),
+            _log_line(
+                f"family_decision: run_validity={decision['run_validity']} "
+                f"height_mechanism_productive={decision['height_mechanism_productive']}"
+            ),
+            _log_line(f"run_status: {RUN_STATUS}"),
+        ]
+    )
+    (out_root / "run.log").write_text("\n".join(run_log_lines) + "\n", encoding="utf-8")
 
     return {
         "output_root": out_root,
@@ -1532,6 +1955,42 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--expected-z-unit-attestation-sha256")
     parser.add_argument("--implementation-sha")
     return parser
+
+
+# D4: fixed exact key set for `resolved_arguments` (every build_parser() destination). Order is
+# irrelevant (the frozen `_write_json` serializer sorts keys); the set is fixed and deterministic.
+_RESOLVED_ARGUMENT_PATH_FIELDS = (
+    "source_run",
+    "out_root",
+    "canonical_v0",
+    "frozen_r1_root",
+    "frozen_r2_root",
+    "z_unit_attestation",
+)
+_RESOLVED_ARGUMENT_SCALAR_FIELDS = (
+    "expected_r1_freeze_manifest_sha256",
+    "expected_r2_freeze_manifest_sha256",
+    "expected_npz_sha256",
+    "expected_v0_sha256",
+    "expected_metadata_csv_sha256",
+    "expected_z_unit_attestation_sha256",
+    "implementation_sha",
+)
+
+
+def build_resolved_arguments(args: argparse.Namespace) -> dict[str, Any]:
+    """D4: parser-effective typed values after argparse's own defaults/normalization plus this
+    module's approved absolute-path resolution — distinct from, and never a replacement for, the
+    exact invocation echo (`command` / command.txt)."""
+    resolved: dict[str, Any] = {}
+    for name in _RESOLVED_ARGUMENT_PATH_FIELDS:
+        value = getattr(args, name)
+        resolved[name] = None if value is None else str(Path(value).resolve())
+    for name in _RESOLVED_ARGUMENT_SCALAR_FIELDS:
+        resolved[name] = getattr(args, name)
+    resolved["readiness_audit_only"] = bool(args.readiness_audit_only)
+    resolved["readiness_audit_only_is_default"] = args.readiness_audit_only is False
+    return resolved
 
 
 def _execute_real_route(args: argparse.Namespace, command_text: str) -> tuple[int, str]:
@@ -1589,6 +2048,7 @@ def _execute_real_route(args: argparse.Namespace, command_text: str) -> tuple[in
             z_unit_gate=gate,
             implementation_sha=args.implementation_sha,
             command=command_text,
+            resolved_arguments=build_resolved_arguments(args),
         )
     except SegmentationInputError as exc:
         (out_root / "command.txt").write_text(command_text + "\n", encoding="utf-8")
@@ -1618,6 +2078,61 @@ def _execute_real_route(args: argparse.Namespace, command_text: str) -> tuple[in
         )
     )
     return 0, "RUN_VALID"
+
+
+def _append_run_log_line(out_root: Path, message: str) -> None:
+    with (out_root / "run.log").open("a", encoding="utf-8") as handle:
+        handle.write(_log_line(message) + "\n")
+
+
+def _experiment_parameters_equal_modulo_permitted_fields(a: dict[str, Any], b: dict[str, Any]) -> bool:
+    a = dict(a)
+    b = dict(b)
+    a.pop("command", None)
+    b.pop("command", None)
+    ra_a = dict(a.pop("resolved_arguments", {}) or {})
+    ra_b = dict(b.pop("resolved_arguments", {}) or {})
+    ra_a.pop("out_root", None)
+    ra_b.pop("out_root", None)
+    return a == b and ra_a == ra_b
+
+
+def run_determinism_double_check(
+    primary_args: argparse.Namespace, base_command_text: str, primary_root: Path
+) -> dict[str, Any]:
+    """L6.4/HB8: re-run the identical synthetic invocation into a second scratch output root,
+    byte-diff every deterministic artifact, then delete the scratch root. `command.txt`,
+    `command_stdout_stderr.log`, and `run.log` are declared-volatile (I5: timestamps, and here
+    also the out-root-derived `command`/`resolved_arguments.out_root`, which may differ only as
+    D4 authorizes)."""
+    with tempfile.TemporaryDirectory(prefix="height_r1_determinism_scratch_") as scratch_dir:
+        scratch_root = Path(scratch_dir) / "scratch_out"
+        scratch_root.mkdir(parents=True, exist_ok=True)
+        scratch_args = argparse.Namespace(**vars(primary_args))
+        scratch_args.out_root = scratch_root
+        scratch_command_text = base_command_text.replace(str(primary_root), str(scratch_root))
+        exit_code, run_validity = _execute_real_route(scratch_args, scratch_command_text)
+        if run_validity != "RUN_VALID":
+            return {
+                "byte_identical": False,
+                "differing_files": [f"<scratch re-run did not reach RUN_VALID: exit_code={exit_code}>"],
+            }
+        volatile = {"command.txt", "command_stdout_stderr.log", "run.log"}
+        differing = []
+        for name in OUTPUT_CONTENT_FILES:
+            if name in volatile:
+                continue
+            a_bytes = (primary_root / name).read_bytes()
+            b_bytes = (scratch_root / name).read_bytes()
+            if name == "experiment_parameters.json":
+                if not _experiment_parameters_equal_modulo_permitted_fields(
+                    json.loads(a_bytes), json.loads(b_bytes)
+                ):
+                    differing.append(name)
+                continue
+            if a_bytes != b_bytes:
+                differing.append(name)
+        return {"byte_identical": len(differing) == 0, "differing_files": differing}
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -1652,9 +2167,22 @@ def main(argv: list[str] | None = None) -> int:
 
     if run_validity == "RUN_VALID":
         try:
+            # B14/HB8: the double-run determinism check must complete, and its result must be
+            # recorded in run.log, before the manifest is written (implementation_plan.md L6.4).
+            determinism = run_determinism_double_check(args, command_text, args.out_root)
+            _append_run_log_line(
+                args.out_root,
+                f"determinism_double_run: byte_identical={determinism['byte_identical']} "
+                f"differing_files={determinism['differing_files']}",
+            )
+            if not determinism["byte_identical"]:
+                raise SegmentationInputError(
+                    f"determinism double-run byte mismatch: {determinism['differing_files']}"
+                )
             write_freeze_manifest(args.out_root)
             validate_manifest_complete(args.out_root)
         except SegmentationInputError as exc:
+            _append_run_log_line(args.out_root, f"run_status: {FAILED_STATUS}")
             print(f"ERROR: {exc}", file=sys.stderr)
             return 2
     return exit_code
