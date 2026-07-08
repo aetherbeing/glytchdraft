@@ -12,6 +12,7 @@ from __future__ import annotations
 import hashlib
 import json
 import platform
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -389,16 +390,24 @@ def test_cli_output_is_deterministic_for_identical_synthetic_inputs(tmp_path):
     assert proc_a.returncode == 0, proc_a.stderr
     assert proc_b.returncode == 0, proc_b.stderr
     for name in h.OUTPUT_CONTENT_FILES:
-        if name in {"command.txt", "command_stdout_stderr.log"}:
+        if name in {"command.txt", "command_stdout_stderr.log", "run.log"}:
+            # command.txt/run.log are the declared-volatile I5 artifacts (run.log now carries
+            # UTC timestamps per B13); run.log content is checked for format, not byte equality,
+            # by test_run_log_is_utc_timestamped_text_with_required_content below.
             continue
         content_a = (out_root_a / name).read_bytes()
         content_b = (out_root_b / name).read_bytes()
         if name == "experiment_parameters.json":
-            # The embedded full CLI echo (`command`) legitimately varies with --out-root,
-            # exactly like command.txt already does; every other field must be identical.
+            # The embedded full CLI echo (`command`) legitimately varies with --out-root, exactly
+            # like command.txt already does; `resolved_arguments.out_root` (D4) legitimately
+            # varies for the same reason. Every other field must be identical.
             params_a = json.loads(content_a)
             params_b = json.loads(content_b)
             assert params_a.pop("command") != params_b.pop("command")
+            ra_a = params_a.pop("resolved_arguments")
+            ra_b = params_b.pop("resolved_arguments")
+            assert ra_a.pop("out_root") != ra_b.pop("out_root")
+            assert ra_a == ra_b
             assert params_a == params_b
             continue
         assert content_a == content_b, name
@@ -434,17 +443,25 @@ def test_experiment_parameters_json_satisfies_o3_schema(tmp_path):
     assert params["validity_repair_backend"] in {"shapely.validation.make_valid", "geometry.buffer(0)"}
     assert params["implementation_sha"] == implementation_sha
 
-    # --- every frozen_constants value (exactly 8 keys, exact frozen values) ---
+    # --- every frozen_constants value (D1: exactly the 14-key experiment_contract.json block,
+    # exact contract key names and frozen values) ---
     assert params["frozen_constants"] == {
         "VERTICAL_STEP_THRESHOLD_M": 2.0,
-        "DEFAULT_CELL_SIZE_M": 1.0,
-        "DEFAULT_CLOSING_RADIUS_CELLS": 1,
+        "CELL_SIZE_M": 1.0,
+        "CLOSING_RADIUS_CELLS": 1,
         "REPRESENTATIVE_Z_STATISTIC": "median",
         "MIN_POINTS_PER_CELL_FOR_Z": 1,
+        "NO_DATA_EDGE_RULE": "preserve",
+        "EQUALITY_RULE": "preserve",
         "EDGE_CONNECTIVITY": 4,
         "COMPONENT_CONNECTIVITY": 4,
         "SERIALIZATION_DECIMAL_PLACES": 9,
+        "Z_UNIT_RELIEF_BAND_M": [10.0, 350.0],
+        "RUN_STATUS": h.RUN_STATUS,
+        "BLOCKED_STATUS": h.BLOCKED_STATUS,
+        "FAILED_STATUS": h.FAILED_STATUS,
     }
+    assert len(params["frozen_constants"]) == 14
 
     # --- full CLI echo embedded in the file itself, not merely in command.txt ---
     command_txt = (out_root / "command.txt").read_text(encoding="utf-8").strip()
@@ -452,6 +469,24 @@ def test_experiment_parameters_json_satisfies_o3_schema(tmp_path):
     assert params["command"].split()[0] == SCRIPT_PATH.name
     for token in argv:
         assert token in params["command"]
+
+    # --- D4: resolved_arguments is a separate, deterministic, fixed-key-set record of the
+    # parser-effective typed values (paths resolved absolute), distinct from the exact `command`
+    # echo above (both are mandatory and must not be conflated). ---
+    resolved = params["resolved_arguments"]
+    assert set(resolved) == {
+        "source_run", "out_root", "canonical_v0", "frozen_r1_root", "frozen_r2_root",
+        "z_unit_attestation", "expected_r1_freeze_manifest_sha256", "expected_r2_freeze_manifest_sha256",
+        "expected_npz_sha256", "expected_v0_sha256", "expected_metadata_csv_sha256",
+        "expected_z_unit_attestation_sha256", "implementation_sha",
+        "readiness_audit_only", "readiness_audit_only_is_default",
+    }
+    assert resolved["source_run"] == str(fixture["source_run"].resolve())
+    assert resolved["out_root"] == str(out_root.resolve())
+    assert resolved["canonical_v0"] == str(fixture["canonical_v0"].resolve())
+    assert resolved["implementation_sha"] == implementation_sha
+    assert resolved["readiness_audit_only"] is False
+    assert resolved["readiness_audit_only_is_default"] is True
 
     # --- all six input hashes, exact keys and values ---
     assert params["input_hashes"] == {
@@ -497,13 +532,12 @@ def test_experiment_parameters_json_satisfies_o3_schema(tmp_path):
     assert sum(census["excluded_label_counts"].values()) == h.EXPECTED_EXCLUDED_ROWS
     assert readiness["all_input_values_finite"] is True
 
-    diagnostics = json.loads((out_root / "height_discontinuity_diagnostics.json").read_text(encoding="utf-8"))
-    assert readiness["one_point_cell_count"] == sum(
-        row["one_point_cell_count"] for row in diagnostics["parents"]
-    )
-    assert readiness["multi_point_cell_count"] == sum(
-        row["multi_point_cell_count"] for row in diagnostics["parents"]
-    )
+    # --- D3: cell-count semantics use the finite, canonical, post-exclusion Stage A population
+    # (raw per-parent occupancy grids), not the support-filtered population reported inside
+    # height_discontinuity_diagnostics.json (a genuinely different, smaller population once
+    # largest-component selection / covers() exclusion has removed cells). The binding invariant
+    # is one_point_cell_count + multi_point_cell_count == occupied_cell_count. ---
+    assert readiness["one_point_cell_count"] + readiness["multi_point_cell_count"] == readiness["occupied_cell_count"]
     assert readiness["occupied_cell_count"] == sum(row["occupancy_cell_count"] for row in params["stage_a"])
 
     # --- per-parent Stage A diagnostics: deterministic parent ordering, exact field set ---
@@ -537,7 +571,363 @@ def test_experiment_parameters_json_identical_across_runs_except_permitted_field
     command_a = params_a.pop("command")
     command_b = params_b.pop("command")
     assert command_a != command_b
+    ra_a = params_a.pop("resolved_arguments")
+    ra_b = params_b.pop("resolved_arguments")
+    assert ra_a.pop("out_root") != ra_b.pop("out_root")
+    assert ra_a == ra_b
     assert params_a == params_b
+
+
+def test_b1_segmented_children_geometry_is_georeferenced_not_index_space(tmp_path):
+    """B1: child (and parent-support) geometry must serialize in absolute EPSG:32617 meters,
+    matching the parent's real UTM-scale origin, never collapsing to raster-index space near
+    (0, 0). The fixture's canonical features use origins 500000+/900000 (UTM-scale), so
+    index-space output is unmistakable from real output."""
+    fixture = build_fixture(tmp_path, productive=True)
+    out_root = tmp_path / "out"
+    proc = _run_cli(_full_argv(fixture, out_root))
+    assert proc.returncode == 0, proc.stderr
+
+    from shapely.geometry import shape as shapely_shape
+
+    geojson = json.loads((out_root / "segmented_children.geojson").read_text(encoding="utf-8"))
+    assert geojson["crs"]["properties"]["name"] == "urn:ogc:def:crs:EPSG::32617"
+    canonical = json.loads(fixture["canonical_v0"].read_text(encoding="utf-8"))
+    canonical_bounds_by_parent = {}
+    for feature in canonical["features"]:
+        geom = shapely_shape(feature["geometry"])
+        canonical_bounds_by_parent[int(feature["properties"]["cluster_id"])] = geom.bounds
+
+    assert len(geojson["features"]) > 0
+    for feature in geojson["features"]:
+        pid = int(feature["properties"]["parent_cluster_id"])
+        child_geom = shapely_shape(feature["geometry"])
+        minx, miny, maxx, maxy = child_geom.bounds
+        # Never collapsed near raster-index space.
+        assert minx > 1000.0
+        assert miny > 1000.0
+        # Every child centroid must fall within (a small buffer of) the parent's canonical bounds.
+        pminx, pminy, pmaxx, pmaxy = canonical_bounds_by_parent[pid]
+        centroid = child_geom.centroid
+        assert (pminx - 5.0) <= centroid.x <= (pmaxx + 5.0)
+        assert (pminy - 5.0) <= centroid.y <= (pmaxy + 5.0)
+
+    # Round-trip: re-parsing the written file preserves the same absolute frame.
+    reread = json.loads((out_root / "segmented_children.geojson").read_text(encoding="utf-8"))
+    assert reread == geojson
+
+
+def test_b2_gi2_dimension_f_rows_are_independent_and_detect_altered_geometry(tmp_path):
+    """B2: dimension_f_invariance.json rows must be built from two genuinely independent
+    sources (disk-reread child union vs re-hashed canonical v0), never a self-comparison. Proves
+    both the nominal pass and that a deliberately altered second geometry is detected."""
+    fixture = build_fixture(tmp_path, productive=True)
+    out_root = tmp_path / "out"
+    proc = _run_cli(_full_argv(fixture, out_root))
+    assert proc.returncode == 0, proc.stderr
+
+    invariance = json.loads((out_root / "dimension_f_invariance.json").read_text(encoding="utf-8"))
+    assert invariance["verdict"] == "DIMENSION_F_INVARIANCE_PASSED"
+    assert "review_caveat" not in invariance
+    rows = invariance["dimension_f_rows"]
+    assert [row["parent_cluster_id"] for row in rows] == h.EXPECTED_PARENT_IDS
+    for row in rows:
+        assert set(row) == {
+            "parent_cluster_id", "union_area_m2", "canonical_area_m2", "area_error_m2",
+            "symmetric_difference_area_m2", "iou", "centroid_distance_m", "hausdorff_distance_m",
+            "side_a_wkb_sha256", "side_b_wkb_sha256",
+        }
+        assert len(row["side_a_wkb_sha256"]) == 64
+        assert len(row["side_b_wkb_sha256"]) == 64
+        int(row["side_a_wkb_sha256"], 16)
+        int(row["side_b_wkb_sha256"], 16)
+        assert row["symmetric_difference_area_m2"] <= 1e-6
+
+    # canonical_area_m2 must equal the canonical file geometry's own area, recomputed in-test
+    # directly from the fixture file (independent of the module's own re-parse).
+    from shapely.geometry import shape as shapely_shape_for_check
+
+    canonical_payload = json.loads(fixture["canonical_v0"].read_text(encoding="utf-8"))
+    canonical_area_by_parent = {
+        int(feature["properties"]["cluster_id"]): shapely_shape_for_check(feature["geometry"]).area
+        for feature in canonical_payload["features"]
+    }
+    for row in rows:
+        assert abs(row["canonical_area_m2"] - canonical_area_by_parent[row["parent_cluster_id"]]) <= 1e-6
+
+    # Adversarial probe: corrupt one child's geometry on disk (bytes only, independent of any
+    # in-memory object) and rebuild the GI2 rows directly — this must detect the divergence.
+    geojson_path = out_root / "segmented_children.geojson"
+    payload = json.loads(geojson_path.read_text(encoding="utf-8"))
+    target_pid = payload["features"][0]["properties"]["parent_cluster_id"]
+    from shapely.affinity import translate
+    from shapely.geometry import mapping as shapely_mapping
+    from shapely.geometry import shape as shapely_shape
+
+    for feature in payload["features"]:
+        if feature["properties"]["parent_cluster_id"] == target_pid:
+            moved = translate(shapely_shape(feature["geometry"]), xoff=250.0, yoff=250.0)
+            feature["geometry"] = shapely_mapping(moved)
+    geojson_path.write_text(json.dumps(payload), encoding="utf-8")
+
+    corrupted_rows = h.build_gi2_dimension_f_rows(
+        out_root, fixture["canonical_v0"], fixture["expected_v0_sha256"], h.EXPECTED_PARENT_IDS
+    )
+    corrupted_row = [row for row in corrupted_rows if row["parent_cluster_id"] == target_pid][0]
+    assert corrupted_row["symmetric_difference_area_m2"] > 1e-6
+
+
+def test_b3_conservation_summary_has_per_parent_c4_rows(tmp_path):
+    fixture = build_fixture(tmp_path, productive=True)
+    out_root = tmp_path / "out"
+    proc = _run_cli(_full_argv(fixture, out_root))
+    assert proc.returncode == 0, proc.stderr
+    conservation = json.loads((out_root / "conservation_summary.json").read_text(encoding="utf-8"))
+    rows = conservation["parents"]
+    assert [row["parent_cluster_id"] for row in rows] == h.EXPECTED_PARENT_IDS
+    for row in rows:
+        assert set(row) == {
+            "parent_cluster_id", "child_union_area_m2", "canonical_area_m2",
+            "conservation_residual_m2", "child_overlap_area_m2",
+            "area_outside_parent_support_m2", "no_data_cell_count", "support_cell_count",
+        }
+        assert abs(row["child_union_area_m2"] - row["canonical_area_m2"]) <= 2e-6
+    assert "global_conservation_residual_sum_of_abs_m2" in conservation
+
+
+def test_b4_parent_segmentation_summary_has_inherited_neck_r1_fields(tmp_path):
+    fixture = build_fixture(tmp_path, productive=True)
+    out_root = tmp_path / "out"
+    proc = _run_cli(_full_argv(fixture, out_root))
+    assert proc.returncode == 0, proc.stderr
+    rows = json.loads((out_root / "parent_segmentation_summary.json").read_text(encoding="utf-8"))
+    required_new_fields = {
+        "coverage", "parent_hole_count", "child_hole_count_sum", "benchmark_minimum",
+        "benchmark_minimum_met", "area_min_m2", "area_median_m2", "area_max_m2",
+        "parent_validity_state", "parent_pre_selection_component_count",
+        "orphan_fragment_count", "outside_parent_support_tile_counts",
+        "algorithm_version", "source_run", "source_npz_sha256", "canonical_v0_sha256",
+    }
+    for row in rows:
+        assert required_new_fields.issubset(set(row))
+        assert row["coverage"] == 1.0
+        assert row["parent_validity_state"] in {"valid", "repaired_make_valid", "repaired_buffer0"}
+        assert row["area_min_m2"] <= row["area_median_m2"] <= row["area_max_m2"]
+    benchmarked = [row for row in rows if row["parent_cluster_id"] in h.BENCHMARK_MINIMA]
+    assert len(benchmarked) == len(h.BENCHMARK_MINIMA)
+    for row in benchmarked:
+        assert row["benchmark_minimum"] == h.BENCHMARK_MINIMA[row["parent_cluster_id"]]
+        assert row["benchmark_minimum_met"] == (row["child_count"] >= row["benchmark_minimum"])
+
+
+def test_b5_point_assignment_summary_has_per_parent_and_tile_rows(tmp_path):
+    fixture = build_fixture(tmp_path, productive=True)
+    out_root = tmp_path / "out"
+    proc = _run_cli(_full_argv(fixture, out_root))
+    assert proc.returncode == 0, proc.stderr
+    point_summary = json.loads((out_root / "point_assignment_summary.json").read_text(encoding="utf-8"))
+    rows = point_summary["parents"]
+    assert [row["parent_cluster_id"] for row in rows] == h.EXPECTED_PARENT_IDS
+    for row in rows:
+        assert set(row) == {
+            "parent_cluster_id", "source_point_count", "assigned_child_point_count",
+            "outside_parent_support_point_count", "assigned_child_tile_counts",
+            "outside_parent_support_tile_counts",
+        }
+        assert row["assigned_child_point_count"] + row["outside_parent_support_point_count"] == row["source_point_count"]
+        if row["assigned_child_point_count"] > 0:
+            assert sum(row["assigned_child_tile_counts"].values()) == row["assigned_child_point_count"]
+
+
+def test_b6_source_tile_ids_populated_from_fixture_provenance(tmp_path):
+    """B6: source_tile_ids must be populated from actual point provenance (never silently
+    empty on the real route); the fixture's Y coordinates (~900000) are all on the
+    TILE_318455 side of the frozen seam (2852621.18647587), so every non-empty child must
+    report exactly that tile."""
+    fixture = build_fixture(tmp_path, productive=True)
+    out_root = tmp_path / "out"
+    proc = _run_cli(_full_argv(fixture, out_root))
+    assert proc.returncode == 0, proc.stderr
+    child_summaries = json.loads((out_root / "child_segmentation_summary.json").read_text(encoding="utf-8"))
+    assert len(child_summaries) > 0
+    saw_nonempty = False
+    for child in child_summaries:
+        if child["source_point_count"] > 0:
+            saw_nonempty = True
+            assert child["source_tile_ids"] == [h.TILE_318455]
+    assert saw_nonempty
+
+
+def test_b7_height_discontinuity_diagnostics_has_e2_fields(tmp_path):
+    fixture = build_fixture(tmp_path, productive=True)
+    out_root = tmp_path / "out"
+    proc = _run_cli(_full_argv(fixture, out_root))
+    assert proc.returncode == 0, proc.stderr
+    diagnostics = json.loads((out_root / "height_discontinuity_diagnostics.json").read_text(encoding="utf-8"))
+    for row in diagnostics["parents"]:
+        assert set(row) == {
+            "parent_cluster_id", "support_cell_count", "data_cell_count", "no_data_cell_count",
+            "no_data_cell_fraction", "histogram", "tested_edge_count", "no_data_edge_count",
+            "cut_edge_count", "one_point_cell_count", "multi_point_cell_count",
+            "min_rep_z_m", "median_rep_z_m", "max_rep_z_m",
+        }
+        assert row["data_cell_count"] + row["no_data_cell_count"] == row["support_cell_count"]
+    csv_text = (out_root / "height_discontinuity_diagnostics.csv").read_text(encoding="utf-8")
+    header = csv_text.splitlines()[0]
+    for field in ("support_cell_count", "data_cell_count", "no_data_cell_count", "no_data_cell_fraction"):
+        assert field in header
+
+
+def test_b8_b9_benchmark_and_baseline_schema(tmp_path):
+    fixture = build_fixture(tmp_path, productive=True)
+    out_root = tmp_path / "out"
+    proc = _run_cli(_full_argv(fixture, out_root))
+    assert proc.returncode == 0, proc.stderr
+
+    benchmark = json.loads((out_root / "benchmark_minimum_comparison.json").read_text(encoding="utf-8"))
+    assert benchmark["benchmark_caveat"] == h.BENCHMARK_CAVEAT
+    assert [row["parent_cluster_id"] for row in benchmark["parents"]] == sorted(h.BENCHMARK_MINIMA)
+    for row in benchmark["parents"]:
+        assert set(row) == {
+            "parent_cluster_id", "frozen_scalar_minimum", "height_r1_child_count",
+            "height_fraction_of_minimum", "height_minimum_met",
+        }
+    benchmark_md = (out_root / "benchmark_minimum_comparison.md").read_text(encoding="utf-8")
+    assert h.BENCHMARK_CAVEAT in benchmark_md
+
+    baseline = json.loads((out_root / "baseline_comparison.json").read_text(encoding="utf-8"))
+    baseline_by_parent = {row["parent_cluster_id"]: row for row in baseline}
+    for row in benchmark["parents"]:
+        b = baseline_by_parent[row["parent_cluster_id"]]
+        assert b["frozen_scalar_minimum"] == row["frozen_scalar_minimum"]
+        assert b["height_r1_child_count"] == row["height_r1_child_count"]
+        assert b["height_fraction_of_minimum"] == row["height_fraction_of_minimum"]
+        assert b["height_minimum_met"] == row["height_minimum_met"]
+
+    baseline_md = (out_root / "baseline_comparison.md").read_text(encoding="utf-8")
+    assert h.BENCHMARK_CAVEAT in baseline_md
+    for pid in h.COHORT_REPORT_IDS:
+        assert str(pid) in baseline_md
+    assert "total" in baseline_md.lower()
+
+
+def test_b10_prediction_scorecard_has_registered_p1_through_p6(tmp_path):
+    fixture = build_fixture(tmp_path, productive=True)
+    out_root = tmp_path / "out"
+    proc = _run_cli(_full_argv(fixture, out_root))
+    assert proc.returncode == 0, proc.stderr
+    scorecard = json.loads((out_root / "prediction_scorecard.json").read_text(encoding="utf-8"))
+    predictions = scorecard["predictions"]
+    assert [row["id"] for row in predictions] == ["P1", "P2", "P3", "P4", "P5", "P6"]
+    for row in predictions:
+        assert row["result"] in {"MET", "NOT_MET"}
+        assert isinstance(row["observed"], int)
+    p4 = [row for row in predictions if row["id"] == "P4"][0]
+    assert p4["pre_declared_miss_framing"] == h.P4_PRE_DECLARED_MISS_FRAMING
+    scorecard_md = (out_root / "prediction_scorecard.md").read_text(encoding="utf-8")
+    assert h.P4_PRE_DECLARED_MISS_FRAMING in scorecard_md
+
+
+def test_b11_family_decision_embeds_canonical_rule_text(tmp_path):
+    fixture = build_fixture(tmp_path, productive=True)
+    out_root = tmp_path / "out"
+    proc = _run_cli(_full_argv(fixture, out_root))
+    assert proc.returncode == 0, proc.stderr
+    decision = json.loads((out_root / "family_decision.json").read_text(encoding="utf-8"))
+    assert decision["family_decision_rule"] == h.FAMILY_DECISION_RULE_TEXT
+    decision_md = (out_root / "family_decision.md").read_text(encoding="utf-8")
+    assert h.FAMILY_DECISION_RULE_TEXT in decision_md
+
+
+def test_b12_b13_contact_sheet_and_run_log_content(tmp_path):
+    fixture = build_fixture(tmp_path, productive=True)
+    out_root = tmp_path / "out"
+    proc = _run_cli(_full_argv(fixture, out_root))
+    assert proc.returncode == 0, proc.stderr
+
+    contact = (out_root / "contact_sheet.svg").read_text(encoding="utf-8")
+    assert "cut_edges=" in contact
+    assert "no_data_fraction=" in contact
+
+    run_log = (out_root / "run.log").read_text(encoding="utf-8")
+    lines = [line for line in run_log.splitlines() if line.strip()]
+    assert len(lines) > 0
+    for line in lines:
+        assert re.match(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z ", line), line
+    assert any("gate G-P0" in line for line in lines)
+    assert any("gate G-I1" in line for line in lines)
+    assert any("gate G-E1" in line for line in lines)
+    assert any("gate G-Z1/G-Z2" in line for line in lines)
+    parent_lines = [line for line in lines if re.search(r"parent \d{4}: processed", line)]
+    assert len(parent_lines) == len(h.EXPECTED_PARENT_IDS)
+    assert any("invariant HB1" in line for line in lines)
+    assert any("invariant HB11" in line for line in lines)
+    assert any(f"run_status: {h.RUN_STATUS}" in line for line in lines)
+    assert any("determinism_double_run: byte_identical=True" in line for line in lines)
+
+
+def test_b14_determinism_double_run_recorded_before_manifest(tmp_path):
+    fixture = build_fixture(tmp_path, productive=True)
+    out_root = tmp_path / "out"
+    proc = _run_cli(_full_argv(fixture, out_root))
+    assert proc.returncode == 0, proc.stderr
+    run_log = (out_root / "run.log").read_text(encoding="utf-8")
+    assert "determinism_double_run: byte_identical=True differing_files=[]" in run_log
+    # FREEZE_MANIFEST.sha256 hashes the FINAL run.log content (with the determinism line).
+    manifest_lines = (out_root / "FREEZE_MANIFEST.sha256").read_text(encoding="utf-8").splitlines()
+    manifest_by_name = {line.split("  ", 2)[2]: line.split("  ", 2)[0] for line in manifest_lines}
+    actual_sha = hashlib.sha256((out_root / "run.log").read_bytes()).hexdigest()
+    assert manifest_by_name["run.log"] == actual_sha
+
+
+def test_d2_z_gate_blocked_run_emits_exactly_five_files(tmp_path):
+    fixture = build_fixture(tmp_path, productive=True)
+    attestation_payload = json.loads(fixture["attestation_path"].read_text(encoding="utf-8"))
+    attestation_payload["target_unit"] = "feet"
+    fixture["attestation_path"].write_text(json.dumps(attestation_payload, sort_keys=True) + "\n", encoding="utf-8")
+    fixture["expected_z_unit_attestation_sha256"] = _sha256_path(fixture["attestation_path"])
+    out_root = tmp_path / "out"
+    proc = _run_cli(_full_argv(fixture, out_root))
+    assert proc.returncode == 2
+    on_disk = {p.name for p in out_root.iterdir()}
+    assert on_disk == {"z_unit_gate.json", "family_decision.json", "command.txt", "run.log", "command_stdout_stderr.log"}
+    assert len(on_disk) == 5
+    assert not (out_root / "FREEZE_MANIFEST.sha256").exists()
+    decision = json.loads((out_root / "family_decision.json").read_text(encoding="utf-8"))
+    gate = json.loads((out_root / "z_unit_gate.json").read_text(encoding="utf-8"))
+    assert decision["run_validity"] == gate["run_validity"] == "RUN_BLOCKED"
+
+
+def test_d2_pre_z_gate_blocked_run_emits_exactly_five_files(tmp_path):
+    fixture = build_fixture(tmp_path, productive=True)
+    out_root = tmp_path / "out"
+    argv = _full_argv(fixture, out_root)
+    npz_index = argv.index("--expected-npz-sha256") + 1
+    argv[npz_index] = "0" * 64
+    proc = _run_cli(argv)
+    assert proc.returncode == 2
+    on_disk = {p.name for p in out_root.iterdir()}
+    assert on_disk == {"gate_report.json", "family_decision.json", "command.txt", "run.log", "command_stdout_stderr.log"}
+    assert len(on_disk) == 5
+    assert not (out_root / "FREEZE_MANIFEST.sha256").exists()
+    gate_report = json.loads((out_root / "gate_report.json").read_text(encoding="utf-8"))
+    assert gate_report["verdict"] == "RUN_BLOCKED"
+    decision = json.loads((out_root / "family_decision.json").read_text(encoding="utf-8"))
+    assert decision["run_validity"] == "RUN_BLOCKED"
+    assert decision["height_mechanism_productive"] == "NOT_EVALUABLE"
+
+
+def test_run_valid_inventory_is_exactly_25_content_files_plus_manifest(tmp_path):
+    fixture = build_fixture(tmp_path, productive=True)
+    out_root = tmp_path / "out"
+    proc = _run_cli(_full_argv(fixture, out_root))
+    assert proc.returncode == 0, proc.stderr
+    on_disk = sorted(p.name for p in out_root.iterdir())
+    assert on_disk == sorted([*h.OUTPUT_CONTENT_FILES, "FREEZE_MANIFEST.sha256"])
+    assert len(h.OUTPUT_CONTENT_FILES) == 25
+    assert len(on_disk) == 26
+    assert "gate_report.json" not in on_disk
+    assert "z_unit_gate.json" not in on_disk
 
 
 def test_scientific_suite_still_collects_exactly_33(tmp_path):
