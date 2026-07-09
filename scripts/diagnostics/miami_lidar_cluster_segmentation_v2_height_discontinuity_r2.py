@@ -19,6 +19,7 @@ import os
 import platform
 import secrets
 import shutil
+import subprocess
 import sys
 import tempfile
 from collections import deque
@@ -248,12 +249,22 @@ REAL_ROUTE_REQUIRED_ARGUMENTS = [
     "expected_r1_freeze_manifest_sha256",
     "frozen_r2_root",
     "expected_r2_freeze_manifest_sha256",
+    "r1_independent_review",
+    "expected_r1_independent_review_sha256",
+    "r1_post_run_closeout",
+    "expected_r1_post_run_closeout_sha256",
+    "r1_fragmentation_forensics",
+    "expected_r1_fragmentation_forensics_sha256",
+    "design_v3_root",
+    "expected_design_v3_manifest_sha256",
     "expected_npz_sha256",
     "expected_v0_sha256",
     "expected_metadata_csv_sha256",
     "z_unit_attestation",
     "expected_z_unit_attestation_sha256",
     "implementation_sha",
+    "expected_head_sha",
+    "expected_origin_master_sha",
 ]
 FROZEN_EVIDENCE_REQUIRED_FILES = frozenset(
     {
@@ -1666,6 +1677,7 @@ def run_disposable_sibling_probe(
     token = utc_token or datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     process_id = os.getpid() if pid is None else pid
     nonce = nonce_hex or secrets.token_hex(16)
+    mount_namespace_identity = os.readlink("/proc/self/ns/mnt")
     probe_dir = output_parent / f".height_r2_parent_probe_{token}_{process_id}_{nonce}"
     if probe_dir.exists():
         raise SegmentationInputError("probe path already exists")
@@ -1674,7 +1686,14 @@ def run_disposable_sibling_probe(
     digest = None
     try:
         probe_dir.mkdir(parents=False, exist_ok=False)
-        data = b"height-r2-output-parent-probe\n"
+        probe_payload = {
+            "utc_timestamp": token,
+            "pid": process_id,
+            "nonce_hex": nonce,
+            "future_output_root": str(future_output_root),
+            "mount_namespace_identity": mount_namespace_identity,
+        }
+        data = (json.dumps(probe_payload, sort_keys=True) + "\n").encode("utf-8")
         with payload_path.open("wb") as handle:
             handle.write(data)
             handle.flush()
@@ -1708,11 +1727,71 @@ def run_disposable_sibling_probe(
         "probe_mkdir_parents": False,
         "probe_mkdir_exist_ok": False,
         "probe_payload_file": "probe_payload.bin",
+        "probe_payload_fields": probe_payload,
         "probe_payload_size": size,
         "probe_payload_sha256": digest,
+        "cleanup_verdict": "CLEANED",
+        "timestamp_utc": token,
+        "pid": process_id,
+        "nonce_hex": nonce,
+        "mount_namespace_identity": mount_namespace_identity,
         "probe_removed": not probe_dir.exists(),
         "same_prefix_residue": same_prefix,
         "verdict": "GO",
+    }
+
+
+def perform_execution_surface_preflight(args: argparse.Namespace) -> dict[str, Any]:
+    future_output_root = args.out_root.resolve()
+    output_parent = future_output_root.parent
+    if future_output_root.exists():
+        raise SegmentationInputError("future output root already exists")
+    if not output_parent.exists():
+        raise SegmentationInputError("future output parent must already exist")
+    surface = assert_execution_surface()
+    if surface["verdict"] != "GO":
+        raise SegmentationInputError("execution surface NO_GO: " + "; ".join(surface["failures"]))
+    relevant_paths = {
+        "source_run": args.source_run,
+        "canonical_v0": args.canonical_v0,
+        "z_unit_attestation": args.z_unit_attestation,
+        "scientific_output_parent": output_parent,
+        "evidence_artifact_parent": args.evidence_artifact_parent,
+        "repository_worktree": Path(__file__).resolve().parents[2],
+        "mnt_t7": Path("/mnt/t7"),
+    }
+    mounts = {}
+    for label, path in relevant_paths.items():
+        try:
+            if label == "mnt_t7":
+                try:
+                    t7_present = Path("/mnt/t7").exists()
+                except OSError as exc:
+                    mounts[label] = {
+                        "inspected_path": "/mnt/t7",
+                        "present": False,
+                        "availability_error": str(exc),
+                        "timestamp_utc": _utc_now_iso(),
+                    }
+                    continue
+                if not t7_present:
+                    mounts[label] = {"inspected_path": "/mnt/t7", "present": False, "timestamp_utc": _utc_now_iso()}
+                    continue
+            mounts[label] = build_mount_metadata(Path(path))
+        except Exception as exc:
+            raise SegmentationInputError(f"mount metadata NO_GO for {label}: {exc}") from exc
+        if mounts[label].get("ro_present") or not mounts[label].get("rw_present"):
+            raise SegmentationInputError(f"mount metadata NO_GO for {label}: rw required")
+    probe = run_disposable_sibling_probe(output_parent, future_output_root)
+    if future_output_root.exists():
+        raise SegmentationInputError("future output root was created during preflight")
+    return {
+        "execution_surface": surface,
+        "mount_metadata": mounts,
+        "disposable_sibling_probe": probe,
+        "future_output_root": str(future_output_root),
+        "future_output_root_exists_after_preflight": future_output_root.exists(),
+        "preflight_verdict": "GO",
     }
 
 
@@ -1830,6 +1909,88 @@ def verify_frozen_evidence_package(root: Path, expected_manifest_sha256: str) ->
     return counts
 
 
+def verify_bytewise_file(path: Path, expected_sha256: str, label: str) -> dict[str, Any]:
+    reject_t7_paths(path)
+    if not path.exists() or not path.is_file() or path.is_symlink():
+        raise SegmentationInputError(f"{label} missing or unsafe")
+    actual = _sha256_file(path)
+    if actual != expected_sha256:
+        raise SegmentationInputError(f"{label} SHA-256 mismatch")
+    return {"path": str(path.resolve()), "sha256": actual, "byte_size": path.stat().st_size}
+
+
+def verify_design_v3_package(root: Path, expected_manifest_sha256: str) -> dict[str, Any]:
+    reject_t7_paths(root)
+    manifest = root / "FREEZE_MANIFEST.sha256"
+    if _sha256_file(manifest) != expected_manifest_sha256:
+        raise SegmentationInputError("Height-R2 Design V3 manifest SHA-256 mismatch")
+    seen: list[str] = []
+    for line in manifest.read_text(encoding="utf-8").splitlines():
+        digest, size_s, rel = line.split("  ", 2)
+        if rel.startswith("/") or ".." in Path(rel).parts or rel in seen:
+            raise SegmentationInputError("unsafe or duplicate Design V3 manifest path")
+        path = root / rel
+        if path.is_symlink() or not path.exists():
+            raise SegmentationInputError(f"Design V3 manifest path missing or symlink: {rel}")
+        if _sha256_file(path) != digest or path.stat().st_size != int(size_s):
+            raise SegmentationInputError(f"Design V3 manifest entry mismatch: {rel}")
+        seen.append(rel)
+    if len(seen) != HEIGHT_R2_DESIGN_MANIFEST_ENTRY_COUNT:
+        raise SegmentationInputError("Design V3 manifest entry count mismatch")
+    return {
+        "design_v3_root": str(root.resolve()),
+        "design_v3_manifest_sha256": expected_manifest_sha256,
+        "design_v3_manifest_byte_size": manifest.stat().st_size,
+        "design_v3_manifest_entry_count": len(seen),
+    }
+
+
+def _git_output(args: list[str]) -> str:
+    proc = subprocess.run(["git", *args], cwd=Path(__file__).resolve().parents[2], capture_output=True, text=True)
+    if proc.returncode != 0:
+        raise SegmentationInputError(f"git {' '.join(args)} failed: {proc.stderr.strip()}")
+    return proc.stdout.strip()
+
+
+def verify_repository_identity(expected_head_sha: str, expected_origin_master_sha: str) -> dict[str, Any]:
+    head = _git_output(["rev-parse", "HEAD"])
+    origin_master = _git_output(["rev-parse", "origin/master"])
+    status = _git_output(["status", "--short"])
+    if head != expected_head_sha:
+        raise SegmentationInputError("implementation HEAD SHA mismatch")
+    if origin_master != expected_origin_master_sha:
+        raise SegmentationInputError("origin/master SHA mismatch")
+    if status:
+        raise SegmentationInputError("implementation worktree is dirty")
+    implementation_file = Path(__file__).resolve()
+    return {
+        "head_sha": head,
+        "origin_master_sha": origin_master,
+        "worktree_clean": True,
+        "implementation_file": str(implementation_file),
+        "implementation_file_sha256": _sha256_file(implementation_file),
+    }
+
+
+def verify_required_provenance(args: argparse.Namespace) -> dict[str, Any]:
+    design = verify_design_v3_package(args.design_v3_root, args.expected_design_v3_manifest_sha256)
+    prior = {
+        "r1_independent_review": verify_bytewise_file(
+            args.r1_independent_review, args.expected_r1_independent_review_sha256, "R1 independent review"
+        ),
+        "r1_post_run_closeout": verify_bytewise_file(
+            args.r1_post_run_closeout, args.expected_r1_post_run_closeout_sha256, "R1 post-run closeout"
+        ),
+        "r1_fragmentation_forensics": verify_bytewise_file(
+            args.r1_fragmentation_forensics,
+            args.expected_r1_fragmentation_forensics_sha256,
+            "R1 fragmentation forensics",
+        ),
+    }
+    repo = verify_repository_identity(args.expected_head_sha, args.expected_origin_master_sha)
+    return {"design_v3": design, "prior_r1_evidence": prior, "repository_identity": repo}
+
+
 def _missing_real_route_arguments(args: argparse.Namespace) -> list[str]:
     missing = []
     for name in REAL_ROUTE_REQUIRED_ARGUMENTS:
@@ -1903,6 +2064,22 @@ def _clear_output_root_contents(out_root: Path) -> None:
             shutil.rmtree(path)
         else:
             path.unlink()
+
+
+def _ensure_empty_evidence_root(out_root: Path) -> None:
+    if out_root.exists():
+        _clear_output_root_contents(out_root)
+    else:
+        out_root.mkdir(parents=True, exist_ok=False)
+
+
+def _promote_staged_success(staging_root: Path, final_root: Path) -> None:
+    if final_root.exists():
+        raise SegmentationInputError("final output root already exists before promotion")
+    final_root.mkdir(parents=True, exist_ok=False)
+    for path in sorted(staging_root.iterdir(), key=lambda item: item.name):
+        shutil.move(str(path), str(final_root / path.name))
+    staging_root.rmdir()
 
 
 class _Tee:
@@ -2011,6 +2188,8 @@ def build_real_output_package(
     implementation_sha: str,
     command: str,
     resolved_arguments: dict[str, Any],
+    preflight_evidence: dict[str, Any],
+    provenance_evidence: dict[str, Any],
 ) -> dict[str, Any]:
     """Serializes the 24 real-route content files (all of OUTPUT_CONTENT_FILES except
     command_stdout_stderr.log, which the caller writes once stdio capture is complete).
@@ -2380,6 +2559,8 @@ def build_real_output_package(
         "frozen_r2_root": str(frozen_r2_root),
         "input_hashes": input_hashes,
         "input_readiness_evidence": input_readiness_evidence,
+        "execution_surface_preflight": preflight_evidence,
+        "provenance_evidence": provenance_evidence,
         "stage_a": stage_a_rows,
         "z_unit_gate": z_unit_gate,
         "crs": "EPSG:32617",
@@ -2489,12 +2670,27 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--expected-r1-freeze-manifest-sha256")
     parser.add_argument("--frozen-r2-root", type=Path)
     parser.add_argument("--expected-r2-freeze-manifest-sha256")
+    parser.add_argument("--r1-independent-review", type=Path)
+    parser.add_argument("--expected-r1-independent-review-sha256")
+    parser.add_argument("--r1-post-run-closeout", type=Path)
+    parser.add_argument("--expected-r1-post-run-closeout-sha256")
+    parser.add_argument("--r1-fragmentation-forensics", type=Path)
+    parser.add_argument("--expected-r1-fragmentation-forensics-sha256")
+    parser.add_argument("--design-v3-root", type=Path)
+    parser.add_argument("--expected-design-v3-manifest-sha256")
     parser.add_argument("--expected-npz-sha256")
     parser.add_argument("--expected-v0-sha256")
     parser.add_argument("--expected-metadata-csv-sha256")
     parser.add_argument("--z-unit-attestation", type=Path)
     parser.add_argument("--expected-z-unit-attestation-sha256")
     parser.add_argument("--implementation-sha")
+    parser.add_argument("--expected-head-sha")
+    parser.add_argument("--expected-origin-master-sha")
+    parser.add_argument(
+        "--evidence-artifact-parent",
+        type=Path,
+        default=Path("/home/gytchdrafter/ATLANTID_SPRINT_20260704/evidence"),
+    )
     return parser
 
 
@@ -2506,16 +2702,27 @@ _RESOLVED_ARGUMENT_PATH_FIELDS = (
     "canonical_v0",
     "frozen_r1_root",
     "frozen_r2_root",
+    "r1_independent_review",
+    "r1_post_run_closeout",
+    "r1_fragmentation_forensics",
+    "design_v3_root",
     "z_unit_attestation",
+    "evidence_artifact_parent",
 )
 _RESOLVED_ARGUMENT_SCALAR_FIELDS = (
     "expected_r1_freeze_manifest_sha256",
     "expected_r2_freeze_manifest_sha256",
+    "expected_r1_independent_review_sha256",
+    "expected_r1_post_run_closeout_sha256",
+    "expected_r1_fragmentation_forensics_sha256",
+    "expected_design_v3_manifest_sha256",
     "expected_npz_sha256",
     "expected_v0_sha256",
     "expected_metadata_csv_sha256",
     "expected_z_unit_attestation_sha256",
     "implementation_sha",
+    "expected_head_sha",
+    "expected_origin_master_sha",
 )
 
 
@@ -2534,8 +2741,15 @@ def build_resolved_arguments(args: argparse.Namespace) -> dict[str, Any]:
     return resolved
 
 
-def _execute_real_route(args: argparse.Namespace, command_text: str) -> tuple[int, str]:
-    out_root = args.out_root
+def _execute_real_route(
+    args: argparse.Namespace,
+    command_text: str,
+    *,
+    package_root: Path | None = None,
+    preflight_evidence: dict[str, Any] | None = None,
+    provenance_evidence: dict[str, Any] | None = None,
+) -> tuple[int, str]:
+    out_root = package_root or args.out_root
     try:
         r1_counts = verify_frozen_evidence_package(args.frozen_r1_root, args.expected_r1_freeze_manifest_sha256)
         r2_counts = verify_frozen_evidence_package(args.frozen_r2_root, args.expected_r2_freeze_manifest_sha256)
@@ -2586,6 +2800,8 @@ def _execute_real_route(args: argparse.Namespace, command_text: str) -> tuple[in
             implementation_sha=args.implementation_sha,
             command=command_text,
             resolved_arguments=build_resolved_arguments(args),
+            preflight_evidence=preflight_evidence or {},
+            provenance_evidence=provenance_evidence or {},
         )
     except SegmentationInputError as exc:
         _clear_output_root_contents(out_root)
@@ -2703,8 +2919,51 @@ def write_replay_manifest(payload_root: Path) -> Path:
     return manifest
 
 
+def verify_replay_manifest(payload_root: Path) -> dict[str, Any]:
+    manifest = payload_root / "REPLAY_FREEZE_MANIFEST.sha256"
+    entries = []
+    for line in manifest.read_text(encoding="utf-8").splitlines():
+        digest, size_s, rel = line.split("  ", 2)
+        path = payload_root / rel
+        if rel.startswith("/") or ".." in Path(rel).parts or path.is_symlink():
+            raise SegmentationInputError("unsafe replay manifest path")
+        if not path.exists() or _sha256_file(path) != digest or path.stat().st_size != int(size_s):
+            raise SegmentationInputError(f"replay manifest entry mismatch: {rel}")
+        entries.append(rel)
+    return {
+        "verified": True,
+        "entry_count": len(entries),
+        "entries": entries,
+        "byte_size": manifest.stat().st_size,
+        "sha256": _sha256_file(manifest),
+    }
+
+
+def _child_identity_geometry_summary(root: Path) -> dict[str, Any]:
+    payload = json.loads((root / "segmented_children.geojson").read_text(encoding="utf-8"))
+    ids = []
+    geometry_hashes = []
+    for feature in payload.get("features", []):
+        props = feature.get("properties") or {}
+        ids.append(str(props.get("segment_id")))
+        geometry_hashes.append(hashlib.sha256(json.dumps(feature.get("geometry"), sort_keys=True).encode("utf-8")).hexdigest())
+    ids = sorted(ids)
+    geometry_hashes = sorted(geometry_hashes)
+    return {
+        "child_identifier_count": len(ids),
+        "child_identifier_sha256": hashlib.sha256("\n".join(ids).encode("utf-8")).hexdigest(),
+        "geometry_hash_count": len(geometry_hashes),
+        "geometry_sha256": hashlib.sha256("\n".join(geometry_hashes).encode("utf-8")).hexdigest(),
+    }
+
+
 def run_determinism_double_check(
-    primary_args: argparse.Namespace, base_command_text: str, primary_root: Path
+    primary_args: argparse.Namespace,
+    base_command_text: str,
+    primary_root: Path,
+    *,
+    preflight_evidence: dict[str, Any] | None = None,
+    provenance_evidence: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """V3 replay contract: compare the replay payload before cleaning the unique scratch root."""
     scratch_root = create_replay_scratch_root()
@@ -2714,7 +2973,13 @@ def run_determinism_double_check(
         scratch_args = argparse.Namespace(**vars(primary_args))
         scratch_args.out_root = scratch_payload
         scratch_command_text = base_command_text.replace(str(primary_root), str(scratch_payload))
-        exit_code, run_validity = _execute_real_route(scratch_args, scratch_command_text)
+        exit_code, run_validity = _execute_real_route(
+            scratch_args,
+            scratch_command_text,
+            package_root=scratch_payload,
+            preflight_evidence=preflight_evidence,
+            provenance_evidence=provenance_evidence,
+        )
         (scratch_payload / "command_stdout_stderr.log").write_text("", encoding="utf-8")
         (scratch_logs / "replay_command.txt").write_text(scratch_command_text + "\n", encoding="utf-8")
         (scratch_logs / "replay_stdout_stderr.log").write_text("", encoding="utf-8")
@@ -2733,9 +2998,10 @@ def run_determinism_double_check(
             "relative_path": "payload/REPLAY_FREEZE_MANIFEST.sha256",
             "byte_size": replay_manifest.stat().st_size,
             "sha256": _sha256_file(replay_manifest),
+            "verification": verify_replay_manifest(scratch_payload),
         }
+        _write_json(scratch_root / "replay_inventory_before_cleanup.json", inventory_tree(scratch_root))
         replay_inventory = inventory_tree(scratch_root)
-        _write_json(scratch_root / "replay_inventory_before_cleanup.json", replay_inventory)
         differing: list[str] = []
         if run_validity != "RUN_VALID":
             differing.append(f"<scratch re-run did not reach RUN_VALID: exit_code={exit_code}>")
@@ -2778,6 +3044,22 @@ def run_determinism_double_check(
         }
         if primary_counts != replay_counts:
             differing.append("parent_segmentation_summary.child_count")
+        primary_id_geom = _child_identity_geometry_summary(primary_root)
+        replay_id_geom = _child_identity_geometry_summary(scratch_payload)
+        identifier_comparison = {
+            "primary": primary_id_geom["child_identifier_sha256"],
+            "replay": replay_id_geom["child_identifier_sha256"],
+            "matched": primary_id_geom["child_identifier_sha256"] == replay_id_geom["child_identifier_sha256"],
+        }
+        geometry_comparison = {
+            "primary": primary_id_geom["geometry_sha256"],
+            "replay": replay_id_geom["geometry_sha256"],
+            "matched": primary_id_geom["geometry_sha256"] == replay_id_geom["geometry_sha256"],
+        }
+        if not identifier_comparison["matched"]:
+            differing.append("segmented_children.identifiers")
+        if not geometry_comparison["matched"]:
+            differing.append("segmented_children.geometry")
         cleanup = cleanup_replay_scratch_root(scratch_root)
         return {
             "disposition": DETERMINISTIC_REPLAY_SCRATCH_DISPOSITION,
@@ -2801,8 +3083,21 @@ def run_determinism_double_check(
             "parent_count_replay": len(replay_counts),
             "child_count_primary": sum(primary_counts.values()),
             "child_count_replay": sum(replay_counts.values()),
+            "cluster_18_identifier_geometry_comparison": {
+                "child_count_primary": primary_counts.get(18),
+                "child_count_replay": replay_counts.get(18),
+                "parent_table_matched": primary_counts.get(18) == replay_counts.get(18),
+            },
+            "cluster_34_identifier_geometry_comparison": {
+                "child_count_primary": primary_counts.get(34),
+                "child_count_replay": replay_counts.get(34),
+                "parent_table_matched": primary_counts.get(34) == replay_counts.get(34),
+            },
+            "child_identifier_comparison": identifier_comparison,
+            "segmented_geometry_comparison": geometry_comparison,
             "byte_identical": len(differing) == 0,
             "differing_files": differing,
+            "final_replay_verdict": "PASS" if len(differing) == 0 else "INVALID_RUN",
             "cleanup": cleanup,
             "authorization_accounting": "internal replay is part of one authorized invocation; not a retry",
             "automatic_retry_triggered": False,
@@ -2821,36 +3116,76 @@ def main(argv: list[str] | None = None) -> int:
     try:
         reject_t7_paths(*vars(args).values())
         assert_frozen_constants()
-        require_fresh_output_root(args.out_root)
-        if args.readiness_audit_only:
-            (args.out_root / "run.log").write_text(f"{BLOCKED_STATUS}: readiness audit surface only\n", encoding="utf-8")
-            return 0
     except SegmentationInputError as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
         return 2
 
     missing = _missing_real_route_arguments(args)
     if missing:
-        parser.error(
-            "real execution requires the exact V4 real-route arguments; missing: " + ", ".join(missing)
-        )
+        reason = "real execution requires the exact V3 real-route arguments; missing: " + ", ".join(missing)
+        try:
+            _ensure_empty_evidence_root(args.out_root)
+            _write_blocked_evidence(args.out_root, "ARGUMENT_CONTRACT", reason, command_text)
+            (args.out_root / "command_stdout_stderr.log").write_text(reason + "\n", encoding="utf-8")
+        except Exception:
+            print(f"ERROR: {reason}", file=sys.stderr)
+            return 2
+        print(f"ERROR: {reason}", file=sys.stderr)
+        return 2
+
+    try:
+        preflight_evidence = perform_execution_surface_preflight(args)
+        if args.readiness_audit_only:
+            _ensure_empty_evidence_root(args.out_root)
+            _write_blocked_evidence(args.out_root, "READINESS_AUDIT_ONLY", "readiness audit surface only", command_text)
+            (args.out_root / "command_stdout_stderr.log").write_text("", encoding="utf-8")
+            return 0
+        provenance_evidence = verify_required_provenance(args)
+    except SegmentationInputError as exc:
+        _ensure_empty_evidence_root(args.out_root)
+        _write_blocked_evidence(args.out_root, "PREFLIGHT_OR_PROVENANCE_GATE", str(exc), command_text)
+        (args.out_root / "command_stdout_stderr.log").write_text(str(exc) + "\n", encoding="utf-8")
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 2
 
     capture = io.StringIO()
+    staging_root = Path(tempfile.mkdtemp(prefix="height_r2_primary_staging_", dir="/tmp"))
     with contextlib.redirect_stdout(_Tee(sys.stdout, capture)), contextlib.redirect_stderr(_Tee(sys.stderr, capture)):
-        exit_code, run_validity = _execute_real_route(args, command_text)
+        exit_code, run_validity = _execute_real_route(
+            args,
+            command_text,
+            package_root=staging_root,
+            preflight_evidence=preflight_evidence,
+            provenance_evidence=provenance_evidence,
+        )
 
-    stdio_path = args.out_root / "command_stdout_stderr.log"
+    stdio_path = staging_root / "command_stdout_stderr.log"
     if not stdio_path.exists():
         stdio_path.write_text(capture.getvalue(), encoding="utf-8")
+
+    if run_validity != "RUN_VALID":
+        try:
+            _promote_staged_success(staging_root, args.out_root)
+        except SegmentationInputError as exc:
+            _ensure_empty_evidence_root(args.out_root)
+            _write_blocked_evidence(args.out_root, "BLOCKED_PROMOTION_GATE", str(exc), command_text)
+            (args.out_root / "command_stdout_stderr.log").write_text(capture.getvalue(), encoding="utf-8")
+        return exit_code
 
     if run_validity == "RUN_VALID":
         try:
             # B14/HB8: the double-run determinism check must complete, and its result must be
             # recorded in run.log, before the manifest is written (implementation_plan.md L6.4).
-            determinism = run_determinism_double_check(args, command_text, args.out_root)
-            _write_json(args.out_root / "deterministic_replay_report.json", determinism)
+            determinism = run_determinism_double_check(
+                args,
+                command_text,
+                staging_root,
+                preflight_evidence=preflight_evidence,
+                provenance_evidence=provenance_evidence,
+            )
+            _write_json(staging_root / "deterministic_replay_report.json", determinism)
             _append_run_log_line(
-                args.out_root,
+                staging_root,
                 f"determinism_double_run: byte_identical={determinism['byte_identical']} "
                 f"differing_files={determinism['differing_files']}",
             )
@@ -2858,10 +3193,13 @@ def main(argv: list[str] | None = None) -> int:
                 raise SegmentationInputError(
                     f"determinism double-run byte mismatch: {determinism['differing_files']}"
                 )
-            write_freeze_manifest(args.out_root)
-            validate_manifest_complete(args.out_root)
+            write_freeze_manifest(staging_root)
+            validate_manifest_complete(staging_root)
+            _promote_staged_success(staging_root, args.out_root)
         except SegmentationInputError as exc:
-            _clear_output_root_contents(args.out_root)
+            if staging_root.exists():
+                shutil.rmtree(staging_root)
+            _ensure_empty_evidence_root(args.out_root)
             _write_blocked_evidence(
                 args.out_root,
                 "DETERMINISTIC_REPLAY_GATE",
