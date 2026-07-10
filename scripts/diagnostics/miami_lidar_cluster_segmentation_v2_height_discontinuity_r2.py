@@ -1619,6 +1619,77 @@ def build_mount_metadata(
     }
 
 
+def _require_nonempty_string(payload: dict[str, Any], key: str) -> str:
+    value = payload.get(key)
+    if not isinstance(value, str) or not value.strip():
+        raise SegmentationInputError(f"required evidence string missing or empty: {key}")
+    return value
+
+
+def _require_bool(payload: dict[str, Any], key: str) -> bool:
+    value = payload.get(key)
+    if not isinstance(value, bool):
+        raise SegmentationInputError(f"required evidence boolean missing or malformed: {key}")
+    return value
+
+
+def _require_int(payload: dict[str, Any], key: str) -> int:
+    value = payload.get(key)
+    if not isinstance(value, int) or isinstance(value, bool):
+        raise SegmentationInputError(f"required evidence integer missing or malformed: {key}")
+    return value
+
+
+def _require_sha256(payload: dict[str, Any], key: str) -> str:
+    value = _require_nonempty_string(payload, key)
+    if len(value) != 64 or any(char not in "0123456789abcdef" for char in value):
+        raise SegmentationInputError(f"required evidence SHA-256 malformed: {key}")
+    return value
+
+
+def validate_mount_metadata(metadata: dict[str, Any], *, label: str) -> None:
+    for key in [
+        "inspected_path",
+        "resolved_path",
+        "resolved_mount_target",
+        "mount_source",
+        "filesystem_type",
+        "effective_mount_options",
+        "mount_namespace_identity",
+        "mountinfo_line",
+        "timestamp_utc",
+    ]:
+        _require_nonempty_string(metadata, key)
+    ro_present = _require_bool(metadata, "ro_present")
+    rw_present = _require_bool(metadata, "rw_present")
+    if ro_present == rw_present:
+        raise SegmentationInputError(f"{label} mount metadata has contradictory ro/rw evidence")
+    if ro_present or not rw_present:
+        raise SegmentationInputError(f"{label} mount metadata NO_GO: rw required")
+
+
+def _surface_identity(evidence: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "shell_executable": evidence["shell_executable"],
+        "argv0": evidence["argv0"],
+        "whoami": evidence["whoami"],
+        "uid": evidence["uid"],
+        "euid": evidence["euid"],
+        "gid": evidence["gid"],
+        "groups": evidence["groups"],
+        "pwd": evidence["pwd"],
+        "hostname": evidence["hostname"],
+        "uname_a": evidence["uname_a"],
+        "wsl_distribution": evidence["wsl_distribution"],
+        "WSL_INTEROP_present": evidence["WSL_INTEROP_present"],
+        "SUDO_USER_present": evidence["SUDO_USER_present"],
+        "container_or_sandbox_markers": evidence["container_or_sandbox_markers"],
+        "mount_namespace_identity": evidence["mount_namespace_identity"],
+        "process_id": evidence["process_id"],
+        "parent_process_id": evidence["parent_process_id"],
+    }
+
+
 def assert_execution_surface(
     *,
     user_id: int | None = None,
@@ -1628,34 +1699,141 @@ def assert_execution_surface(
     readiness_mount_namespace: str | None = None,
     invocation_mount_namespace: str | None = None,
 ) -> dict[str, Any]:
-    uid = os.geteuid() if user_id is None else user_id
-    shell = shell_name or Path(os.environ.get("SHELL", "")).name
+    uid = os.getuid() if user_id is None else user_id
+    euid = os.geteuid() if user_id is None else user_id
+    gid = os.getgid()
+    groups = os.getgroups()
+    shell_path = os.environ.get("SHELL", "")
+    shell = shell_name or Path(shell_path).name
     sudo = sudo_user if sudo_user is not None else os.environ.get("SUDO_USER")
     current_ns = os.readlink("/proc/self/ns/mnt")
     readiness_ns = readiness_mount_namespace or current_ns
     invocation_ns = invocation_mount_namespace or current_ns
+    uname_a = " ".join(platform.uname())
+    wsl_distribution = os.environ.get("WSL_DISTRO_NAME") or (
+        "WSL_KERNEL" if "microsoft" in uname_a.lower() or "wsl" in uname_a.lower() else ""
+    )
+    markers = {
+        "CODEX_SANDBOX": bool(os.environ.get("CODEX_SANDBOX")),
+        "container_env": Path("/.dockerenv").exists(),
+        "container_cgroup": False,
+    }
+    try:
+        markers["container_cgroup"] = "docker" in Path("/proc/1/cgroup").read_text(encoding="utf-8").lower()
+    except OSError:
+        markers["container_cgroup"] = False
+    sandbox_marker_present = sandboxed or any(markers.values())
+    ordinary_wsl = bool(wsl_distribution) or bool(os.environ.get("WSL_INTEROP"))
     failures = []
-    if uid == 0:
+    if uid == 0 or euid == 0:
         failures.append("root or elevated-shell execution is forbidden")
     if sudo:
         failures.append("sudo/elevated shell is forbidden")
-    if shell not in {"bash", "sh"}:
+    if shell not in {"bash", "sh"} or not ordinary_wsl:
         failures.append("ordinary WSL Bash execution surface not established")
-    if sandboxed:
+    if sandbox_marker_present:
         failures.append("agent sandbox execution is forbidden for scientific execution")
     if readiness_ns != invocation_ns:
         failures.append("mount namespace mismatch between readiness and invocation")
-    return {
-        "ordinary_wsl_bash": shell in {"bash", "sh"},
-        "non_root_user": uid != 0,
-        "sudo_absent": not bool(sudo),
-        "agent_sandbox_absent": not sandboxed,
+    evidence = {
+        "schema_id": "height_r2_execution_surface_preflight_v3",
+        "schema_version": 3,
+        "shell_executable": shell_path or shell,
+        "argv0": Path(sys.argv[0]).name,
+        "whoami": os.environ.get("USER") or os.environ.get("LOGNAME") or "",
+        "uid": uid,
+        "euid": euid,
+        "gid": gid,
+        "groups": groups,
+        "pwd": str(Path.cwd()),
+        "hostname": platform.node(),
+        "uname_a": uname_a,
+        "wsl_distribution": wsl_distribution,
+        "WSL_INTEROP_present": bool(os.environ.get("WSL_INTEROP")),
+        "SUDO_USER_present": bool(sudo),
+        "container_or_sandbox_markers": markers,
+        "process_start_utc": _utc_now_iso(),
+        "mount_namespace_identity": current_ns,
         "readiness_mount_namespace": readiness_ns,
         "invocation_mount_namespace": invocation_ns,
+        "ordinary_wsl_bash": shell in {"bash", "sh"} and ordinary_wsl,
+        "non_root_user": uid != 0 and euid != 0,
+        "sudo_absent": not bool(sudo),
+        "agent_sandbox_absent": not sandbox_marker_present,
         "execution_surface_match": readiness_ns == invocation_ns,
+        "execution_surface_verdict": "GO" if not failures else "NO_GO",
         "verdict": "GO" if not failures else "NO_GO",
         "failures": failures,
+        "process_id": os.getpid(),
+        "parent_process_id": os.getppid(),
     }
+    identity = _surface_identity(evidence)
+    evidence.update(
+        {
+            "probe_execution_surface_identity": identity,
+            "intended_invocation_execution_surface_identity": dict(identity),
+            "probe_invocation_surface_match": True,
+        }
+    )
+    return evidence
+
+
+def validate_execution_surface_evidence(evidence: dict[str, Any]) -> None:
+    if not isinstance(evidence, dict):
+        raise SegmentationInputError("execution-surface evidence must be an object")
+    if evidence.get("schema_id") != "height_r2_execution_surface_preflight_v3" or evidence.get("schema_version") != 3:
+        raise SegmentationInputError("unsupported execution-surface evidence schema")
+    for key in [
+        "shell_executable",
+        "argv0",
+        "whoami",
+        "pwd",
+        "hostname",
+        "uname_a",
+        "wsl_distribution",
+        "process_start_utc",
+        "mount_namespace_identity",
+        "readiness_mount_namespace",
+        "invocation_mount_namespace",
+        "execution_surface_verdict",
+        "verdict",
+    ]:
+        _require_nonempty_string(evidence, key)
+    for key in ["uid", "euid", "gid", "process_id", "parent_process_id"]:
+        _require_int(evidence, key)
+    groups = evidence.get("groups")
+    if not isinstance(groups, list) or not all(isinstance(item, int) and not isinstance(item, bool) for item in groups):
+        raise SegmentationInputError("execution-surface groups evidence malformed")
+    markers = evidence.get("container_or_sandbox_markers")
+    if not isinstance(markers, dict) or not all(isinstance(value, bool) for value in markers.values()):
+        raise SegmentationInputError("execution-surface sandbox marker evidence malformed")
+    for key in [
+        "ordinary_wsl_bash",
+        "non_root_user",
+        "sudo_absent",
+        "agent_sandbox_absent",
+        "execution_surface_match",
+        "WSL_INTEROP_present",
+        "SUDO_USER_present",
+        "probe_invocation_surface_match",
+    ]:
+        _require_bool(evidence, key)
+    if evidence["uid"] == 0 or evidence["euid"] == 0 or not evidence["non_root_user"]:
+        raise SegmentationInputError("execution-surface evidence accepts root/elevated execution")
+    if evidence["SUDO_USER_present"] or not evidence["sudo_absent"]:
+        raise SegmentationInputError("execution-surface evidence accepts sudo/elevated shell")
+    if not evidence["ordinary_wsl_bash"]:
+        raise SegmentationInputError("ordinary WSL Bash evidence absent")
+    if not evidence["agent_sandbox_absent"]:
+        raise SegmentationInputError("agent sandbox evidence is not absent")
+    if evidence["readiness_mount_namespace"] != evidence["invocation_mount_namespace"]:
+        raise SegmentationInputError("mount namespace mismatch between readiness and invocation")
+    if not evidence["execution_surface_match"] or not evidence["probe_invocation_surface_match"]:
+        raise SegmentationInputError("probe and intended invocation surfaces differ")
+    if evidence["execution_surface_verdict"] != "GO" or evidence["verdict"] != "GO":
+        raise SegmentationInputError("execution-surface verdict is NO_GO")
+    if evidence.get("probe_execution_surface_identity") != evidence.get("intended_invocation_execution_surface_identity"):
+        raise SegmentationInputError("probe and invocation execution-surface identities differ")
 
 
 def run_disposable_sibling_probe(
@@ -1668,7 +1846,7 @@ def run_disposable_sibling_probe(
 ) -> dict[str, Any]:
     output_parent = output_parent.resolve()
     future_output_root = future_output_root.resolve()
-    if future_output_root.exists():
+    if future_output_root.exists() or future_output_root.is_symlink():
         raise SegmentationInputError("future output root already exists")
     if future_output_root.parent != output_parent:
         raise SegmentationInputError("future output root must be a direct child of the probed output parent")
@@ -1678,8 +1856,9 @@ def run_disposable_sibling_probe(
     process_id = os.getpid() if pid is None else pid
     nonce = nonce_hex or secrets.token_hex(16)
     mount_namespace_identity = os.readlink("/proc/self/ns/mnt")
+    mount_metadata = build_mount_metadata(output_parent, mount_namespace_identity=mount_namespace_identity)
     probe_dir = output_parent / f".height_r2_parent_probe_{token}_{process_id}_{nonce}"
-    if probe_dir.exists():
+    if probe_dir.exists() or probe_dir.is_symlink():
         raise SegmentationInputError("probe path already exists")
     payload_path = probe_dir / "probe_payload.bin"
     cleanup_failure = None
@@ -1694,6 +1873,7 @@ def run_disposable_sibling_probe(
             "mount_namespace_identity": mount_namespace_identity,
         }
         data = (json.dumps(probe_payload, sort_keys=True) + "\n").encode("utf-8")
+        deterministic_payload_sha256 = hashlib.sha256(data).hexdigest()
         with payload_path.open("wb") as handle:
             handle.write(data)
             handle.flush()
@@ -1721,15 +1901,36 @@ def run_disposable_sibling_probe(
     if same_prefix:
         raise SegmentationInputError(f"same-prefix probe residue remains: {same_prefix}")
     return {
+        "schema_id": "height_r2_disposable_sibling_probe_v3",
+        "schema_version": 3,
         "future_output_root": str(future_output_root),
         "future_output_root_exists_after_probe": future_output_root.exists(),
         "probe_dir": str(probe_dir),
+        "probe_path": str(probe_dir),
+        "output_parent": str(output_parent),
+        "unique_probe_identifier": f"{token}_{process_id}_{nonce}",
         "probe_mkdir_parents": False,
         "probe_mkdir_exist_ok": False,
+        "path_mkdir_semantics": "probe_dir.mkdir(parents=False, exist_ok=False)",
         "probe_payload_file": "probe_payload.bin",
+        "probe_payload_path": str(payload_path),
         "probe_payload_fields": probe_payload,
+        "deterministic_payload_sha256": deterministic_payload_sha256,
         "probe_payload_size": size,
         "probe_payload_sha256": digest,
+        "flush_result": "FLUSHED",
+        "fsync_result": "FSYNCED",
+        "mount_metadata": mount_metadata,
+        "mount_source": mount_metadata["mount_source"],
+        "mount_target": mount_metadata["resolved_mount_target"],
+        "filesystem_type": mount_metadata["filesystem_type"],
+        "complete_mount_options": mount_metadata["effective_mount_options"],
+        "ro_present": mount_metadata["ro_present"],
+        "rw_present": mount_metadata["rw_present"],
+        "file_removal_result": "REMOVED",
+        "directory_removal_result": "REMOVED",
+        "file_absence_assertion": not payload_path.exists(),
+        "directory_absence_assertion": not probe_dir.exists(),
         "cleanup_verdict": "CLEANED",
         "timestamp_utc": token,
         "pid": process_id,
@@ -1741,14 +1942,114 @@ def run_disposable_sibling_probe(
     }
 
 
+def validate_disposable_sibling_probe_evidence(probe: dict[str, Any]) -> None:
+    if not isinstance(probe, dict):
+        raise SegmentationInputError("sibling-probe evidence must be an object")
+    if probe.get("schema_id") != "height_r2_disposable_sibling_probe_v3" or probe.get("schema_version") != 3:
+        raise SegmentationInputError("unsupported sibling-probe evidence schema")
+    for key in [
+        "future_output_root",
+        "probe_dir",
+        "probe_path",
+        "output_parent",
+        "unique_probe_identifier",
+        "path_mkdir_semantics",
+        "probe_payload_file",
+        "probe_payload_path",
+        "flush_result",
+        "fsync_result",
+        "mount_source",
+        "mount_target",
+        "filesystem_type",
+        "complete_mount_options",
+        "file_removal_result",
+        "directory_removal_result",
+        "cleanup_verdict",
+        "timestamp_utc",
+        "nonce_hex",
+        "mount_namespace_identity",
+        "verdict",
+    ]:
+        _require_nonempty_string(probe, key)
+    if probe["path_mkdir_semantics"] != "probe_dir.mkdir(parents=False, exist_ok=False)":
+        raise SegmentationInputError("sibling-probe mkdir semantics are not exact")
+    if probe["probe_payload_file"] != "probe_payload.bin":
+        raise SegmentationInputError("sibling-probe payload file name is not exact")
+    if probe["flush_result"] != "FLUSHED" or probe["fsync_result"] != "FSYNCED":
+        raise SegmentationInputError("sibling-probe flush/fsync evidence is unsuccessful")
+    if probe["file_removal_result"] != "REMOVED" or probe["directory_removal_result"] != "REMOVED":
+        raise SegmentationInputError("sibling-probe cleanup removal evidence is unsuccessful")
+    if probe["cleanup_verdict"] != "CLEANED":
+        raise SegmentationInputError("sibling-probe cleanup verdict is not CLEANED")
+    if probe["verdict"] != "GO":
+        raise SegmentationInputError("sibling-probe final verdict is not GO")
+    for key in [
+        "future_output_root_exists_after_probe",
+        "probe_mkdir_parents",
+        "probe_mkdir_exist_ok",
+        "ro_present",
+        "rw_present",
+        "file_absence_assertion",
+        "directory_absence_assertion",
+        "probe_removed",
+    ]:
+        _require_bool(probe, key)
+    if probe["future_output_root_exists_after_probe"]:
+        raise SegmentationInputError("future output root exists after sibling probe")
+    if probe["probe_mkdir_parents"] or probe["probe_mkdir_exist_ok"]:
+        raise SegmentationInputError("sibling-probe mkdir flags are not exact")
+    if probe["ro_present"] == probe["rw_present"] or probe["ro_present"] or not probe["rw_present"]:
+        raise SegmentationInputError("sibling-probe mount ro/rw evidence is contradictory or not writable")
+    if not probe["file_absence_assertion"] or not probe["directory_absence_assertion"] or not probe["probe_removed"]:
+        raise SegmentationInputError("sibling-probe cleanup absence assertion failed")
+    _require_int(probe, "pid")
+    size = _require_int(probe, "probe_payload_size")
+    if size <= 0:
+        raise SegmentationInputError("sibling-probe payload byte size is invalid")
+    _require_sha256(probe, "probe_payload_sha256")
+    _require_sha256(probe, "deterministic_payload_sha256")
+    payload_fields = probe.get("probe_payload_fields")
+    if not isinstance(payload_fields, dict):
+        raise SegmentationInputError("sibling-probe payload fields missing")
+    for key in ["utc_timestamp", "pid", "nonce_hex", "future_output_root", "mount_namespace_identity"]:
+        if key == "pid":
+            _require_int(payload_fields, key)
+        else:
+            _require_nonempty_string(payload_fields, key)
+    if payload_fields["future_output_root"] != probe["future_output_root"]:
+        raise SegmentationInputError("sibling-probe payload future root mismatch")
+    expected_payload = (json.dumps(payload_fields, sort_keys=True) + "\n").encode("utf-8")
+    if len(expected_payload) != size:
+        raise SegmentationInputError("sibling-probe payload byte size mismatch")
+    if hashlib.sha256(expected_payload).hexdigest() != probe["deterministic_payload_sha256"]:
+        raise SegmentationInputError("sibling-probe deterministic payload hash mismatch")
+    same_prefix = probe.get("same_prefix_residue")
+    if not isinstance(same_prefix, list) or same_prefix:
+        raise SegmentationInputError("sibling-probe same-prefix residue assertion failed")
+    mount_metadata = probe.get("mount_metadata")
+    if not isinstance(mount_metadata, dict):
+        raise SegmentationInputError("sibling-probe mount metadata missing")
+    validate_mount_metadata(mount_metadata, label="sibling probe")
+    if (
+        mount_metadata["mount_source"] != probe["mount_source"]
+        or mount_metadata["resolved_mount_target"] != probe["mount_target"]
+        or mount_metadata["filesystem_type"] != probe["filesystem_type"]
+        or mount_metadata["effective_mount_options"] != probe["complete_mount_options"]
+        or mount_metadata["ro_present"] != probe["ro_present"]
+        or mount_metadata["rw_present"] != probe["rw_present"]
+    ):
+        raise SegmentationInputError("sibling-probe mount summary disagrees with mount metadata")
+
+
 def perform_execution_surface_preflight(args: argparse.Namespace) -> dict[str, Any]:
     future_output_root = args.out_root.resolve()
     output_parent = future_output_root.parent
-    if future_output_root.exists():
+    if future_output_root.exists() or future_output_root.is_symlink():
         raise SegmentationInputError("future output root already exists")
     if not output_parent.exists():
         raise SegmentationInputError("future output parent must already exist")
     surface = assert_execution_surface()
+    validate_execution_surface_evidence(surface)
     if surface["verdict"] != "GO":
         raise SegmentationInputError("execution surface NO_GO: " + "; ".join(surface["failures"]))
     relevant_paths = {
@@ -1780,17 +2081,28 @@ def perform_execution_surface_preflight(args: argparse.Namespace) -> dict[str, A
             mounts[label] = build_mount_metadata(Path(path))
         except Exception as exc:
             raise SegmentationInputError(f"mount metadata NO_GO for {label}: {exc}") from exc
-        if mounts[label].get("ro_present") or not mounts[label].get("rw_present"):
-            raise SegmentationInputError(f"mount metadata NO_GO for {label}: rw required")
+        validate_mount_metadata(mounts[label], label=label)
     probe = run_disposable_sibling_probe(output_parent, future_output_root)
-    if future_output_root.exists():
+    validate_disposable_sibling_probe_evidence(probe)
+    if future_output_root.exists() or future_output_root.is_symlink():
         raise SegmentationInputError("future output root was created during preflight")
+    repository_worktree = str(Path(__file__).resolve().parents[2])
+    output_parent_text = str(output_parent)
     return {
+        "schema_id": "height_r2_execution_surface_preflight_report_v3",
+        "schema_version": 3,
         "execution_surface": surface,
         "mount_metadata": mounts,
         "disposable_sibling_probe": probe,
         "future_output_root": str(future_output_root),
         "future_output_root_exists_after_preflight": future_output_root.exists(),
+        "repository_path": repository_worktree,
+        "output_parent_path": output_parent_text,
+        "probe_execution_surface_identity": surface["probe_execution_surface_identity"],
+        "intended_invocation_execution_surface_identity": surface["intended_invocation_execution_surface_identity"],
+        "probe_invocation_surface_match": surface["probe_invocation_surface_match"],
+        "output_parent_mount_metadata": mounts["scientific_output_parent"],
+        "observation_time_utc": _utc_now_iso(),
         "preflight_verdict": "GO",
     }
 
@@ -2066,15 +2378,14 @@ def _clear_output_root_contents(out_root: Path) -> None:
             path.unlink()
 
 
-def _ensure_empty_evidence_root(out_root: Path) -> None:
-    if out_root.exists():
-        _clear_output_root_contents(out_root)
-    else:
-        out_root.mkdir(parents=True, exist_ok=False)
+def _create_absent_blocked_evidence_root(out_root: Path) -> None:
+    if out_root.exists() or out_root.is_symlink():
+        raise SegmentationInputError("requested output root already exists; refusing to write blocked evidence")
+    out_root.mkdir(parents=True, exist_ok=False)
 
 
 def _promote_staged_success(staging_root: Path, final_root: Path) -> None:
-    if final_root.exists():
+    if final_root.exists() or final_root.is_symlink():
         raise SegmentationInputError("final output root already exists before promotion")
     final_root.mkdir(parents=True, exist_ok=False)
     for path in sorted(staging_root.iterdir(), key=lambda item: item.name):
@@ -2804,6 +3115,9 @@ def _execute_real_route(
             provenance_evidence=provenance_evidence or {},
         )
     except SegmentationInputError as exc:
+        if package_root is None or out_root.resolve() == args.out_root.resolve():
+            print(f"ERROR: {exc}", file=sys.stderr)
+            return 2, "RUN_FAILED"
         _clear_output_root_contents(out_root)
         _write_blocked_evidence(
             out_root,
@@ -3119,12 +3433,15 @@ def main(argv: list[str] | None = None) -> int:
     except SegmentationInputError as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
         return 2
+    if args.out_root.exists() or args.out_root.is_symlink():
+        print("ERROR: requested output root already exists; refusing to modify it", file=sys.stderr)
+        return 2
 
     missing = _missing_real_route_arguments(args)
     if missing:
         reason = "real execution requires the exact V3 real-route arguments; missing: " + ", ".join(missing)
         try:
-            _ensure_empty_evidence_root(args.out_root)
+            _create_absent_blocked_evidence_root(args.out_root)
             _write_blocked_evidence(args.out_root, "ARGUMENT_CONTRACT", reason, command_text)
             (args.out_root / "command_stdout_stderr.log").write_text(reason + "\n", encoding="utf-8")
         except Exception:
@@ -3136,13 +3453,13 @@ def main(argv: list[str] | None = None) -> int:
     try:
         preflight_evidence = perform_execution_surface_preflight(args)
         if args.readiness_audit_only:
-            _ensure_empty_evidence_root(args.out_root)
+            _create_absent_blocked_evidence_root(args.out_root)
             _write_blocked_evidence(args.out_root, "READINESS_AUDIT_ONLY", "readiness audit surface only", command_text)
             (args.out_root / "command_stdout_stderr.log").write_text("", encoding="utf-8")
             return 0
         provenance_evidence = verify_required_provenance(args)
     except SegmentationInputError as exc:
-        _ensure_empty_evidence_root(args.out_root)
+        _create_absent_blocked_evidence_root(args.out_root)
         _write_blocked_evidence(args.out_root, "PREFLIGHT_OR_PROVENANCE_GATE", str(exc), command_text)
         (args.out_root / "command_stdout_stderr.log").write_text(str(exc) + "\n", encoding="utf-8")
         print(f"ERROR: {exc}", file=sys.stderr)
@@ -3167,7 +3484,7 @@ def main(argv: list[str] | None = None) -> int:
         try:
             _promote_staged_success(staging_root, args.out_root)
         except SegmentationInputError as exc:
-            _ensure_empty_evidence_root(args.out_root)
+            _create_absent_blocked_evidence_root(args.out_root)
             _write_blocked_evidence(args.out_root, "BLOCKED_PROMOTION_GATE", str(exc), command_text)
             (args.out_root / "command_stdout_stderr.log").write_text(capture.getvalue(), encoding="utf-8")
         return exit_code
@@ -3199,7 +3516,7 @@ def main(argv: list[str] | None = None) -> int:
         except SegmentationInputError as exc:
             if staging_root.exists():
                 shutil.rmtree(staging_root)
-            _ensure_empty_evidence_root(args.out_root)
+            _create_absent_blocked_evidence_root(args.out_root)
             _write_blocked_evidence(
                 args.out_root,
                 "DETERMINISTIC_REPLAY_GATE",

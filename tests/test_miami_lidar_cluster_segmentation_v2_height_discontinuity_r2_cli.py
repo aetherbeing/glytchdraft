@@ -4,6 +4,7 @@ import json
 import os
 import subprocess
 import sys
+import shutil
 from pathlib import Path
 
 import pytest
@@ -70,6 +71,19 @@ def _run_cli(argv: list[str]) -> subprocess.CompletedProcess:
     )
 
 
+def _tree_hashes(root: Path) -> dict[str, tuple[str, str | None]]:
+    rows: dict[str, tuple[str, str | None]] = {}
+    for path in sorted(root.rglob("*")):
+        rel = path.relative_to(root).as_posix()
+        if path.is_dir():
+            rows[rel + "/"] = ("dir", None)
+        elif path.is_symlink():
+            rows[rel] = ("symlink", os.readlink(path))
+        else:
+            rows[rel] = ("file", _sha256_path(path))
+    return rows
+
+
 def test_height_r2_full_synthetic_cli_success_inventory_and_manifest(tmp_path):
     fixture = _augment_r2_fixture(build_fixture(tmp_path, productive=True), tmp_path)
     out_root = tmp_path / "out_r2"
@@ -132,6 +146,43 @@ def test_height_r2_cli_missing_arguments_writes_exact_blocked_inventory(tmp_path
     assert not (out_root / "FREEZE_MANIFEST.sha256").exists()
 
 
+def test_height_r2_cli_existing_empty_root_is_rejected_without_reuse(tmp_path):
+    out_root = tmp_path / "existing_empty"
+    out_root.mkdir()
+    before = _tree_hashes(out_root)
+    proc = _run_cli(["--source-run", str(tmp_path / "src"), "--out-root", str(out_root)])
+    assert proc.returncode == 2
+    assert "already exists" in proc.stderr
+    assert _tree_hashes(out_root) == before
+    assert list(out_root.iterdir()) == []
+
+
+def test_height_r2_cli_existing_nonempty_nested_root_preserves_hashes(tmp_path):
+    out_root = tmp_path / "existing_nonempty"
+    nested = out_root / "nested" / "deeper"
+    nested.mkdir(parents=True)
+    (out_root / "sentinel.txt").write_text("keep me\n", encoding="utf-8")
+    (nested / "payload.bin").write_bytes(b"do not touch")
+    before = _tree_hashes(out_root)
+    proc = _run_cli(["--source-run", str(tmp_path / "src"), "--out-root", str(out_root)])
+    assert proc.returncode == 2
+    assert _tree_hashes(out_root) == before
+    assert not any((out_root / name).exists() for name in r2.BLOCKED_CONTENT_FILES)
+
+
+def test_height_r2_cli_existing_symlink_root_is_rejected_without_target_write(tmp_path):
+    target = tmp_path / "target"
+    target.mkdir()
+    (target / "sentinel.txt").write_text("target remains\n", encoding="utf-8")
+    out_root = tmp_path / "linked_root"
+    out_root.symlink_to(target, target_is_directory=True)
+    before = _tree_hashes(target)
+    proc = _run_cli(["--source-run", str(tmp_path / "src"), "--out-root", str(out_root)])
+    assert proc.returncode == 2
+    assert _tree_hashes(target) == before
+    assert sorted(path.name for path in target.iterdir()) == ["sentinel.txt"]
+
+
 def test_height_r2_cli_preflight_failure_blocks_before_inputs(monkeypatch, tmp_path):
     fixture = _augment_r2_fixture(build_fixture(tmp_path, productive=True), tmp_path)
     out_root = tmp_path / "preflight_block"
@@ -141,6 +192,64 @@ def test_height_r2_cli_preflight_failure_blocks_before_inputs(monkeypatch, tmp_p
     assert sorted(path.name for path in out_root.iterdir()) == sorted(r2.BLOCKED_CONTENT_FILES)
     gate = json.loads((out_root / "gate_report.json").read_text())
     assert gate["inputs_opened"] is False
+
+
+def test_height_r2_cli_existing_root_preflight_failure_does_not_delete_empty_or_nonempty(monkeypatch, tmp_path):
+    fixture = _augment_r2_fixture(build_fixture(tmp_path, productive=True), tmp_path)
+    for name, populate in (("empty", False), ("nonempty", True)):
+        out_root = tmp_path / f"preexisting_{name}"
+        out_root.mkdir()
+        if populate:
+            (out_root / "sentinel.txt").write_text("preserve\n", encoding="utf-8")
+            (out_root / "nested").mkdir()
+            (out_root / "nested" / "payload.txt").write_text("nested preserve\n", encoding="utf-8")
+        before = _tree_hashes(out_root)
+        monkeypatch.setattr(
+            r2,
+            "perform_execution_surface_preflight",
+            lambda args: (_ for _ in ()).throw(r2.SegmentationInputError("forced preflight failure")),
+        )
+        code = r2.main(_full_r2_argv(fixture, out_root))
+        assert code == 2
+        assert _tree_hashes(out_root) == before
+        assert not any((out_root / blocked).exists() for blocked in r2.BLOCKED_CONTENT_FILES)
+
+
+def test_height_r2_cli_real_path_invokes_strict_preflight(monkeypatch, tmp_path):
+    fixture = _augment_r2_fixture(build_fixture(tmp_path, productive=True), tmp_path)
+    out_root = tmp_path / "strict_preflight"
+    called = {"preflight": False}
+
+    def abbreviated_preflight(args):
+        called["preflight"] = True
+        probe = {"verdict": "GO"}
+        r2.validate_disposable_sibling_probe_evidence(probe)
+
+    monkeypatch.setattr(r2, "perform_execution_surface_preflight", abbreviated_preflight)
+    code = r2.main(_full_r2_argv(fixture, out_root))
+    assert code == 2
+    assert called["preflight"] is True
+    assert sorted(path.name for path in out_root.iterdir()) == sorted(r2.BLOCKED_CONTENT_FILES)
+    gate = json.loads((out_root / "gate_report.json").read_text())
+    assert "schema" in gate["reason"] or "evidence" in gate["reason"]
+
+
+def test_height_r2_cli_failure_cleanup_never_targets_requested_root(monkeypatch, tmp_path):
+    fixture = _augment_r2_fixture(build_fixture(tmp_path, productive=True), tmp_path)
+    out_root = tmp_path / "cleanup_guard"
+    touched = []
+    original_rmtree = shutil.rmtree
+
+    def recording_rmtree(path, *args, **kwargs):
+        touched.append(Path(path).resolve())
+        return original_rmtree(path, *args, **kwargs)
+
+    monkeypatch.setattr(r2.shutil, "rmtree", recording_rmtree)
+    monkeypatch.setattr(r2, "run_determinism_double_check", lambda *args, **kwargs: {"byte_identical": False, "differing_files": ["x"]})
+    code = r2.main(_full_r2_argv(fixture, out_root))
+    assert code == 2
+    assert out_root.resolve() not in touched
+    assert sorted(path.name for path in out_root.iterdir()) == sorted(r2.BLOCKED_CONTENT_FILES)
 
 
 def test_height_r2_final_root_absent_until_replay_success(monkeypatch, tmp_path):

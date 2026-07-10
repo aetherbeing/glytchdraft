@@ -1,5 +1,7 @@
 import json
 import sys
+import copy
+import argparse
 from pathlib import Path
 
 import pytest
@@ -162,6 +164,90 @@ def test_height_r2_disposable_sibling_probe(tmp_path):
     assert result["probe_mkdir_exist_ok"] is False
     assert not future.exists()
     assert not (output_parent / (".height_r2_parent_probe_20260709T000000Z_123_" + "a" * 32)).exists()
+    r2.validate_disposable_sibling_probe_evidence(result)
+
+
+def test_height_r2_sibling_probe_rejects_abbreviated_or_malformed_evidence(tmp_path):
+    valid = r2.run_disposable_sibling_probe(
+        tmp_path,
+        tmp_path / "future_scientific_root",
+        utc_token="20260709T000000Z",
+        pid=123,
+        nonce_hex="b" * 32,
+    )
+    with pytest.raises(r2.SegmentationInputError):
+        r2.validate_disposable_sibling_probe_evidence({"verdict": "GO"})
+    for removed in ("probe_payload_sha256", "mount_source", "file_absence_assertion", "same_prefix_residue"):
+        mutated = copy.deepcopy(valid)
+        mutated.pop(removed)
+        with pytest.raises(r2.SegmentationInputError):
+            r2.validate_disposable_sibling_probe_evidence(mutated)
+    mutated = copy.deepcopy(valid)
+    mutated["probe_payload_sha256"] = "abc"
+    with pytest.raises(r2.SegmentationInputError):
+        r2.validate_disposable_sibling_probe_evidence(mutated)
+    mutated = copy.deepcopy(valid)
+    mutated["file_absence_assertion"] = False
+    with pytest.raises(r2.SegmentationInputError):
+        r2.validate_disposable_sibling_probe_evidence(mutated)
+    mutated = copy.deepcopy(valid)
+    mutated["ro_present"] = True
+    mutated["rw_present"] = True
+    mutated["mount_metadata"]["ro_present"] = True
+    mutated["mount_metadata"]["rw_present"] = True
+    with pytest.raises(r2.SegmentationInputError):
+        r2.validate_disposable_sibling_probe_evidence(mutated)
+
+
+def test_height_r2_preflight_invokes_strict_sibling_probe_validation(monkeypatch, tmp_path):
+    args = argparse.Namespace(
+        out_root=tmp_path / "future",
+        source_run=tmp_path,
+        canonical_v0=tmp_path,
+        z_unit_attestation=tmp_path,
+        evidence_artifact_parent=tmp_path,
+    )
+    surface = r2.assert_execution_surface()
+    surface["ordinary_wsl_bash"] = True
+    surface["wsl_distribution"] = surface["wsl_distribution"] or "WSL_KERNEL"
+    surface["agent_sandbox_absent"] = True
+    surface["container_or_sandbox_markers"] = {key: False for key in surface["container_or_sandbox_markers"]}
+    identity = r2._surface_identity(surface)
+    surface["probe_execution_surface_identity"] = identity
+    surface["intended_invocation_execution_surface_identity"] = dict(identity)
+    monkeypatch.setattr(r2, "assert_execution_surface", lambda: surface)
+    monkeypatch.setattr(r2, "run_disposable_sibling_probe", lambda *args, **kwargs: {"verdict": "GO"})
+    with pytest.raises(r2.SegmentationInputError):
+        r2.perform_execution_surface_preflight(args)
+
+
+def test_height_r2_execution_surface_rejects_incomplete_root_and_mismatch():
+    valid = r2.assert_execution_surface()
+    valid["ordinary_wsl_bash"] = True
+    valid["wsl_distribution"] = valid["wsl_distribution"] or "WSL_KERNEL"
+    valid["agent_sandbox_absent"] = True
+    valid["container_or_sandbox_markers"] = {key: False for key in valid["container_or_sandbox_markers"]}
+    identity = r2._surface_identity(valid)
+    valid["probe_execution_surface_identity"] = identity
+    valid["intended_invocation_execution_surface_identity"] = dict(identity)
+    r2.validate_execution_surface_evidence(valid)
+    missing = copy.deepcopy(valid)
+    missing.pop("wsl_distribution")
+    with pytest.raises(r2.SegmentationInputError):
+        r2.validate_execution_surface_evidence(missing)
+    root = copy.deepcopy(valid)
+    root["uid"] = 0
+    root["non_root_user"] = False
+    with pytest.raises(r2.SegmentationInputError):
+        r2.validate_execution_surface_evidence(root)
+    mismatch = copy.deepcopy(valid)
+    mismatch["intended_invocation_execution_surface_identity"]["mount_namespace_identity"] = "mnt:[different]"
+    with pytest.raises(r2.SegmentationInputError):
+        r2.validate_execution_surface_evidence(mismatch)
+    no_namespace = copy.deepcopy(valid)
+    no_namespace.pop("mount_namespace_identity")
+    with pytest.raises(r2.SegmentationInputError):
+        r2.validate_execution_surface_evidence(no_namespace)
 
 
 def test_height_r2_replay_scratch_lifecycle(tmp_path):
@@ -185,6 +271,7 @@ def test_height_r2_replay_scratch_lifecycle(tmp_path):
 
 def test_height_r2_production_and_receipt_locks_false():
     payload = r2.authorization_false_payload()
-    assert payload["production_adoption_authorized"] is False
-    assert payload["child_level_receipts_authorized"] is False
-    assert payload["downstream_building_identity_claims_authorized"] is False
+    for field in r2.AUTHORIZATION_FALSE_FIELDS:
+        assert payload[field] is False
+    payload["production_adoption_authorized"] = True
+    assert not all(payload[field] is False for field in r2.AUTHORIZATION_FALSE_FIELDS)
