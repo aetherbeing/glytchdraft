@@ -1647,6 +1647,45 @@ def _require_sha256(payload: dict[str, Any], key: str) -> str:
     return value
 
 
+DISPOSABLE_SIBLING_PROBE_PAYLOAD_FILE = "probe_payload.bin"
+DISPOSABLE_SIBLING_PROBE_PAYLOAD_CONTRACT = "height_r2_v3_sorted_json_utf8_newline"
+DISPOSABLE_SIBLING_PROBE_PAYLOAD_FIELDS = (
+    "utc_timestamp",
+    "pid",
+    "nonce_hex",
+    "future_output_root",
+    "mount_namespace_identity",
+)
+
+
+def build_disposable_sibling_probe_payload_fields(
+    *,
+    utc_timestamp: str,
+    pid: int,
+    nonce_hex: str,
+    future_output_root: Path | str,
+    mount_namespace_identity: str,
+) -> dict[str, Any]:
+    return {
+        "utc_timestamp": utc_timestamp,
+        "pid": pid,
+        "nonce_hex": nonce_hex,
+        "future_output_root": str(future_output_root),
+        "mount_namespace_identity": mount_namespace_identity,
+    }
+
+
+def canonical_disposable_sibling_probe_payload_bytes(payload_fields: dict[str, Any]) -> bytes:
+    return (json.dumps(payload_fields, sort_keys=True) + "\n").encode("utf-8")
+
+
+def _write_fsynced_probe_payload_file(path: Path, data: bytes) -> None:
+    with path.open("wb") as handle:
+        handle.write(data)
+        handle.flush()
+        os.fsync(handle.fileno())
+
+
 def validate_mount_metadata(metadata: dict[str, Any], *, label: str) -> None:
     for key in [
         "inspected_path",
@@ -1860,26 +1899,25 @@ def run_disposable_sibling_probe(
     probe_dir = output_parent / f".height_r2_parent_probe_{token}_{process_id}_{nonce}"
     if probe_dir.exists() or probe_dir.is_symlink():
         raise SegmentationInputError("probe path already exists")
-    payload_path = probe_dir / "probe_payload.bin"
+    payload_path = probe_dir / DISPOSABLE_SIBLING_PROBE_PAYLOAD_FILE
     cleanup_failure = None
     digest = None
     try:
         probe_dir.mkdir(parents=False, exist_ok=False)
-        probe_payload = {
-            "utc_timestamp": token,
-            "pid": process_id,
-            "nonce_hex": nonce,
-            "future_output_root": str(future_output_root),
-            "mount_namespace_identity": mount_namespace_identity,
-        }
-        data = (json.dumps(probe_payload, sort_keys=True) + "\n").encode("utf-8")
+        probe_payload = build_disposable_sibling_probe_payload_fields(
+            utc_timestamp=token,
+            pid=process_id,
+            nonce_hex=nonce,
+            future_output_root=future_output_root,
+            mount_namespace_identity=mount_namespace_identity,
+        )
+        data = canonical_disposable_sibling_probe_payload_bytes(probe_payload)
         deterministic_payload_sha256 = hashlib.sha256(data).hexdigest()
-        with payload_path.open("wb") as handle:
-            handle.write(data)
-            handle.flush()
-            os.fsync(handle.fileno())
+        _write_fsynced_probe_payload_file(payload_path, data)
         digest = _sha256_file(payload_path)
         size = payload_path.stat().st_size
+        if size != len(data) or digest != deterministic_payload_sha256:
+            raise SegmentationInputError("sibling-probe NO_GO: actual file payload does not match canonical payload")
         payload_path.unlink()
         probe_dir.rmdir()
     except Exception as exc:
@@ -1912,12 +1950,14 @@ def run_disposable_sibling_probe(
         "probe_mkdir_parents": False,
         "probe_mkdir_exist_ok": False,
         "path_mkdir_semantics": "probe_dir.mkdir(parents=False, exist_ok=False)",
-        "probe_payload_file": "probe_payload.bin",
+        "probe_payload_file": DISPOSABLE_SIBLING_PROBE_PAYLOAD_FILE,
         "probe_payload_path": str(payload_path),
+        "probe_payload_contract": DISPOSABLE_SIBLING_PROBE_PAYLOAD_CONTRACT,
         "probe_payload_fields": probe_payload,
         "deterministic_payload_sha256": deterministic_payload_sha256,
         "probe_payload_size": size,
         "probe_payload_sha256": digest,
+        "actual_file_readback_sha256": digest,
         "flush_result": "FLUSHED",
         "fsync_result": "FSYNCED",
         "mount_metadata": mount_metadata,
@@ -1956,6 +1996,7 @@ def validate_disposable_sibling_probe_evidence(probe: dict[str, Any]) -> None:
         "path_mkdir_semantics",
         "probe_payload_file",
         "probe_payload_path",
+        "probe_payload_contract",
         "flush_result",
         "fsync_result",
         "mount_source",
@@ -1973,8 +2014,10 @@ def validate_disposable_sibling_probe_evidence(probe: dict[str, Any]) -> None:
         _require_nonempty_string(probe, key)
     if probe["path_mkdir_semantics"] != "probe_dir.mkdir(parents=False, exist_ok=False)":
         raise SegmentationInputError("sibling-probe mkdir semantics are not exact")
-    if probe["probe_payload_file"] != "probe_payload.bin":
+    if probe["probe_payload_file"] != DISPOSABLE_SIBLING_PROBE_PAYLOAD_FILE:
         raise SegmentationInputError("sibling-probe payload file name is not exact")
+    if probe["probe_payload_contract"] != DISPOSABLE_SIBLING_PROBE_PAYLOAD_CONTRACT:
+        raise SegmentationInputError("sibling-probe payload contract is not exact")
     if probe["flush_result"] != "FLUSHED" or probe["fsync_result"] != "FSYNCED":
         raise SegmentationInputError("sibling-probe flush/fsync evidence is unsuccessful")
     if probe["file_removal_result"] != "REMOVED" or probe["directory_removal_result"] != "REMOVED":
@@ -2006,23 +2049,31 @@ def validate_disposable_sibling_probe_evidence(probe: dict[str, Any]) -> None:
     size = _require_int(probe, "probe_payload_size")
     if size <= 0:
         raise SegmentationInputError("sibling-probe payload byte size is invalid")
-    _require_sha256(probe, "probe_payload_sha256")
-    _require_sha256(probe, "deterministic_payload_sha256")
+    probe_payload_sha256 = _require_sha256(probe, "probe_payload_sha256")
+    deterministic_payload_sha256 = _require_sha256(probe, "deterministic_payload_sha256")
+    actual_file_readback_sha256 = _require_sha256(probe, "actual_file_readback_sha256")
     payload_fields = probe.get("probe_payload_fields")
     if not isinstance(payload_fields, dict):
         raise SegmentationInputError("sibling-probe payload fields missing")
-    for key in ["utc_timestamp", "pid", "nonce_hex", "future_output_root", "mount_namespace_identity"]:
+    for key in DISPOSABLE_SIBLING_PROBE_PAYLOAD_FIELDS:
         if key == "pid":
             _require_int(payload_fields, key)
         else:
             _require_nonempty_string(payload_fields, key)
+    if set(payload_fields) != set(DISPOSABLE_SIBLING_PROBE_PAYLOAD_FIELDS):
+        raise SegmentationInputError("sibling-probe payload fields are not exact")
     if payload_fields["future_output_root"] != probe["future_output_root"]:
         raise SegmentationInputError("sibling-probe payload future root mismatch")
-    expected_payload = (json.dumps(payload_fields, sort_keys=True) + "\n").encode("utf-8")
+    expected_payload = canonical_disposable_sibling_probe_payload_bytes(payload_fields)
+    expected_payload_sha256 = hashlib.sha256(expected_payload).hexdigest()
     if len(expected_payload) != size:
         raise SegmentationInputError("sibling-probe payload byte size mismatch")
-    if hashlib.sha256(expected_payload).hexdigest() != probe["deterministic_payload_sha256"]:
+    if deterministic_payload_sha256 != expected_payload_sha256:
         raise SegmentationInputError("sibling-probe deterministic payload hash mismatch")
+    if probe_payload_sha256 != expected_payload_sha256:
+        raise SegmentationInputError("sibling-probe recorded payload hash mismatch")
+    if actual_file_readback_sha256 != expected_payload_sha256:
+        raise SegmentationInputError("sibling-probe actual file read-back hash mismatch")
     same_prefix = probe.get("same_prefix_residue")
     if not isinstance(same_prefix, list) or same_prefix:
         raise SegmentationInputError("sibling-probe same-prefix residue assertion failed")

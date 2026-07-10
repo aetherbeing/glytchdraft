@@ -2,6 +2,7 @@ import json
 import sys
 import copy
 import argparse
+import hashlib
 from pathlib import Path
 
 import pytest
@@ -165,6 +166,68 @@ def test_height_r2_disposable_sibling_probe(tmp_path):
     assert not future.exists()
     assert not (output_parent / (".height_r2_parent_probe_20260709T000000Z_123_" + "a" * 32)).exists()
     r2.validate_disposable_sibling_probe_evidence(result)
+    canonical = r2.canonical_disposable_sibling_probe_payload_bytes(result["probe_payload_fields"])
+    assert result["probe_payload_contract"] == r2.DISPOSABLE_SIBLING_PROBE_PAYLOAD_CONTRACT
+    assert result["probe_payload_size"] == len(canonical)
+    assert result["probe_payload_sha256"] == hashlib.sha256(canonical).hexdigest()
+    assert result["actual_file_readback_sha256"] == result["probe_payload_sha256"]
+
+
+def test_height_r2_sibling_probe_rejects_false_full_payload_hashes(tmp_path):
+    valid = r2.run_disposable_sibling_probe(
+        tmp_path,
+        tmp_path / "future_scientific_root",
+        utc_token="20260709T000000Z",
+        pid=123,
+        nonce_hex="c" * 32,
+    )
+    canonical = r2.canonical_disposable_sibling_probe_payload_bytes(valid["probe_payload_fields"])
+    correct_hash = hashlib.sha256(canonical).hexdigest()
+    same_length_other_hash = hashlib.sha256(b"x" * len(canonical)).hexdigest()
+    corrupted_hash = correct_hash[:-1] + ("0" if correct_hash[-1] != "0" else "1")
+
+    for key, value in [
+        ("probe_payload_sha256", "0" * 64),
+        ("probe_payload_sha256", corrupted_hash),
+        ("probe_payload_sha256", same_length_other_hash),
+        ("actual_file_readback_sha256", "0" * 64),
+        ("deterministic_payload_sha256", same_length_other_hash),
+    ]:
+        mutated = copy.deepcopy(valid)
+        mutated[key] = value
+        with pytest.raises(r2.SegmentationInputError):
+            r2.validate_disposable_sibling_probe_evidence(mutated)
+
+
+def test_height_r2_sibling_probe_rejects_payload_hash_and_size_mismatches(tmp_path):
+    valid = r2.run_disposable_sibling_probe(
+        tmp_path,
+        tmp_path / "future_scientific_root",
+        utc_token="20260709T000000Z",
+        pid=123,
+        nonce_hex="d" * 32,
+    )
+    canonical = r2.canonical_disposable_sibling_probe_payload_bytes(valid["probe_payload_fields"])
+    correct_hash = hashlib.sha256(canonical).hexdigest()
+    wrong_hash = "0" * 64 if correct_hash != "0" * 64 else "1" * 64
+
+    mutated = copy.deepcopy(valid)
+    mutated["probe_payload_size"] = len(canonical) + 1
+    mutated["probe_payload_sha256"] = correct_hash
+    with pytest.raises(r2.SegmentationInputError):
+        r2.validate_disposable_sibling_probe_evidence(mutated)
+
+    mutated = copy.deepcopy(valid)
+    mutated["probe_payload_size"] = len(canonical)
+    mutated["probe_payload_sha256"] = wrong_hash
+    with pytest.raises(r2.SegmentationInputError):
+        r2.validate_disposable_sibling_probe_evidence(mutated)
+
+    for removed in ("probe_payload_sha256", "probe_payload_size"):
+        mutated = copy.deepcopy(valid)
+        mutated.pop(removed)
+        with pytest.raises(r2.SegmentationInputError):
+            r2.validate_disposable_sibling_probe_evidence(mutated)
 
 
 def test_height_r2_sibling_probe_rejects_abbreviated_or_malformed_evidence(tmp_path):
@@ -187,6 +250,14 @@ def test_height_r2_sibling_probe_rejects_abbreviated_or_malformed_evidence(tmp_p
     with pytest.raises(r2.SegmentationInputError):
         r2.validate_disposable_sibling_probe_evidence(mutated)
     mutated = copy.deepcopy(valid)
+    mutated["probe_payload_sha256"] = "A" * 64
+    with pytest.raises(r2.SegmentationInputError):
+        r2.validate_disposable_sibling_probe_evidence(mutated)
+    mutated = copy.deepcopy(valid)
+    mutated["probe_payload_sha256"] = "g" * 64
+    with pytest.raises(r2.SegmentationInputError):
+        r2.validate_disposable_sibling_probe_evidence(mutated)
+    mutated = copy.deepcopy(valid)
     mutated["file_absence_assertion"] = False
     with pytest.raises(r2.SegmentationInputError):
         r2.validate_disposable_sibling_probe_evidence(mutated)
@@ -197,6 +268,73 @@ def test_height_r2_sibling_probe_rejects_abbreviated_or_malformed_evidence(tmp_p
     mutated["mount_metadata"]["rw_present"] = True
     with pytest.raises(r2.SegmentationInputError):
         r2.validate_disposable_sibling_probe_evidence(mutated)
+
+
+def test_height_r2_probe_writes_canonical_payload_bytes(monkeypatch, tmp_path):
+    original_write = r2._write_fsynced_probe_payload_file
+    observed = {}
+
+    def recording_write(path, data):
+        observed["path_name"] = path.name
+        observed["data"] = data
+        original_write(path, data)
+
+    monkeypatch.setattr(r2, "_write_fsynced_probe_payload_file", recording_write)
+    result = r2.run_disposable_sibling_probe(
+        tmp_path,
+        tmp_path / "future_scientific_root",
+        utc_token="20260709T000000Z",
+        pid=123,
+        nonce_hex="e" * 32,
+    )
+    expected = r2.canonical_disposable_sibling_probe_payload_bytes(result["probe_payload_fields"])
+    assert observed["path_name"] == r2.DISPOSABLE_SIBLING_PROBE_PAYLOAD_FILE
+    assert observed["data"] == expected
+    r2.validate_disposable_sibling_probe_evidence(result)
+
+
+def test_height_r2_probe_hashes_actual_file_contents_before_cleanup(monkeypatch, tmp_path):
+    original_sha256_file = r2._sha256_file
+    observed = {}
+
+    def recording_sha256_file(path):
+        if path.name == r2.DISPOSABLE_SIBLING_PROBE_PAYLOAD_FILE:
+            observed["exists_during_hash"] = path.exists()
+            observed["bytes_during_hash"] = path.read_bytes()
+        return original_sha256_file(path)
+
+    monkeypatch.setattr(r2, "_sha256_file", recording_sha256_file)
+    result = r2.run_disposable_sibling_probe(
+        tmp_path,
+        tmp_path / "future_scientific_root",
+        utc_token="20260709T000000Z",
+        pid=123,
+        nonce_hex="f" * 32,
+    )
+    expected = r2.canonical_disposable_sibling_probe_payload_bytes(result["probe_payload_fields"])
+    assert observed["exists_during_hash"] is True
+    assert observed["bytes_during_hash"] == expected
+    assert result["probe_payload_sha256"] == hashlib.sha256(observed["bytes_during_hash"]).hexdigest()
+    assert not Path(result["probe_payload_path"]).exists()
+
+
+def test_height_r2_probe_rejects_altered_written_payload(monkeypatch, tmp_path):
+    original_write = r2._write_fsynced_probe_payload_file
+
+    def corrupting_write(path, data):
+        altered = b"!" + data[1:]
+        original_write(path, altered)
+
+    monkeypatch.setattr(r2, "_write_fsynced_probe_payload_file", corrupting_write)
+    with pytest.raises(r2.SegmentationInputError, match="actual file payload"):
+        r2.run_disposable_sibling_probe(
+            tmp_path,
+            tmp_path / "future_scientific_root",
+            utc_token="20260709T000000Z",
+            pid=123,
+            nonce_hex="1" * 32,
+        )
+    assert not list(tmp_path.glob(".height_r2_parent_probe_*"))
 
 
 def test_height_r2_preflight_invokes_strict_sibling_probe_validation(monkeypatch, tmp_path):

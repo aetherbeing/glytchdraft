@@ -234,6 +234,36 @@ def test_height_r2_cli_real_path_invokes_strict_preflight(monkeypatch, tmp_path)
     assert "schema" in gate["reason"] or "evidence" in gate["reason"]
 
 
+def test_height_r2_cli_rejects_well_formed_false_probe_hash_before_input_open(monkeypatch, tmp_path):
+    fixture = _augment_r2_fixture(build_fixture(tmp_path, productive=True), tmp_path)
+    out_root = tmp_path / "false_hash_preflight"
+    valid_probe = r2.run_disposable_sibling_probe(
+        tmp_path,
+        tmp_path / "probe_future_root",
+        utc_token="20260709T000000Z",
+        pid=123,
+        nonce_hex="2" * 32,
+    )
+    valid_probe["probe_payload_sha256"] = "0" * 64
+    calls = {"preflight": 0, "inputs": 0}
+
+    def false_hash_preflight(args):
+        calls["preflight"] += 1
+        r2.validate_disposable_sibling_probe_evidence(valid_probe)
+
+    def input_open_guard(*args, **kwargs):
+        calls["inputs"] += 1
+        raise AssertionError("scientific inputs must not open after rejected probe evidence")
+
+    monkeypatch.setattr(r2, "perform_execution_surface_preflight", false_hash_preflight)
+    monkeypatch.setattr(r2, "validate_real_inputs", input_open_guard)
+    code = r2.main(_full_r2_argv(fixture, out_root))
+    assert code == 2
+    assert calls == {"preflight": 1, "inputs": 0}
+    assert sorted(path.name for path in out_root.iterdir()) == sorted(r2.BLOCKED_CONTENT_FILES)
+    assert not (out_root / "FREEZE_MANIFEST.sha256").exists()
+
+
 def test_height_r2_cli_failure_cleanup_never_targets_requested_root(monkeypatch, tmp_path):
     fixture = _augment_r2_fixture(build_fixture(tmp_path, productive=True), tmp_path)
     out_root = tmp_path / "cleanup_guard"
