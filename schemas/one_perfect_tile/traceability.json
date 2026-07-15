@@ -1,0 +1,194 @@
+{
+  "traceability_version": "atlantid.one_perfect_tile.w1_traceability.v1",
+  "role": "ONE_PERFECT_TILE_W1_FROZEN_JSON_SCHEMA_IMPLEMENTATION_AUTHOR",
+  "lot": "ATL-SOUTH-BEACH-BEACHHEAD-001",
+  "work_package": "W1",
+  "disposition_note": "Maps every frozen-contract schema requirement to its repository implementation disposition. This artifact does not claim product-condition acceptance, contract freeze, or Gate B review outcome.",
+  "frozen_source_root": "designs/one_perfect_tile_asset_viewer_contract_v3_ACCEPTED_FROZEN_20260715T023757Z",
+  "frozen_contract_main_payload": "ATLANTID_ONE_PERFECT_TILE_ASSET_VIEWER_CONTRACT_20260715T003000Z_OPUS_RCA.md",
+  "disposition_values": [
+    "ENCODED_IN_JSON_SCHEMA",
+    "ENFORCED_BY_SEMANTIC_VALIDATOR",
+    "TESTED_AS_CROSS_SCHEMA_INVARIANT",
+    "PRECISE_FROZEN_AMBIGUITY_BLOCKER"
+  ],
+  "requirements": [
+    {
+      "requirement_id": "P3-F-001",
+      "schema_filename": "atlantid_feature_metadata.schema.json",
+      "schema_id": "atlantid.one_perfect_tile.feature_metadata.v1",
+      "frozen_section": "STEP 9 / P3-F-001 (main contract payload); geometry_confidence.footprint_provenance enum",
+      "constraint": "footprint_provenance enum is {lidar_convex_hull, lidar_rotated_bbox, lidar_alpha_shape} only; unknown_unsafe_source removed.",
+      "disposition": "ENCODED_IN_JSON_SCHEMA",
+      "test": "tests/test_one_perfect_tile_schemas.py::test_p3f001_footprint_provenance_rejects_unknown_unsafe_source",
+      "valid_fixture": "schemas/one_perfect_tile/fixtures/valid/atlantid_feature_metadata.valid.json",
+      "invalid_fixtures": ["schemas/one_perfect_tile/fixtures/invalid/atlantid_feature_metadata.INVALID_unknown_unsafe_source.json"]
+    },
+    {
+      "requirement_id": "P3-F-002",
+      "schema_filename": "atlantid_feature_metadata.schema.json",
+      "schema_id": "atlantid.one_perfect_tile.feature_metadata.v1",
+      "frozen_section": "STEP 9 / P3-F-002; features[].claim_tiers",
+      "constraint": "Mandatory per-feature claim-tier closed set {T2,T3,T4,N1,N2,N3,N4} enforced via allOf/contains.",
+      "disposition": "ENCODED_IN_JSON_SCHEMA",
+      "test": "tests/test_one_perfect_tile_schemas.py::test_p3f002_claim_tiers_requires_full_mandatory_set",
+      "valid_fixture": "schemas/one_perfect_tile/fixtures/valid/atlantid_feature_metadata.valid.json",
+      "invalid_fixtures": ["schemas/one_perfect_tile/fixtures/invalid/atlantid_feature_metadata.INVALID_missing_required_negative_tier.json"]
+    },
+    {
+      "requirement_id": "P3-F-003",
+      "schema_filename": "atlantid_tile_package_manifest.schema.json",
+      "schema_id": "atlantid.one_perfect_tile.tile_package_manifest.v1",
+      "frozen_section": "STEP 9 / P3-F-003; excluded_fields (manifest), exclusions (receipt), shape_b_exclusions (feature_metadata)",
+      "constraint": "Exact, complete, closed six-concept Shape A exclusion set {address, parcel_id, county_building_id, ownership, legal_structure_identity, county_enrichment}, consistent across all three schemas.",
+      "disposition": "ENCODED_IN_JSON_SCHEMA",
+      "test": "tests/test_one_perfect_tile_schemas.py::test_p3f003_generic_exclusion_set_rejected_when_incomplete",
+      "valid_fixture": "schemas/one_perfect_tile/fixtures/valid/atlantid_tile_package_manifest.valid.json",
+      "invalid_fixtures": ["schemas/one_perfect_tile/fixtures/invalid/atlantid_tile_package_manifest.INVALID_generic_exclusion.json"]
+    },
+    {
+      "requirement_id": "P3-F-003-cross-schema-consistency",
+      "schema_filename": "atlantid_feature_metadata.schema.json / atlantid_provenance_receipt.schema.json / atlantid_tile_package_manifest.schema.json",
+      "schema_id": "n/a (cross-schema)",
+      "frozen_section": "STEP 7, STEP 9 / P3-F-003",
+      "constraint": "The same exact six-concept exclusion set must be represented consistently in manifest.excluded_fields, receipt.exclusions, and feature_metadata.shape_b_exclusions.",
+      "disposition": "TESTED_AS_CROSS_SCHEMA_INVARIANT",
+      "test": "tests/test_one_perfect_tile_schemas.py::test_real_address_in_shape_a_exclusion_is_rejected (feature_metadata face); each schema separately enforces its own closed enum/const set (see per-schema P3-F-003 rows)",
+      "valid_fixture": "schemas/one_perfect_tile/fixtures/valid/atlantid_feature_metadata.valid.json",
+      "invalid_fixtures": ["schemas/one_perfect_tile/fixtures/invalid/atlantid_feature_metadata.INVALID_real_address_in_shape_b_exclusions.json"]
+    },
+    {
+      "requirement_id": "P3-F-004",
+      "schema_filename": "atlantid_feature_metadata.schema.json",
+      "schema_id": "atlantid.one_perfect_tile.feature_metadata.v1",
+      "frozen_section": "STEP 9 / P3-F-004; features[].measurements",
+      "constraint": "measurement_null_meaning is required (nonblank) whenever any of estimated_height_m, footprint_area_m2, ground_z_m, point_count_inside is null, via four draft-07 if/then clauses.",
+      "disposition": "ENCODED_IN_JSON_SCHEMA",
+      "test": "tests/test_one_perfect_tile_schemas.py::test_p3f004_null_measurement_requires_reason",
+      "valid_fixture": "schemas/one_perfect_tile/fixtures/valid/atlantid_feature_metadata.valid.json",
+      "invalid_fixtures": ["schemas/one_perfect_tile/fixtures/invalid/atlantid_feature_metadata.INVALID_null_measurement_no_reason.json"]
+    },
+    {
+      "requirement_id": "P3-F-005",
+      "schema_filename": "atlantid_feature_metadata.schema.json",
+      "schema_id": "atlantid.one_perfect_tile.feature_metadata.v1",
+      "frozen_section": "STEP 9 / P3-F-005; features[].glb_node; x-atlantid-conformance-gates CF-05-NODE-NAME-EQ-FEATURE-ID",
+      "constraint": "When has_glb_node is true, node_name is pattern-narrowed to the feature_id family (necessary condition, schema-encoded) AND must be byte-equal to feature_id (mandatory blocking gate, not expressible in pure draft-07 sibling-field comparison).",
+      "disposition": "ENFORCED_BY_SEMANTIC_VALIDATOR",
+      "note": "Pattern narrowing is ENCODED_IN_JSON_SCHEMA (necessary condition); exact equality is ENFORCED_BY_SEMANTIC_VALIDATOR via scripts/validate_one_perfect_tile_schemas.py:cf05_node_name_matches_feature_id, matching the schema's own x-atlantid-conformance-gates declaration that a conforming validator MUST run this gate.",
+      "test": "tests/test_one_perfect_tile_schemas.py::test_p3f005_cf05_gate_rejects_node_name_mismatch_via_semantic_validator",
+      "valid_fixture": "schemas/one_perfect_tile/fixtures/valid/atlantid_feature_metadata.valid.json",
+      "invalid_fixtures": ["schemas/one_perfect_tile/fixtures/invalid/atlantid_feature_metadata.INVALID_node_name_mismatch.json"]
+    },
+    {
+      "requirement_id": "P3-F-006",
+      "schema_filename": "atlantid_tile_package_manifest.schema.json",
+      "schema_id": "atlantid.one_perfect_tile.tile_package_manifest.v1",
+      "frozen_section": "STEP 9 / P3-F-006; completion_conditions + root allOf",
+      "constraint": "product_state=PRODUCT_COMPLETE is prohibited unless producer_conformance=PASS, independent_acceptance=GO, AND all eleven completion_conditions are satisfied==true with bound (non-null) evidence_ref.",
+      "disposition": "ENCODED_IN_JSON_SCHEMA",
+      "test": "tests/test_one_perfect_tile_schemas.py::test_p3f006_contradictory_product_complete_state_rejected",
+      "valid_fixture": "schemas/one_perfect_tile/fixtures/valid/atlantid_tile_package_manifest.valid.json",
+      "invalid_fixtures": ["schemas/one_perfect_tile/fixtures/invalid/atlantid_tile_package_manifest.INVALID_contradictory_state.json"]
+    },
+    {
+      "requirement_id": "STABLE-ID-UNIQUENESS",
+      "schema_filename": "atlantid_feature_metadata.schema.json",
+      "schema_id": "atlantid.one_perfect_tile.feature_metadata.v1",
+      "frozen_section": "STEP 4 (identifier contract), STEP 15 (join contract stable_identifiers)",
+      "constraint": "feature_id values must be unique within one feature_metadata document (the stable join key). Draft-07 arrays support only whole-item uniqueItems, not per-field uniqueness, so this cannot be expressed as a pure schema keyword without altering the frozen array-of-objects shape.",
+      "disposition": "ENFORCED_BY_SEMANTIC_VALIDATOR",
+      "note": "Enforced by scripts/validate_one_perfect_tile_schemas.py:unique_feature_ids.",
+      "test": "tests/test_one_perfect_tile_schemas.py::test_duplicate_feature_ids_detected_as_semantic_invariant",
+      "valid_fixture": "schemas/one_perfect_tile/fixtures/valid/atlantid_feature_metadata.valid.json",
+      "invalid_fixtures": ["schemas/one_perfect_tile/fixtures/invalid/atlantid_feature_metadata.INVALID_duplicate_feature_id.json"]
+    },
+    {
+      "requirement_id": "STABLE-ID-PATTERN-CONSISTENCY",
+      "schema_filename": "atlantid_feature_metadata.schema.json / atlantid_join_contract.schema.json",
+      "schema_id": "n/a (cross-schema)",
+      "frozen_section": "STEP 4, STEP 15",
+      "constraint": "The feature_id pattern ^sb_318455_[0-9]+$ and namespace atlantid.lidar_segment.shapeA.v1 are identical in feature_metadata and join_contract.",
+      "disposition": "TESTED_AS_CROSS_SCHEMA_INVARIANT",
+      "test": "tests/test_one_perfect_tile_schemas.py::test_stable_id_pattern_consistent_across_schemas",
+      "valid_fixture": "schemas/one_perfect_tile/fixtures/valid/atlantid_feature_metadata.valid.json",
+      "invalid_fixtures": []
+    },
+    {
+      "requirement_id": "P3-REQ-ADD-012-GENERIC-JOIN-BOUNDARY",
+      "schema_filename": "atlantid_join_contract.schema.json",
+      "schema_id": "atlantid.one_perfect_tile.join_contract.v1",
+      "frozen_section": "STEP 4, STEP 15 (operator Ruling 2)",
+      "constraint": "Core join contract is generic-only: core_boundary.contains_source_specific_join_recipe and contains_externally_derived_join_table are pinned const false; no Miami-Dade-specific or source-specific field/property key appears in this schema.",
+      "disposition": "ENCODED_IN_JSON_SCHEMA",
+      "test": "tests/test_one_perfect_tile_schemas.py::test_generic_join_contract_has_no_source_specific_fields; tests/test_one_perfect_tile_schemas.py::test_source_specific_join_injection_rejected",
+      "valid_fixture": "schemas/one_perfect_tile/fixtures/valid/atlantid_join_contract.valid.json",
+      "invalid_fixtures": [
+        "schemas/one_perfect_tile/fixtures/invalid/atlantid_join_contract.INVALID_source_specific_recipe_injected.json",
+        "schemas/one_perfect_tile/fixtures/invalid/atlantid_join_contract.INVALID_unknown_additional_property.json"
+      ]
+    },
+    {
+      "requirement_id": "P3-REQ-ADD-011-C12-ACCURACY-STATUS",
+      "schema_filename": "atlantid_provenance_receipt.schema.json",
+      "schema_id": "atlantid.one_perfect_tile.provenance_receipt.v1",
+      "frozen_section": "STEP 6 (operator Ruling 3, Option C)",
+      "constraint": "accuracy_status.status/statement are required and nonblank; PENDING is permitted and is not measured conformance; MEASURED requires bound numeric RMSE + evidence_ref; PENDING/NOT_BOUND must carry null RMSE/evidence_ref.",
+      "disposition": "ENCODED_IN_JSON_SCHEMA",
+      "test": "tests/test_one_perfect_tile_schemas.py::test_c12_status_required_nonblank_and_pending_is_not_measured; tests/test_one_perfect_tile_schemas.py::test_c12_measured_without_evidence_rejected; tests/test_one_perfect_tile_schemas.py::test_c12_blank_statement_rejected",
+      "valid_fixture": "schemas/one_perfect_tile/fixtures/valid/atlantid_provenance_receipt.valid.json",
+      "invalid_fixtures": [
+        "schemas/one_perfect_tile/fixtures/invalid/atlantid_provenance_receipt.INVALID_measured_accuracy_without_evidence.json",
+        "schemas/one_perfect_tile/fixtures/invalid/atlantid_provenance_receipt.INVALID_blank_c12_statement.json"
+      ]
+    },
+    {
+      "requirement_id": "CONDITION-10-DUAL-TRACK-UNITY",
+      "schema_filename": "atlantid_design_export_manifest.schema.json",
+      "schema_id": "atlantid.one_perfect_tile.design_export_manifest.v1",
+      "frozen_section": "STEP 13 (Ruling 1, R-11COND, Condition 10 rescoped)",
+      "constraint": "Condition 10 remains one coherent schema (not split): mesh_track (D1), vector_track (D3), terrain, rights_and_provenance_refs, viewer_access, core_glb_ref, linking_key are all required in a single design_export_manifest document; the manifest's completion_conditions carries exactly eleven entries (no twelfth).",
+      "disposition": "ENCODED_IN_JSON_SCHEMA",
+      "test": "tests/test_one_perfect_tile_schemas.py::test_condition_10_is_one_dual_track_schema_not_split; tests/test_one_perfect_tile_schemas.py::test_condition10_export_component_omitted_is_rejected",
+      "valid_fixture": "schemas/one_perfect_tile/fixtures/valid/atlantid_design_export_manifest.valid.json",
+      "invalid_fixtures": [
+        "schemas/one_perfect_tile/fixtures/invalid/atlantid_design_export_manifest.INVALID_condition10_component_omitted.json",
+        "schemas/one_perfect_tile/fixtures/invalid/atlantid_design_export_manifest.INVALID_missing_vector_attribute.json"
+      ]
+    },
+    {
+      "requirement_id": "P3-REQ-ADD-006-LAYER-LICENSE-MATRIX-NO-LEGAL-CONCLUSION",
+      "schema_filename": "atlantid_layer_license_matrix.schema.json",
+      "schema_id": "atlantid.one_perfect_tile.layer_license_matrix.v1",
+      "frozen_section": "STEP 15 (operator Ruling 2, counsel question 9)",
+      "constraint": "draws_legal_conclusion is pinned const false; counsel question 9 must be recorded verbatim in unresolved_legal_questions for any layer implicating ODbL derivative-database status, never resolved.",
+      "disposition": "ENCODED_IN_JSON_SCHEMA",
+      "test": "tests/test_one_perfect_tile_schemas.py::test_layer_license_matrix_records_counsel_question_9_without_resolving_it; tests/test_one_perfect_tile_schemas.py::test_layer_license_matrix_draws_legal_conclusion_true_is_rejected",
+      "valid_fixture": "schemas/one_perfect_tile/fixtures/valid/atlantid_layer_license_matrix.valid.json",
+      "invalid_fixtures": ["schemas/one_perfect_tile/fixtures/invalid/atlantid_layer_license_matrix.INVALID_draws_legal_conclusion_true.json"]
+    },
+    {
+      "requirement_id": "STEP-8-SCHEMAS-FAIL-CLOSED",
+      "schema_filename": "all six",
+      "schema_id": "n/a (cross-schema)",
+      "frozen_section": "STEP 8",
+      "constraint": "All six schemas validate as JSON Schema draft-07 and fail closed on missing required fields, unknown enum values, malformed hashes (^[a-f0-9]{64}$), invalid CRS (^EPSG:[0-9]+$), absent receipt links, and contradictory product states, via required + additionalProperties:false at the root of every schema.",
+      "disposition": "ENCODED_IN_JSON_SCHEMA",
+      "test": "tests/test_one_perfect_tile_schemas.py::test_schema_root_forbids_unknown_properties; tests/test_one_perfect_tile_schemas.py::test_unknown_additional_property_rejected; tests/test_one_perfect_tile_schemas.py::test_canonical_schema_is_valid_draft7",
+      "valid_fixture": "schemas/one_perfect_tile/fixtures/valid/",
+      "invalid_fixtures": ["schemas/one_perfect_tile/fixtures/invalid/"]
+    },
+    {
+      "requirement_id": "NO-NETWORK-DEPENDENCY",
+      "schema_filename": "all six",
+      "schema_id": "n/a (cross-schema)",
+      "frozen_section": "W1 ordered work item 4 (implementation requirements)",
+      "constraint": "No unresolved external URL dependency; the only network-shaped string permitted is the fixed draft-07 $schema metaschema URI.",
+      "disposition": "ENCODED_IN_JSON_SCHEMA",
+      "test": "tests/test_one_perfect_tile_schemas.py::test_no_external_url_reference",
+      "valid_fixture": "n/a",
+      "invalid_fixtures": []
+    }
+  ],
+  "no_precise_frozen_ambiguity_blockers_encountered": true
+}

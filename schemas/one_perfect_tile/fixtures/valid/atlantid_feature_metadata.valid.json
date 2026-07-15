@@ -1,0 +1,72 @@
+{
+  "schema_version": "atlantid.one_perfect_tile.feature_metadata.v1",
+  "package_id": "atl_sobe_318455_shapeA_synthfix001",
+  "usgs_tile_id": "USGS_LPC_FL_MiamiDade_D23_LID2024_318455_0901",
+  "feature_namespace": "atlantid.lidar_segment.shapeA.v1",
+  "primary_key": "feature_id",
+  "feature_count": 1,
+  "coordinate_reference": {
+    "scene_horizontal_crs": "EPSG:32617",
+    "local_origin": {
+      "x": 0.0,
+      "y": 0.0,
+      "z": 0.0,
+      "crs": "EPSG:32617"
+    },
+    "units": "meters"
+  },
+  "shape_b_exclusions": {
+    "address": "EXCLUDED_SHAPE_A",
+    "parcel_id": "EXCLUDED_SHAPE_A",
+    "county_building_id": "EXCLUDED_SHAPE_A",
+    "ownership": "EXCLUDED_SHAPE_A",
+    "legal_structure_identity": "EXCLUDED_SHAPE_A",
+    "county_enrichment": "EXCLUDED_SHAPE_A"
+  },
+  "features": [
+    {
+      "feature_id": "sb_318455_0",
+      "usgs_tile_id": "USGS_LPC_FL_MiamiDade_D23_LID2024_318455_0901",
+      "segment_index": 0,
+      "centroid_local": {
+        "x": 1.0,
+        "y": 2.0
+      },
+      "bbox_local": {
+        "min": [
+          0,
+          0,
+          0
+        ],
+        "max": [
+          1,
+          1,
+          1
+        ]
+      },
+      "measurements": {
+        "estimated_height_m": 3.5,
+        "footprint_area_m2": 12.0,
+        "ground_z_m": 0.5,
+        "point_count_inside": 120
+      },
+      "geometry_confidence": {
+        "source_quality": "good",
+        "footprint_provenance": "lidar_convex_hull"
+      },
+      "claim_tiers": [
+        "T2_LIDAR_DERIVED_GEOMETRY",
+        "T3_GEOMETRY_DERIVED_MEASUREMENT",
+        "T4_ALGORITHMIC_STRUCTURE_SEGMENT",
+        "N1_EXTERNAL_BUILDING_IDENTITY_NOT_VERIFIED",
+        "N2_ADDRESS_NOT_PRESENT",
+        "N3_PARCEL_NOT_PRESENT",
+        "N4_COUNTY_ENRICHMENT_NOT_INCLUDED"
+      ],
+      "glb_node": {
+        "has_glb_node": true,
+        "node_name": "sb_318455_0"
+      }
+    }
+  ]
+}

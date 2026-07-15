@@ -1,0 +1,199 @@
+{
+  "schema_version": "atlantid.one_perfect_tile.tile_package_manifest.v1",
+  "atlantid_contract_version": "one_perfect_tile.v1",
+  "contract_status": "REPLACEMENT_CANDIDATE",
+  "product_state": "PRODUCT_INCOMPLETE",
+  "package_nature": {
+    "kind": "SYNTHETIC_FIXTURE",
+    "is_synthetic": true,
+    "synthetic_banner_required": true
+  },
+  "source_shape": {
+    "shape": "A_USGS_ONLY",
+    "usgs_only": true,
+    "county_enrichment_included": false,
+    "third_party_geometry_included": false
+  },
+  "lot_id": "ATL-SOUTH-BEACH-BEACHHEAD-001",
+  "package_id": "atl_sobe_318455_shapeA_synthfix001",
+  "package_version": "v001",
+  "tile_identity": {
+    "usgs_tile_number": "318455",
+    "usgs_tile_id": "USGS_LPC_FL_MiamiDade_D23_LID2024_318455_0901",
+    "product_role": "PRIMARY_PRODUCT_TILE",
+    "geography": {
+      "region_name": "South Beach, Miami Beach, FL",
+      "anchor": "Ocean Drive / 10th Street",
+      "geography_verified": true,
+      "screening_landmark": "Ocean_Drive_10th",
+      "coverage_receipt_ref": {
+        "uri": "SYNTHETIC_FIXTURE_coverage_receipt.json",
+        "sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+      }
+    }
+  },
+  "source_identity": {
+    "laz_file_name": "SYNTHETIC_FIXTURE_318455_0901.laz",
+    "laz_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+    "laz_size_bytes": 1024,
+    "header_point_count": 1000,
+    "producer": "USGS 3DEP / USGS_LPC_FL_MiamiDade_D23_LID2024",
+    "rights_posture": {
+      "source_rights": "US_GOVERNMENT_PUBLIC_DOMAIN_USGS_3DEP",
+      "license_status": "confirmed",
+      "shape_b_rights_resolved": false
+    }
+  },
+  "coordinate_contract": {
+    "source_horizontal_crs": "EPSG:6438",
+    "source_vertical_crs": "EPSG:6360",
+    "source_xy_units": "US survey foot",
+    "source_z_units": "US survey foot",
+    "scene_horizontal_crs": "EPSG:32617",
+    "scene_xy_units": "meters",
+    "scene_z_units": "meters",
+    "display_geographic_crs": "EPSG:4326",
+    "z_to_meters_factor": 0.3048006096012192,
+    "origin_mode": "tile_local",
+    "local_origin": {
+      "x": 0.0,
+      "y": 0.0,
+      "z": 0.0,
+      "crs": "EPSG:32617"
+    },
+    "handedness": "right_handed",
+    "up_axis": "Z_up"
+  },
+  "geometry_payload": {
+    "glb": {
+      "uri": "tile.glb",
+      "sha256": "1111111111111111111111111111111111111111111111111111111111111111",
+      "size_bytes": 2048
+    },
+    "bounds_local": {
+      "min": [
+        0,
+        0,
+        0
+      ],
+      "max": [
+        10,
+        10,
+        10
+      ]
+    },
+    "feature_granularity": "tile_scoped_no_per_feature_nodes",
+    "deterministic_ordering": true,
+    "geometry_confidence_field": "source_quality"
+  },
+  "feature_metadata_ref": {
+    "uri": "feature_metadata.json",
+    "sha256": "2222222222222222222222222222222222222222222222222222222222222222",
+    "schema_version": "atlantid.one_perfect_tile.feature_metadata.v1",
+    "feature_count": 1
+  },
+  "provenance_receipt_ref": {
+    "uri": "provenance_receipt.json",
+    "schema_version": "atlantid.one_perfect_tile.provenance_receipt.v1",
+    "receipt_id": "ATL-RCPT-318455-SYNTH-001"
+  },
+  "claim_tiers_present": [
+    "T0_SOURCE_IDENTITY_VERIFIED",
+    "T1_GEOGRAPHY_VERIFIED",
+    "T2_LIDAR_DERIVED_GEOMETRY",
+    "N1_EXTERNAL_BUILDING_IDENTITY_NOT_VERIFIED",
+    "N2_ADDRESS_NOT_PRESENT",
+    "N3_PARCEL_NOT_PRESENT",
+    "N4_COUNTY_ENRICHMENT_NOT_INCLUDED",
+    "A1_SYNTHETIC_FIXTURE"
+  ],
+  "excluded_fields": [
+    {
+      "field": "address",
+      "reason": "Shape A carries no address field.",
+      "claim_tier": "N2_ADDRESS_NOT_PRESENT"
+    },
+    {
+      "field": "parcel_id",
+      "reason": "Shape A carries no parcel identifier.",
+      "claim_tier": "N3_PARCEL_NOT_PRESENT"
+    },
+    {
+      "field": "county_building_id",
+      "reason": "Shape A carries no county building identity.",
+      "claim_tier": "N1_EXTERNAL_BUILDING_IDENTITY_NOT_VERIFIED"
+    },
+    {
+      "field": "ownership",
+      "reason": "Shape A carries no ownership data.",
+      "claim_tier": "N1_EXTERNAL_BUILDING_IDENTITY_NOT_VERIFIED"
+    },
+    {
+      "field": "legal_structure_identity",
+      "reason": "Shape A carries no legal structure identity.",
+      "claim_tier": "N1_EXTERNAL_BUILDING_IDENTITY_NOT_VERIFIED"
+    },
+    {
+      "field": "county_enrichment",
+      "reason": "Shape A excludes all county enrichment.",
+      "claim_tier": "N4_COUNTY_ENRICHMENT_NOT_INCLUDED"
+    }
+  ],
+  "completion_conditions": {
+    "c1": {
+      "satisfied": false,
+      "evidence_ref": null
+    },
+    "c2": {
+      "satisfied": false,
+      "evidence_ref": null
+    },
+    "c3": {
+      "satisfied": false,
+      "evidence_ref": null
+    },
+    "c4": {
+      "satisfied": false,
+      "evidence_ref": null
+    },
+    "c5": {
+      "satisfied": false,
+      "evidence_ref": null
+    },
+    "c6": {
+      "satisfied": false,
+      "evidence_ref": null
+    },
+    "c7": {
+      "satisfied": false,
+      "evidence_ref": null
+    },
+    "c8": {
+      "satisfied": false,
+      "evidence_ref": null
+    },
+    "c9": {
+      "satisfied": false,
+      "evidence_ref": null
+    },
+    "c10": {
+      "satisfied": false,
+      "evidence_ref": null
+    },
+    "c11": {
+      "satisfied": false,
+      "evidence_ref": null
+    }
+  },
+  "viewer_target": {
+    "route": "/tile/atl_sobe_318455_shapeA_v001",
+    "loader_target": "tile.glb",
+    "viewer_manifest_maps_to": "glytchos.viewer_manifest.v1"
+  },
+  "acceptance": {
+    "producer_conformance": "NOT_RUN",
+    "independent_acceptance": "NOT_YET_ACCEPTED"
+  },
+  "created_at": "2026-07-15T00:00:00Z",
+  "issuer": "atlantid_schema_fixture_author"
+}

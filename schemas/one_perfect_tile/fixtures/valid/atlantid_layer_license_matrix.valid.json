@@ -1,0 +1,42 @@
+{
+  "schema_version": "atlantid.one_perfect_tile.layer_license_matrix.v1",
+  "lot_id": "ATL-SOUTH-BEACH-BEACHHEAD-001",
+  "package_id": "atl_sobe_318455_shapeA_synthfix001",
+  "draws_legal_conclusion": false,
+  "layers": [
+    {
+      "layer_id": "shape_a_lidar_geometry",
+      "source": "USGS 3DEP LiDAR (USGS_LPC_FL_MiamiDade_D23_LID2024)",
+      "rights_holder_or_publisher": "USGS",
+      "license_or_terms": "US Government Public Domain",
+      "permitted_uses": [
+        "commercial_use",
+        "redistribution",
+        "modification"
+      ],
+      "redistribution_posture": "redistributable",
+      "attribution_required": false,
+      "share_alike_required": false,
+      "modification_posture": "modification_permitted",
+      "unresolved_legal_questions": [],
+      "relationship_to_core": "IS_CORE"
+    },
+    {
+      "layer_id": "external_osm_join_table_example",
+      "source": "OpenStreetMap-derived (hypothetical external pack, not shipped with this fixture)",
+      "rights_holder_or_publisher": "OpenStreetMap contributors",
+      "license_or_terms": "ODbL 1.0",
+      "permitted_uses": [
+        "reference_only"
+      ],
+      "redistribution_posture": "needs_review",
+      "attribution_required": true,
+      "share_alike_required": true,
+      "modification_posture": "needs_review",
+      "unresolved_legal_questions": [
+        "Counsel question 9: whether distributing a stable-ID association table produced by spatially comparing Atlantid geometry with an OpenStreetMap-derived database creates an ODbL Derivative Database, and whether shipping it separately changes the answer, remains open."
+      ],
+      "relationship_to_core": "OUTSIDE_CORE_EXTERNALLY_DERIVED_JOIN_TABLE"
+    }
+  ]
+}

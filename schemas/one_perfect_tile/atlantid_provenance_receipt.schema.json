@@ -1,0 +1,371 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "atlantid.one_perfect_tile.provenance_receipt.v1",
+  "title": "Atlantid One-Perfect-Tile — Customer Provenance Receipt (Shape A) — REPLACEMENT CANDIDATE",
+  "description": "REPLACEMENT_CANDIDATE (awaiting Gate B). Customer-facing provenance receipt for one South Beach tile package. The single artifact a customer or auditor can read to understand what the product claims, how it was made, and what it deliberately does NOT claim, WITHOUT access to the internal factory evidence store. It binds source identity, transforms, software/design identities, outputs (by hash), validation, claim tiers, warnings, exclusions, the dataset-level accuracy status (C12), unresolved questions, and independent acceptance status. It does NOT assert compliance with any external standard it does not actually implement; it declares mappings explicitly. It does NOT claim any address, parcel, or legal building identity, and does NOT claim measured accuracy or standards conformance unless supporting evidence exists. Carries the normative remediation of finding P3-F-003 (exact, complete, consistent Shape A exclusion set) and the operator Ruling 3 (P3-OPDEC-ACC-TIMING-001, Option C: accuracy status PRESENT and NON-GATING for tile #1, PENDING allowed, never treated as measured).",
+  "type": "object",
+  "additionalProperties": false,
+  "x-atlantid-finding-remediations": {
+    "P3-F-003": "exclusions is constrained to the exact canonical Shape A exclusion identifiers via a closed enum and must contain the complete six-concept set, consistent with the manifest excluded_fields and feature_metadata.shape_b_exclusions."
+  },
+  "x-atlantid-operator-ruling": {
+    "P3-OPDEC-ACC-TIMING-001": "OPTION C — PRESENT_NON_GATING. accuracy_status is a mandatory receipt field; status PENDING is permitted for tile #1; PENDING is not measured conformance; a blank/absent statement is not compliance; quantitative RMSE does not gate tile #1 acceptance but is required before Design Edition acceptance."
+  },
+  "x-atlantid-shape-a-exclusion-set": [
+    "address",
+    "parcel_id",
+    "county_building_id",
+    "ownership",
+    "legal_structure_identity",
+    "county_enrichment"
+  ],
+  "required": [
+    "schema_version",
+    "receipt_id",
+    "issued_at",
+    "issuer",
+    "lot_id",
+    "package_id",
+    "package_version",
+    "package_nature",
+    "source_shape",
+    "tile_identity",
+    "source_file",
+    "rights",
+    "crs_and_transforms",
+    "software_identities",
+    "algorithm_config",
+    "outputs",
+    "validation_suite",
+    "claim_tiers",
+    "warnings",
+    "exclusions",
+    "accuracy_status",
+    "unresolved_questions",
+    "independent_acceptance",
+    "standards_posture"
+  ],
+  "properties": {
+    "schema_version": { "const": "atlantid.one_perfect_tile.provenance_receipt.v1" },
+    "receipt_id": { "type": "string", "pattern": "^ATL-RCPT-318455-[A-Za-z0-9\\-]+$", "description": "Stable receipt identity. Changes only when a bound payload hash or acceptance status changes." },
+    "issued_at": { "type": "string", "format": "date-time" },
+    "issuer": { "type": "string", "minLength": 1 },
+    "lot_id": { "type": "string", "pattern": "^ATL-[A-Z0-9\\-]+$" },
+    "package_id": { "type": "string", "pattern": "^atl_sobe_318455_shapeA(_[a-z0-9]+)?$" },
+    "package_version": { "type": "string", "pattern": "^v[0-9]{3}$" },
+    "package_nature": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "is_synthetic"],
+      "properties": {
+        "kind": { "enum": ["SYNTHETIC_FIXTURE", "REAL_EXPORTED_ASSET"] },
+        "is_synthetic": { "type": "boolean" }
+      }
+    },
+    "source_shape": { "const": "A_USGS_ONLY" },
+    "tile_identity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["usgs_tile_number", "usgs_tile_id", "region_name", "anchor", "geography_verified"],
+      "properties": {
+        "usgs_tile_number": { "const": "318455" },
+        "usgs_tile_id": { "const": "USGS_LPC_FL_MiamiDade_D23_LID2024_318455_0901" },
+        "region_name": { "const": "South Beach, Miami Beach, FL" },
+        "anchor": { "const": "Ocean Drive / 10th Street" },
+        "geography_verified": { "type": "boolean" }
+      }
+    },
+    "source_file": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["file_name", "sha256", "size_bytes", "header_point_count", "identity_match"],
+      "description": "For a REAL_EXPORTED_ASSET these must be the verified USGS tile identity. For a SYNTHETIC_FIXTURE these must be the documented synthetic placeholder identity and identity_match must be 'synthetic_placeholder'.",
+      "properties": {
+        "file_name": { "type": "string", "minLength": 1 },
+        "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+        "size_bytes": { "type": "integer", "minimum": 1 },
+        "header_point_count": { "type": "integer", "minimum": 0 },
+        "identity_match": { "enum": ["verified_byte_identical", "synthetic_placeholder", "unverified"] }
+      }
+    },
+    "rights": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source_rights", "license_status", "license_evidence", "shape_b_rights_resolved", "commercial_use_allowed"],
+      "properties": {
+        "source_rights": { "const": "US_GOVERNMENT_PUBLIC_DOMAIN_USGS_3DEP" },
+        "license_status": { "enum": ["confirmed", "needs_review", "blocked"] },
+        "license_evidence": { "type": "array", "items": { "type": "string" }, "description": "Citations/evidence backing license_status. Must be non-empty (runtime) when license_status is confirmed." },
+        "shape_b_rights_resolved": { "const": false },
+        "commercial_use_allowed": { "type": "boolean" }
+      }
+    },
+    "crs_and_transforms": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source_horizontal_crs", "source_vertical_crs", "scene_horizontal_crs", "display_geographic_crs", "z_to_meters_factor", "origin_mode", "local_origin", "transform_steps"],
+      "properties": {
+        "source_horizontal_crs": { "type": "string", "pattern": "^EPSG:[0-9]+$" },
+        "source_vertical_crs": { "type": "string", "pattern": "^EPSG:[0-9]+$" },
+        "scene_horizontal_crs": { "type": "string", "pattern": "^EPSG:[0-9]+$" },
+        "display_geographic_crs": { "const": "EPSG:4326" },
+        "z_to_meters_factor": { "type": "number", "exclusiveMinimum": 0 },
+        "origin_mode": { "const": "tile_local" },
+        "local_origin": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["x", "y", "z", "crs"],
+          "properties": { "x": { "type": "number" }, "y": { "type": "number" }, "z": { "type": "number" }, "crs": { "type": "string", "pattern": "^EPSG:[0-9]+$" } }
+        },
+        "transform_steps": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["step", "occurs_exactly_once"],
+            "properties": { "step": { "type": "string", "minLength": 1 }, "occurs_exactly_once": { "type": "boolean" } }
+          }
+        }
+      }
+    },
+    "software_identities": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["pipeline_repo", "pipeline_commit_sha", "design_identities"],
+      "properties": {
+        "pipeline_repo": { "type": "string", "minLength": 1 },
+        "pipeline_commit_sha": { "type": "string", "pattern": "^[a-f0-9]{40}$" },
+        "design_identities": {
+          "type": "array",
+          "minItems": 1,
+          "description": "Frozen design manifests governing this build (e.g. Height-R2 V5, Source/Mount Amendment V3), each bound by manifest hash.",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["design_id", "manifest_sha256"],
+            "properties": { "design_id": { "type": "string", "minLength": 1 }, "manifest_sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" } }
+          }
+        }
+      }
+    },
+    "algorithm_config": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["segmentation", "height_estimation", "algorithm_revision"],
+      "properties": {
+        "segmentation": { "type": "string", "minLength": 1 },
+        "height_estimation": { "type": "string", "minLength": 1 },
+        "algorithm_revision": { "type": "string", "minLength": 1 }
+      }
+    },
+    "outputs": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["role", "uri", "sha256", "size_bytes"],
+        "properties": {
+          "role": { "enum": ["glb", "feature_metadata", "tile_package_manifest", "design_export_manifest", "layer_license_matrix", "join_contract", "obj_mesh", "mtl", "skp", "attributed_vectors", "geotiff_terrain", "human_receipt_one_pager"] },
+          "uri": { "type": "string", "minLength": 1 },
+          "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+          "size_bytes": { "type": "integer", "minimum": 1 }
+        }
+      }
+    },
+    "validation_suite": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["producer_conformance", "results"],
+      "properties": {
+        "producer_conformance": { "enum": ["PASS", "FAIL", "NOT_RUN"] },
+        "results": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["check_id", "result"],
+            "properties": {
+              "check_id": { "type": "string", "minLength": 1 },
+              "result": { "enum": ["pass", "warn", "fail", "not_run"] }
+            }
+          }
+        }
+      }
+    },
+    "claim_tiers": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "enum": [
+          "T0_SOURCE_IDENTITY_VERIFIED",
+          "T1_GEOGRAPHY_VERIFIED",
+          "T2_LIDAR_DERIVED_GEOMETRY",
+          "T3_GEOMETRY_DERIVED_MEASUREMENT",
+          "T4_ALGORITHMIC_STRUCTURE_SEGMENT",
+          "N1_EXTERNAL_BUILDING_IDENTITY_NOT_VERIFIED",
+          "N2_ADDRESS_NOT_PRESENT",
+          "N3_PARCEL_NOT_PRESENT",
+          "N4_COUNTY_ENRICHMENT_NOT_INCLUDED",
+          "A1_SYNTHETIC_FIXTURE",
+          "A2_REAL_EXPORTED_ASSET",
+          "A3_INDEPENDENTLY_ACCEPTED_PRODUCT"
+        ]
+      }
+    },
+    "warnings": { "type": "array", "items": { "type": "string" } },
+    "exclusions": {
+      "type": "array",
+      "minItems": 6,
+      "uniqueItems": true,
+      "description": "P3-F-003 remediation: explicit verified negatives using the exact, complete, canonical Shape A exclusion set. Every entry's 'excluded' is drawn from the closed canonical enum and the array MUST contain all six concepts (allOf/contains below), consistent with the manifest excluded_fields and feature_metadata.shape_b_exclusions. Generic placeholder strings are rejected; the earlier minItems:4 posture is superseded.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["excluded", "meaning"],
+        "properties": {
+          "excluded": {
+            "enum": ["address", "parcel_id", "county_building_id", "ownership", "legal_structure_identity", "county_enrichment"],
+            "description": "Exact canonical Shape A exclusion identifier. Closed enum; unknown/generic values fail closed."
+          },
+          "meaning": { "const": "NOT_PRESENT_IN_SHAPE_A_VERIFIED_NEGATIVE" }
+        }
+      },
+      "allOf": [
+        { "contains": { "properties": { "excluded": { "const": "address" } }, "required": ["excluded"] } },
+        { "contains": { "properties": { "excluded": { "const": "parcel_id" } }, "required": ["excluded"] } },
+        { "contains": { "properties": { "excluded": { "const": "county_building_id" } }, "required": ["excluded"] } },
+        { "contains": { "properties": { "excluded": { "const": "ownership" } }, "required": ["excluded"] } },
+        { "contains": { "properties": { "excluded": { "const": "legal_structure_identity" } }, "required": ["excluded"] } },
+        { "contains": { "properties": { "excluded": { "const": "county_enrichment" } }, "required": ["excluded"] } }
+      ]
+    },
+    "accuracy_status": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "C12 dataset-level accuracy status (P3-REQ-ADD-011) under operator Ruling 3 (Option C, PRESENT_NON_GATING). This field is MANDATORY and MUST be nonblank. status may be PENDING for tile #1 when quantitative RMSE and formal ASPRS Ed2 / ISO 19157 evaluation have not been completed; PENDING is an honest negative, NOT measured conformance. A MEASURED status requires the numeric evidence fields and a bound evidence_ref. This status is NON-GATING for tile #1 acceptance; quantitative accuracy evidence is required before Design Edition acceptance. No measured-accuracy or standards-conformance claim may be made while status is PENDING.",
+      "required": ["status", "statement", "method_vocabulary", "gating_posture"],
+      "properties": {
+        "status": {
+          "enum": ["PENDING", "MEASURED", "NOT_BOUND"],
+          "description": "PENDING = evaluation not yet completed (honest negative, allowed for tile #1). MEASURED = quantitative RMSE evaluated with bound evidence. NOT_BOUND = explicit honest negative that no accuracy evaluation is claimed. Never blank."
+        },
+        "statement": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Nonblank human-readable dataset-level accuracy statement. A blank field is not compliance. For PENDING it must say quantitative RMSE / ASPRS Ed2 / ISO 19157 evaluation is not yet completed and that no measured-accuracy claim is made."
+        },
+        "method_vocabulary": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "enum": ["ASPRS_ED2_2023_RMSE", "ISO_19157_QUALITY"] },
+          "description": "Declared methods-language vocabularies (mappings, never certification claims) the accuracy statement would use once measured."
+        },
+        "gating_posture": {
+          "const": "PRESENT_NON_GATING_FIRST_TILE_GATES_DESIGN_EDITION",
+          "description": "Fixed posture per Ruling 3: present and non-gating for tile #1; quantitative accuracy required before Design Edition acceptance."
+        },
+        "rmse_horizontal_m": { "type": ["number", "null"], "minimum": 0, "description": "Quantitative horizontal RMSE in meters. Null unless status is MEASURED." },
+        "rmse_vertical_m": { "type": ["number", "null"], "minimum": 0, "description": "Quantitative vertical RMSE in meters. Null unless status is MEASURED." },
+        "evidence_ref": {
+          "type": ["object", "null"],
+          "additionalProperties": false,
+          "description": "Content-bound pointer to the quantitative accuracy evaluation. Null while status is PENDING or NOT_BOUND; MUST be bound when status is MEASURED (enforced below).",
+          "required": ["uri", "sha256"],
+          "properties": { "uri": { "type": "string", "minLength": 1 }, "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" } }
+        }
+      },
+      "allOf": [
+        {
+          "$comment": "Ruling 3: a MEASURED status may not be an empty claim — it requires numeric RMSE and bound evidence. PENDING may not masquerade as measured.",
+          "if": { "properties": { "status": { "const": "MEASURED" } }, "required": ["status"] },
+          "then": {
+            "properties": {
+              "rmse_horizontal_m": { "type": "number" },
+              "rmse_vertical_m": { "type": "number" },
+              "evidence_ref": { "type": "object" }
+            },
+            "required": ["rmse_horizontal_m", "rmse_vertical_m", "evidence_ref"]
+          }
+        },
+        {
+          "$comment": "PENDING and NOT_BOUND must NOT carry numeric RMSE (no measured claim without evidence).",
+          "if": { "properties": { "status": { "enum": ["PENDING", "NOT_BOUND"] } }, "required": ["status"] },
+          "then": {
+            "properties": {
+              "rmse_horizontal_m": { "type": "null" },
+              "rmse_vertical_m": { "type": "null" },
+              "evidence_ref": { "type": "null" }
+            }
+          }
+        }
+      ]
+    },
+    "unresolved_questions": {
+      "type": "array",
+      "description": "Open questions the receipt honestly discloses (e.g. customer discovery not yet bound; counsel question 9 on ODbL derivative-database status remains open).",
+      "items": { "type": "string" }
+    },
+    "independent_acceptance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "accepted_by", "accepted_at"],
+      "description": "Independent contract acceptance, separate from producer conformance. NOT_YET_ACCEPTED until an independent reviewer records GO.",
+      "properties": {
+        "status": { "enum": ["GO", "HOLD", "NOT_REQUESTED", "NOT_YET_ACCEPTED"] },
+        "accepted_by": { "type": ["string", "null"] },
+        "accepted_at": { "type": ["string", "null"], "format": "date-time" }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "status": { "const": "GO" } }, "required": ["status"] },
+          "then": { "properties": { "accepted_by": { "type": "string", "minLength": 1 }, "accepted_at": { "type": "string" } } }
+        }
+      ]
+    },
+    "standards_posture": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["claims_external_standard_compliance", "mappings"],
+      "description": "Explicit standards honesty. This receipt is an Atlantid-native format. It does NOT claim to BE 3D Tiles, CityGML, OGC, ISO, ASPRS, or any external standard. It MAY declare non-normative mappings. No standards-conformance claim may be made without implementation and independent review.",
+      "properties": {
+        "claims_external_standard_compliance": { "const": false },
+        "mappings": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["standard", "relationship"],
+            "properties": {
+              "standard": { "type": "string", "minLength": 1 },
+              "relationship": { "enum": ["maps_to", "inspired_by", "interoperable_export_planned"] }
+            }
+          }
+        }
+      }
+    }
+  },
+  "allOf": [
+    {
+      "description": "A SYNTHETIC_FIXTURE receipt must declare source_file.identity_match = synthetic_placeholder and must not carry A2/A3 tiers.",
+      "if": { "properties": { "package_nature": { "type": "object", "properties": { "kind": { "const": "SYNTHETIC_FIXTURE" } }, "required": ["kind"] } }, "required": ["package_nature"] },
+      "then": {
+        "properties": {
+          "source_file": { "type": "object", "properties": { "identity_match": { "const": "synthetic_placeholder" } }, "required": ["identity_match"] },
+          "claim_tiers": { "type": "array", "items": { "not": { "enum": ["A2_REAL_EXPORTED_ASSET", "A3_INDEPENDENTLY_ACCEPTED_PRODUCT"] } } }
+        }
+      }
+    },
+    {
+      "description": "A REAL_EXPORTED_ASSET receipt must declare source_file.identity_match = verified_byte_identical.",
+      "if": { "properties": { "package_nature": { "type": "object", "properties": { "kind": { "const": "REAL_EXPORTED_ASSET" } }, "required": ["kind"] } }, "required": ["package_nature"] },
+      "then": { "properties": { "source_file": { "type": "object", "properties": { "identity_match": { "const": "verified_byte_identical" } }, "required": ["identity_match"] } } }
+    },
+    {
+      "description": "The A3 accepted-product tier requires independent_acceptance.status = GO.",
+      "if": { "properties": { "claim_tiers": { "contains": { "const": "A3_INDEPENDENTLY_ACCEPTED_PRODUCT" } } }, "required": ["claim_tiers"] },
+      "then": { "properties": { "independent_acceptance": { "type": "object", "properties": { "status": { "const": "GO" } }, "required": ["status"] } } }
+    }
+  ]
+}

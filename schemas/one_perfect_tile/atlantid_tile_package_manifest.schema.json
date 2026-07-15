@@ -1,0 +1,488 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "atlantid.one_perfect_tile.tile_package_manifest.v1",
+  "title": "Atlantid One-Perfect-Tile — Tile Package Manifest (Shape A, USGS-only) — REPLACEMENT CANDIDATE",
+  "description": "REPLACEMENT_CANDIDATE (awaiting Gate B). Machine-readable contract for the customer-facing package of one South Beach tile (primary product tile 318455). This manifest is the top of the package: it names the package identity, binds the geometry payload, feature metadata companion, provenance receipt, and (Design Edition) the design export manifest and layer license matrix by content hash, declares product completeness state with the eleven-condition evidence gate, declares synthetic-vs-real nature, and declares the Shape A source posture. Fail-closed. Carries the normative remediations of finding P3-F-003 (exact, complete, consistent Shape A exclusion set) and finding P3-F-006 (PRODUCT_COMPLETE requires evidence for all eleven completion conditions, not merely PASS+GO). It EXTENDS and maps to the internal glytchos.atlantid_tile_asset_manifest.v1 (factory-internal). It asserts no independent acceptance by itself, no address, parcel, or legal building identity, and no measured accuracy or standards conformance.",
+  "type": "object",
+  "additionalProperties": false,
+  "x-atlantid-finding-remediations": {
+    "P3-F-003": "excluded_fields is constrained to the exact canonical Shape A exclusion identifiers via a closed field enum and must contain the complete six-concept set, consistent with feature_metadata.shape_b_exclusions and receipt.exclusions.",
+    "P3-F-006": "product_state may be PRODUCT_COMPLETE only if completion_conditions binds all eleven conditions with satisfied==true and an evidence_ref, in addition to producer_conformance PASS and independent_acceptance GO."
+  },
+  "x-atlantid-shape-a-exclusion-set": [
+    "address",
+    "parcel_id",
+    "county_building_id",
+    "ownership",
+    "legal_structure_identity",
+    "county_enrichment"
+  ],
+  "required": [
+    "schema_version",
+    "atlantid_contract_version",
+    "contract_status",
+    "product_state",
+    "package_nature",
+    "source_shape",
+    "lot_id",
+    "package_id",
+    "package_version",
+    "tile_identity",
+    "source_identity",
+    "coordinate_contract",
+    "geometry_payload",
+    "feature_metadata_ref",
+    "provenance_receipt_ref",
+    "claim_tiers_present",
+    "excluded_fields",
+    "completion_conditions",
+    "viewer_target",
+    "acceptance",
+    "created_at",
+    "issuer"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "atlantid.one_perfect_tile.tile_package_manifest.v1",
+      "description": "Pinned schema identity. Must equal this schema $id. Unknown or mismatched values fail closed."
+    },
+    "atlantid_contract_version": {
+      "const": "one_perfect_tile.v1",
+      "description": "Product-contract semantic version for the One-Perfect-Tile beachhead product."
+    },
+    "contract_status": {
+      "enum": ["PRE_FREEZE_DRAFT", "REPLACEMENT_CANDIDATE", "DESIGN_REVIEW_PENDING", "DESIGN_HELD", "CONTRACT_FROZEN"],
+      "description": "Lifecycle of the CONTRACT this package claims to conform to. A conforming package produced under this replacement contract before it is frozen MUST carry REPLACEMENT_CANDIDATE or PRE_FREEZE_DRAFT. Only an independently reviewed and frozen contract permits CONTRACT_FROZEN. auto-advance is prohibited (runtime obligation)."
+    },
+    "product_state": {
+      "enum": [
+        "PRODUCT_NOT_DEFINED",
+        "PRE_FREEZE_DRAFT",
+        "REPLACEMENT_CANDIDATE",
+        "DESIGN_REVIEW_PENDING",
+        "DESIGN_HELD",
+        "CONTRACT_FROZEN",
+        "IMPLEMENTATION_IN_PROGRESS",
+        "IMPLEMENTATION_REVIEW_PENDING",
+        "ASSET_BUILD_NOT_AUTHORIZED",
+        "ASSET_BUILT",
+        "PRODUCT_ACCEPTANCE_PENDING",
+        "PRODUCT_HELD",
+        "VIEWER_INTEGRATED",
+        "DEMONSTRATION_READY",
+        "DELIVERED",
+        "INVOICED",
+        "PRODUCT_COMPLETE",
+        "PRODUCT_INCOMPLETE"
+      ],
+      "description": "Lot/product completeness state (see ATLANTID_PRODUCT_COMPLETENESS_STATE_MACHINE). Absence of a completed product MUST be represented as PRODUCT_INCOMPLETE, never hidden by a successfully generated package."
+    },
+    "package_nature": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "is_synthetic", "synthetic_banner_required"],
+      "description": "Synthetic/real disambiguation. There is no ambiguous state; a package is exactly one of SYNTHETIC_FIXTURE or REAL_EXPORTED_ASSET.",
+      "properties": {
+        "kind": { "enum": ["SYNTHETIC_FIXTURE", "REAL_EXPORTED_ASSET"] },
+        "is_synthetic": { "type": "boolean" },
+        "synthetic_banner_required": { "type": "boolean" }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "kind": { "const": "SYNTHETIC_FIXTURE" } }, "required": ["kind"] },
+          "then": { "properties": { "is_synthetic": { "const": true }, "synthetic_banner_required": { "const": true } } }
+        },
+        {
+          "if": { "properties": { "kind": { "const": "REAL_EXPORTED_ASSET" } }, "required": ["kind"] },
+          "then": { "properties": { "is_synthetic": { "const": false }, "synthetic_banner_required": { "const": false } } }
+        }
+      ]
+    },
+    "source_shape": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["shape", "usgs_only", "county_enrichment_included", "third_party_geometry_included"],
+      "description": "Source posture. Shape A is USGS-only. County enrichment (Shape B) and any third-party geometry (Google/Microsoft/ODbL) must be explicitly excluded, not silently absent.",
+      "properties": {
+        "shape": { "const": "A_USGS_ONLY" },
+        "usgs_only": { "const": true },
+        "county_enrichment_included": { "const": false },
+        "third_party_geometry_included": { "const": false }
+      }
+    },
+    "lot_id": {
+      "type": "string",
+      "pattern": "^ATL-[A-Z0-9\\-]+$",
+      "description": "Production lot identity, e.g. ATL-SOUTH-BEACH-BEACHHEAD-001."
+    },
+    "package_id": {
+      "type": "string",
+      "pattern": "^atl_sobe_318455_shapeA(_[a-z0-9]+)?$",
+      "description": "Exported tile package identity for the Shape A product tile. Namespace-scoped to the primary product tile 318455. Must not be a mutable alias (latest/current)."
+    },
+    "package_version": {
+      "type": "string",
+      "pattern": "^v[0-9]{3}$",
+      "description": "Immutable package revision, e.g. v001. Bumps when any bound payload hash changes."
+    },
+    "tile_identity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["usgs_tile_number", "usgs_tile_id", "product_role", "geography"],
+      "properties": {
+        "usgs_tile_number": { "const": "318455", "description": "USGS grid tile number for the primary product tile. 318155 is expansion-only and is NOT the product." },
+        "usgs_tile_id": { "const": "USGS_LPC_FL_MiamiDade_D23_LID2024_318455_0901", "description": "Full USGS LPC tile identifier (without extension)." },
+        "product_role": { "const": "PRIMARY_PRODUCT_TILE" },
+        "geography": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["region_name", "anchor", "geography_verified", "screening_landmark", "coverage_receipt_ref"],
+          "properties": {
+            "region_name": { "const": "South Beach, Miami Beach, FL" },
+            "anchor": { "const": "Ocean Drive / 10th Street" },
+            "geography_verified": { "type": "boolean", "description": "True only when a coverage receipt binds this tile to the South Beach screening envelope." },
+            "screening_landmark": { "type": "string", "description": "e.g. Ocean_Drive_10th" },
+            "coverage_receipt_ref": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["uri", "sha256"],
+              "properties": { "uri": { "type": "string", "minLength": 1 }, "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" } }
+            }
+          }
+        }
+      }
+    },
+    "source_identity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["laz_file_name", "laz_sha256", "laz_size_bytes", "header_point_count", "producer", "rights_posture"],
+      "description": "USGS LiDAR source-file identity. For a SYNTHETIC_FIXTURE these fields describe the fixture's declared synthetic source and laz_sha256 MUST be the synthetic placeholder documented in the fixture spec, never a real tile hash.",
+      "properties": {
+        "laz_file_name": { "type": "string", "minLength": 1 },
+        "laz_sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+        "laz_size_bytes": { "type": "integer", "minimum": 1 },
+        "header_point_count": { "type": "integer", "minimum": 0 },
+        "producer": { "const": "USGS 3DEP / USGS_LPC_FL_MiamiDade_D23_LID2024" },
+        "rights_posture": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["source_rights", "license_status", "shape_b_rights_resolved"],
+          "properties": {
+            "source_rights": { "const": "US_GOVERNMENT_PUBLIC_DOMAIN_USGS_3DEP" },
+            "license_status": { "enum": ["confirmed", "needs_review", "blocked"] },
+            "shape_b_rights_resolved": { "const": false, "description": "Shape B (county/third-party) rights are NOT claimed resolved by this contract." }
+          }
+        }
+      }
+    },
+    "coordinate_contract": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "source_horizontal_crs",
+        "source_vertical_crs",
+        "source_xy_units",
+        "source_z_units",
+        "scene_horizontal_crs",
+        "scene_xy_units",
+        "scene_z_units",
+        "display_geographic_crs",
+        "z_to_meters_factor",
+        "origin_mode",
+        "local_origin",
+        "handedness",
+        "up_axis"
+      ],
+      "description": "Global spatial truth must remain float64-capable; render geometry is tile-local with an explicit global transform. Large UTM coordinates must NOT be baked into float32 mesh vertices. These declarations are the manifest face of the generic join contract (atlantid_join_contract.schema.json, C3).",
+      "properties": {
+        "source_horizontal_crs": { "type": "string", "pattern": "^EPSG:[0-9]+$", "description": "e.g. EPSG:6438" },
+        "source_vertical_crs": { "type": "string", "pattern": "^EPSG:[0-9]+$", "description": "e.g. EPSG:6360" },
+        "source_xy_units": { "type": "string", "minLength": 1, "description": "e.g. US survey foot" },
+        "source_z_units": { "type": "string", "minLength": 1 },
+        "scene_horizontal_crs": { "type": "string", "pattern": "^EPSG:[0-9]+$", "description": "Processed working CRS in meters, e.g. EPSG:32617." },
+        "scene_xy_units": { "const": "meters" },
+        "scene_z_units": { "const": "meters" },
+        "display_geographic_crs": { "const": "EPSG:4326" },
+        "z_to_meters_factor": { "type": "number", "exclusiveMinimum": 0 },
+        "origin_mode": { "const": "tile_local" },
+        "local_origin": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["x", "y", "z", "crs"],
+          "description": "The float64 offset (in scene_horizontal_crs) subtracted from absolute coordinates to produce tile-local render coordinates. Adding it back recovers global position.",
+          "properties": {
+            "x": { "type": "number" },
+            "y": { "type": "number" },
+            "z": { "type": "number" },
+            "crs": { "type": "string", "pattern": "^EPSG:[0-9]+$" }
+          }
+        },
+        "handedness": { "enum": ["right_handed", "left_handed"] },
+        "up_axis": { "enum": ["Y_up", "Z_up"] }
+      }
+    },
+    "geometry_payload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["glb", "bounds_local", "feature_granularity", "deterministic_ordering", "geometry_confidence_field"],
+      "properties": {
+        "glb": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["uri", "sha256", "size_bytes"],
+          "properties": {
+            "uri": { "type": "string", "minLength": 1, "not": { "pattern": "(?i)(^|[/_.\\-])(latest|current|final-final)([/_.\\-]|$)" } },
+            "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+            "size_bytes": { "type": "integer", "minimum": 1 }
+          }
+        },
+        "bounds_local": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["min", "max"],
+          "properties": {
+            "min": { "type": "array", "items": { "type": "number" }, "minItems": 3, "maxItems": 3 },
+            "max": { "type": "array", "items": { "type": "number" }, "minItems": 3, "maxItems": 3 }
+          }
+        },
+        "feature_granularity": {
+          "enum": ["per_feature_nodes", "tile_scoped_no_per_feature_nodes"],
+          "description": "per_feature_nodes: each building-like feature is an independently selectable GLB node (producer obligation for a selectable product). tile_scoped_no_per_feature_nodes: today's canonical single-node export, which does NOT support per-feature selection and must be declared honestly."
+        },
+        "deterministic_ordering": { "type": "boolean", "description": "Feature/node ordering is deterministic and reproducible across identical runs." },
+        "geometry_confidence_field": { "type": "string", "minLength": 1, "description": "Name of the per-feature field carrying geometry confidence/quality (e.g. source_quality)." }
+      },
+      "allOf": [
+        {
+          "description": "A selectable-feature product requires per_feature_nodes; tile_scoped_no_per_feature_nodes forbids claiming per-feature selection at the manifest level.",
+          "if": { "properties": { "feature_granularity": { "const": "per_feature_nodes" } }, "required": ["feature_granularity"] },
+          "then": { "properties": { "deterministic_ordering": { "const": true } } }
+        }
+      ]
+    },
+    "feature_metadata_ref": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["uri", "sha256", "schema_version", "feature_count"],
+      "description": "Content-bound pointer to the companion feature metadata document (atlantid.one_perfect_tile.feature_metadata.v1).",
+      "properties": {
+        "uri": { "type": "string", "minLength": 1 },
+        "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+        "schema_version": { "const": "atlantid.one_perfect_tile.feature_metadata.v1" },
+        "feature_count": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "provenance_receipt_ref": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["uri", "sha256", "schema_version", "receipt_id"],
+      "description": "Content-bound pointer to the customer-facing provenance receipt. A package with an absent or malformed receipt link fails closed.",
+      "properties": {
+        "uri": { "type": "string", "minLength": 1 },
+        "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+        "schema_version": { "const": "atlantid.one_perfect_tile.provenance_receipt.v1" },
+        "receipt_id": { "type": "string", "minLength": 1 }
+      }
+    },
+    "design_export_ref": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "OPTIONAL at the Core/first-tile manifest level; REQUIRED whenever this package is delivered as the Design Edition design-partner packet (completion Condition 10, rescoped). Content-bound pointer to the design export manifest (atlantid.one_perfect_tile.design_export_manifest.v1) that binds the dual-track export set D1/D2/D3 plus terrain.",
+      "required": ["uri", "sha256", "schema_version"],
+      "properties": {
+        "uri": { "type": "string", "minLength": 1 },
+        "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+        "schema_version": { "const": "atlantid.one_perfect_tile.design_export_manifest.v1" }
+      }
+    },
+    "layer_license_matrix_ref": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "OPTIONAL pointer to the machine-readable rights matrix (atlantid.one_perfect_tile.layer_license_matrix.v1, artifact C11). Required in the customer package per P3-REQ-ADD-006; carried in /RECEIPTS.",
+      "required": ["uri", "sha256", "schema_version"],
+      "properties": {
+        "uri": { "type": "string", "minLength": 1 },
+        "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+        "schema_version": { "const": "atlantid.one_perfect_tile.layer_license_matrix.v1" }
+      }
+    },
+    "join_contract_ref": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "OPTIONAL pointer to the generic Core join contract (atlantid.one_perfect_tile.join_contract.v1, artifact C3). Generic only; source-specific join recipes and externally derived join tables are prohibited in Core and never referenced here.",
+      "required": ["uri", "sha256", "schema_version"],
+      "properties": {
+        "uri": { "type": "string", "minLength": 1 },
+        "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+        "schema_version": { "const": "atlantid.one_perfect_tile.join_contract.v1" }
+      }
+    },
+    "claim_tiers_present": {
+      "type": "array",
+      "minItems": 1,
+      "description": "The set of claim-tier identifiers this package asserts. Every identifier must be a known tier from the Claim Tier Matrix; unknown identifiers fail closed.",
+      "items": {
+        "enum": [
+          "T0_SOURCE_IDENTITY_VERIFIED",
+          "T1_GEOGRAPHY_VERIFIED",
+          "T2_LIDAR_DERIVED_GEOMETRY",
+          "T3_GEOMETRY_DERIVED_MEASUREMENT",
+          "T4_ALGORITHMIC_STRUCTURE_SEGMENT",
+          "N1_EXTERNAL_BUILDING_IDENTITY_NOT_VERIFIED",
+          "N2_ADDRESS_NOT_PRESENT",
+          "N3_PARCEL_NOT_PRESENT",
+          "N4_COUNTY_ENRICHMENT_NOT_INCLUDED",
+          "A1_SYNTHETIC_FIXTURE",
+          "A2_REAL_EXPORTED_ASSET",
+          "A3_INDEPENDENTLY_ACCEPTED_PRODUCT"
+        ]
+      }
+    },
+    "excluded_fields": {
+      "type": "array",
+      "description": "P3-F-003 remediation: explicit, exact, complete Shape A exclusions. Every entry's field is drawn from the closed canonical exclusion enum, and the array MUST contain all six exclusion concepts (allOf/contains below), consistent with feature_metadata.shape_b_exclusions and receipt.exclusions. Generic placeholder strings are rejected.",
+      "minItems": 6,
+      "uniqueItems": true,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["field", "reason", "claim_tier"],
+        "properties": {
+          "field": {
+            "enum": ["address", "parcel_id", "county_building_id", "ownership", "legal_structure_identity", "county_enrichment"],
+            "description": "Exact canonical Shape A exclusion identifier. Closed enum; unknown/generic values fail closed."
+          },
+          "reason": { "type": "string", "minLength": 1 },
+          "claim_tier": {
+            "enum": ["N1_EXTERNAL_BUILDING_IDENTITY_NOT_VERIFIED", "N2_ADDRESS_NOT_PRESENT", "N3_PARCEL_NOT_PRESENT", "N4_COUNTY_ENRICHMENT_NOT_INCLUDED"],
+            "description": "The verified-negative claim tier this exclusion maps to. Closed enum."
+          }
+        }
+      },
+      "allOf": [
+        { "contains": { "properties": { "field": { "const": "address" } }, "required": ["field"] } },
+        { "contains": { "properties": { "field": { "const": "parcel_id" } }, "required": ["field"] } },
+        { "contains": { "properties": { "field": { "const": "county_building_id" } }, "required": ["field"] } },
+        { "contains": { "properties": { "field": { "const": "ownership" } }, "required": ["field"] } },
+        { "contains": { "properties": { "field": { "const": "legal_structure_identity" } }, "required": ["field"] } },
+        { "contains": { "properties": { "field": { "const": "county_enrichment" } }, "required": ["field"] } }
+      ]
+    },
+    "completion_conditions": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "P3-F-006 + operator Ruling 1 (R-11COND) remediation: machine binding of all eleven beachhead completion conditions in this customer-facing manifest. Condition 10 is the rescoped dual-track export set. PRODUCT_COMPLETE is prohibited (allOf at the root) unless every one of the eleven is satisfied==true with a non-null evidence_ref. This is not a twelfth condition and does not include the C12 accuracy statement.",
+      "required": ["c1", "c2", "c3", "c4", "c5", "c6", "c7", "c8", "c9", "c10", "c11"],
+      "properties": {
+        "c1": { "$ref": "#/definitions/completion_condition_state" },
+        "c2": { "$ref": "#/definitions/completion_condition_state" },
+        "c3": { "$ref": "#/definitions/completion_condition_state" },
+        "c4": { "$ref": "#/definitions/completion_condition_state" },
+        "c5": { "$ref": "#/definitions/completion_condition_state" },
+        "c6": { "$ref": "#/definitions/completion_condition_state" },
+        "c7": { "$ref": "#/definitions/completion_condition_state" },
+        "c8": { "$ref": "#/definitions/completion_condition_state" },
+        "c9": { "$ref": "#/definitions/completion_condition_state" },
+        "c10": { "$ref": "#/definitions/completion_condition_state" },
+        "c11": { "$ref": "#/definitions/completion_condition_state" }
+      }
+    },
+    "warnings": {
+      "type": "array",
+      "description": "Non-fatal warnings surfaced to the customer (e.g. sparse/fallback geometry present).",
+      "items": { "type": "string" }
+    },
+    "viewer_target": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["route", "loader_target", "viewer_manifest_maps_to"],
+      "properties": {
+        "route": { "type": "string", "minLength": 1, "description": "Deterministic demonstration route, e.g. /tile/atl_sobe_318455_shapeA_v001." },
+        "loader_target": { "type": "string", "minLength": 1, "description": "Relative loader target the viewer requests (the glb uri)." },
+        "viewer_manifest_maps_to": { "const": "glytchos.viewer_manifest.v1", "description": "The internal viewer manifest schema this package's viewer_target maps onto." }
+      }
+    },
+    "acceptance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["producer_conformance", "independent_acceptance"],
+      "description": "Two-key acceptance. Producer conformance PASS is necessary but NOT sufficient. Independent contract acceptance GO is separately required. Green producer tests do not equal accepted product.",
+      "properties": {
+        "producer_conformance": { "enum": ["PASS", "FAIL", "NOT_RUN"] },
+        "independent_acceptance": { "enum": ["GO", "HOLD", "NOT_REQUESTED", "NOT_YET_ACCEPTED"] }
+      }
+    },
+    "created_at": { "type": "string", "format": "date-time" },
+    "issuer": { "type": "string", "minLength": 1 }
+  },
+  "definitions": {
+    "completion_condition_state": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["satisfied", "evidence_ref"],
+      "properties": {
+        "satisfied": { "type": "boolean" },
+        "evidence_ref": {
+          "type": ["object", "null"],
+          "additionalProperties": false,
+          "description": "Content-bound evidence pointer. Null while the condition is unsatisfied; MUST be a bound {uri,sha256} when satisfied is true (enforced by the root allOf).",
+          "required": ["uri", "sha256"],
+          "properties": { "uri": { "type": "string", "minLength": 1 }, "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" } }
+        }
+      },
+      "allOf": [
+        {
+          "$comment": "A satisfied condition must carry a bound (non-null) evidence_ref.",
+          "if": { "properties": { "satisfied": { "const": true } }, "required": ["satisfied"] },
+          "then": { "properties": { "evidence_ref": { "type": "object" } } }
+        }
+      ]
+    }
+  },
+  "allOf": [
+    {
+      "description": "P3-F-006: A package may be PRODUCT_COMPLETE only if producer conformance PASSES, independent acceptance is GO, AND all eleven completion conditions are satisfied==true with bound evidence.",
+      "if": { "properties": { "product_state": { "const": "PRODUCT_COMPLETE" } }, "required": ["product_state"] },
+      "then": {
+        "properties": {
+          "acceptance": {
+            "type": "object",
+            "properties": { "producer_conformance": { "const": "PASS" }, "independent_acceptance": { "const": "GO" } },
+            "required": ["producer_conformance", "independent_acceptance"]
+          },
+          "completion_conditions": {
+            "type": "object",
+            "required": ["c1", "c2", "c3", "c4", "c5", "c6", "c7", "c8", "c9", "c10", "c11"],
+            "properties": {
+              "c1": { "properties": { "satisfied": { "const": true } }, "required": ["satisfied"] },
+              "c2": { "properties": { "satisfied": { "const": true } }, "required": ["satisfied"] },
+              "c3": { "properties": { "satisfied": { "const": true } }, "required": ["satisfied"] },
+              "c4": { "properties": { "satisfied": { "const": true } }, "required": ["satisfied"] },
+              "c5": { "properties": { "satisfied": { "const": true } }, "required": ["satisfied"] },
+              "c6": { "properties": { "satisfied": { "const": true } }, "required": ["satisfied"] },
+              "c7": { "properties": { "satisfied": { "const": true } }, "required": ["satisfied"] },
+              "c8": { "properties": { "satisfied": { "const": true } }, "required": ["satisfied"] },
+              "c9": { "properties": { "satisfied": { "const": true } }, "required": ["satisfied"] },
+              "c10": { "properties": { "satisfied": { "const": true } }, "required": ["satisfied"] },
+              "c11": { "properties": { "satisfied": { "const": true } }, "required": ["satisfied"] }
+            }
+          }
+        }
+      }
+    },
+    {
+      "description": "A SYNTHETIC_FIXTURE may never claim the A2 real-asset tier or A3 accepted-product tier.",
+      "if": { "properties": { "package_nature": { "type": "object", "properties": { "kind": { "const": "SYNTHETIC_FIXTURE" } }, "required": ["kind"] } }, "required": ["package_nature"] },
+      "then": {
+        "properties": {
+          "claim_tiers_present": { "type": "array", "items": { "not": { "enum": ["A2_REAL_EXPORTED_ASSET", "A3_INDEPENDENTLY_ACCEPTED_PRODUCT"] } } }
+        }
+      }
+    },
+    {
+      "description": "The A3 independently-accepted tier requires independent_acceptance GO.",
+      "if": { "properties": { "claim_tiers_present": { "contains": { "const": "A3_INDEPENDENTLY_ACCEPTED_PRODUCT" } } }, "required": ["claim_tiers_present"] },
+      "then": { "properties": { "acceptance": { "type": "object", "properties": { "independent_acceptance": { "const": "GO" } }, "required": ["independent_acceptance"] } } }
+    }
+  ]
+}

@@ -1,0 +1,138 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "atlantid.one_perfect_tile.join_contract.v1",
+  "title": "Atlantid Core — Generic Join Contract (C3) — REPLACEMENT CANDIDATE",
+  "description": "REPLACEMENT_CANDIDATE (awaiting Gate B). Net-new Core schema for artifact C3 (requirement P3-REQ-ADD-005) under operator Ruling 2 (P3-REQ-ADD-012). This is the GENERIC join contract that lives in Atlantid Core: it declares stable feature identifiers, coordinate-reference behavior, horizontal/vertical units, vertical datum, origin, transforms, and version/continuity rules — the single published surface every buyer-side layer joins to. It is GENERIC ONLY. It defines join SEMANTICS and deterministic COMPATIBILITY EXPECTATIONS but contains NO source-specific deterministic join recipe and NO externally derived association table; those belong to the separately licensed external data packs they serve and are held outside Core. Counsel question 9 (ODbL derivative-database status) remains open and is NOT resolved here; no legal conclusion is drawn. Fail-closed.",
+  "type": "object",
+  "additionalProperties": false,
+  "x-atlantid-operator-ruling": {
+    "P3-REQ-ADD-012": "Core contains the generic join contract only. Source-specific deterministic join recipes ship with the external packs they serve; externally derived join tables remain outside Core; counsel question 9 remains open and is not converted into legal advice."
+  },
+  "required": [
+    "schema_version",
+    "contract_class",
+    "lot_id",
+    "stable_identifiers",
+    "coordinate_reference_behavior",
+    "generic_join_semantics",
+    "deterministic_compatibility",
+    "version_continuity",
+    "core_boundary"
+  ],
+  "properties": {
+    "schema_version": { "const": "atlantid.one_perfect_tile.join_contract.v1" },
+    "contract_class": {
+      "const": "GENERIC_CORE_JOIN_CONTRACT",
+      "description": "Fixed. This artifact is the generic Core join contract, never a source-specific recipe."
+    },
+    "lot_id": { "type": "string", "pattern": "^ATL-[A-Z0-9\\-]+$" },
+    "stable_identifiers": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["primary_key", "feature_namespace", "feature_id_pattern", "identity_neutral", "prohibited_identity_implications"],
+      "description": "The join key. Stable, identity-neutral, tile-scoped feature identifiers that survive versioning under the continuity rules.",
+      "properties": {
+        "primary_key": { "const": "feature_id" },
+        "feature_namespace": { "const": "atlantid.lidar_segment.shapeA.v1" },
+        "feature_id_pattern": { "const": "^sb_318455_[0-9]+$" },
+        "identity_neutral": { "const": true },
+        "prohibited_identity_implications": {
+          "type": "array",
+          "minItems": 5,
+          "uniqueItems": true,
+          "description": "A feature_id MUST NOT imply any of these. Closed set.",
+          "items": { "enum": ["street_address", "parcel_identity", "county_building_identity", "ownership", "legal_structure_identity"] },
+          "allOf": [
+            { "contains": { "const": "street_address" } },
+            { "contains": { "const": "parcel_identity" } },
+            { "contains": { "const": "county_building_identity" } },
+            { "contains": { "const": "ownership" } },
+            { "contains": { "const": "legal_structure_identity" } }
+          ]
+        }
+      }
+    },
+    "coordinate_reference_behavior": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source_horizontal_crs", "source_vertical_crs", "scene_horizontal_crs", "display_geographic_crs", "horizontal_units", "vertical_units", "vertical_datum", "z_to_meters_factor", "origin_mode", "local_origin", "transforms"],
+      "description": "How coordinates behave for join. Global truth stays float64; render is tile-local with an explicit global transform.",
+      "properties": {
+        "source_horizontal_crs": { "type": "string", "pattern": "^EPSG:[0-9]+$" },
+        "source_vertical_crs": { "type": "string", "pattern": "^EPSG:[0-9]+$" },
+        "scene_horizontal_crs": { "type": "string", "pattern": "^EPSG:[0-9]+$" },
+        "display_geographic_crs": { "const": "EPSG:4326" },
+        "horizontal_units": { "type": "string", "minLength": 1 },
+        "vertical_units": { "type": "string", "minLength": 1 },
+        "vertical_datum": { "type": "string", "minLength": 1, "description": "Declared vertical datum, e.g. the source_vertical_crs realization. Named, never assumed." },
+        "z_to_meters_factor": { "type": "number", "exclusiveMinimum": 0 },
+        "origin_mode": { "const": "tile_local" },
+        "local_origin": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["x", "y", "z", "crs"],
+          "properties": { "x": { "type": "number" }, "y": { "type": "number" }, "z": { "type": "number" }, "crs": { "type": "string", "pattern": "^EPSG:[0-9]+$" } }
+        },
+        "transforms": {
+          "type": "array",
+          "minItems": 1,
+          "description": "Ordered, deterministic transform steps. Every alignment transform must be derived from USGS sources only, never by comparison against OpenStreetMap or any external layer.",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["step", "occurs_exactly_once", "derived_from_usgs_only"],
+            "properties": {
+              "step": { "type": "string", "minLength": 1 },
+              "occurs_exactly_once": { "type": "boolean" },
+              "derived_from_usgs_only": { "const": true }
+            }
+          }
+        }
+      }
+    },
+    "generic_join_semantics": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["join_model", "buyer_supplies_domain_layer", "join_direction"],
+      "description": "The generic join rule: Atlantid ships a clean substrate plus this join contract; the buyer brings their own domain layer (parcels, zoning, addresses, roads, scenarios) and joins it themselves through declared coordinates, transforms, and the stable feature_id.",
+      "properties": {
+        "join_model": { "const": "STABLE_ID_PLUS_DECLARED_COORDINATES_AND_TRANSFORMS" },
+        "buyer_supplies_domain_layer": { "const": true },
+        "join_direction": { "const": "BUYER_JOINS_TO_ATLANTID_SUBSTRATE" }
+      }
+    },
+    "deterministic_compatibility": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["deterministic_ordering", "reproducible_across_identical_runs", "compatibility_expectation"],
+      "description": "Deterministic compatibility expectations a buyer-side join can rely on.",
+      "properties": {
+        "deterministic_ordering": { "const": true },
+        "reproducible_across_identical_runs": { "const": true },
+        "compatibility_expectation": { "type": "string", "minLength": 1, "description": "e.g. 'feature_id stable within a (geometry_revision, algorithm_revision) pair; a join computed against version v is valid for that version and re-validated on version bump.'" }
+      }
+    },
+    "version_continuity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id_stability_scope", "id_change_conditions", "continuity_rule"],
+      "properties": {
+        "id_stability_scope": { "const": "stable within a (geometry_revision, algorithm_revision) pair" },
+        "id_change_conditions": { "type": "string", "minLength": 1, "description": "feature_id may change only if geometry or algorithm revision changes; on change, package_version bumps and the receipt records prior->new revision." },
+        "continuity_rule": { "type": "string", "minLength": 1, "description": "Identifiers are never mutated in place under a fixed version." }
+      }
+    },
+    "core_boundary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["contains_source_specific_join_recipe", "contains_externally_derived_join_table", "source_specific_recipes_location", "counsel_question_9_status"],
+      "description": "Ruling 2 boundary, machine-asserted and fail-closed. Core must not contain any source-specific recipe or externally derived join table.",
+      "properties": {
+        "contains_source_specific_join_recipe": { "const": false },
+        "contains_externally_derived_join_table": { "const": false },
+        "source_specific_recipes_location": { "const": "EXTERNAL_DATA_PACKS_ONLY" },
+        "counsel_question_9_status": { "const": "OPEN_NOT_LEGAL_CONCLUSION" }
+      }
+    }
+  }
+}

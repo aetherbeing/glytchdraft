@@ -1,0 +1,226 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "atlantid.one_perfect_tile.feature_metadata.v1",
+  "title": "Atlantid One-Perfect-Tile — Per-Feature Metadata (Shape A, USGS-only) — REPLACEMENT CANDIDATE",
+  "description": "REPLACEMENT_CANDIDATE (awaiting Gate B). Machine-readable per-feature metadata for the Shape A product tile. A 'feature' is an algorithmically segmented, LiDAR-derived, building-LIKE geometric feature. It is NOT a verified building, NOT an address, NOT a parcel, NOT a legal entity. The identifier namespace and every field are deliberately identity-neutral. Shape B fields (address, parcel, county building id, ownership, legal structure identity, county enrichment) are represented as explicit typed exclusions, never as null values masquerading as verified negatives. This schema fails closed and carries the normative remediations of findings P3-F-001 (footprint_provenance enum), P3-F-002 (mandatory per-feature claim-tier set), P3-F-004 (conditional measurement_null_meaning), and P3-F-005 (node_name == feature_id, enforced by pattern narrowing plus the mandatory cross-field conformance gate CF-05 referenced by the contract). Maps to glytchos.building_metadata.v1 for viewer compatibility but renames 'building' concepts to identity-neutral 'structure segment' concepts.",
+  "type": "object",
+  "additionalProperties": false,
+  "x-atlantid-finding-remediations": {
+    "P3-F-001": "geometry_confidence.footprint_provenance enum no longer contains unknown_unsafe_source; only LiDAR-derived methods are accepted; any non-LiDAR/unsafe provenance is a nonconforming state outside accepted Shape A records.",
+    "P3-F-002": "features[].claim_tiers requires the closed mandatory set {T2,T3,T4,N1,N2,N3,N4} via allOf/contains; a feature missing any mandatory tier fails validation.",
+    "P3-F-004": "features[].measurements requires measurement_null_meaning whenever any of estimated_height_m, footprint_area_m2, ground_z_m, point_count_inside is null.",
+    "P3-F-005": "features[].glb_node.node_name is narrowed to the feature_id pattern when has_glb_node is true, and the mandatory blocking cross-field conformance gate CF-05 (node_name == feature_id) is declared in x-atlantid-conformance-gates and referenced by the contract acceptance area D."
+  },
+  "x-atlantid-conformance-gates": [
+    {
+      "gate_id": "CF-05-NODE-NAME-EQ-FEATURE-ID",
+      "blocking": true,
+      "rule": "For every feature where glb_node.has_glb_node == true, glb_node.node_name MUST be byte-equal to that feature's feature_id.",
+      "rationale": "Pure Draft-07 cannot compare two sibling instance values for equality; the schema narrows node_name to the feature_id pattern as a necessary condition and this mandatory gate enforces the exact equality. A conforming producer/validator MUST run this gate and fail closed on inequality.",
+      "gate_owner": "contract acceptance area D; fixture negative variant INVALID_node_name_mismatch",
+      "not_optional": "This gate is not advisory. A package that has not passed CF-05 may not be presented as conformant."
+    }
+  ],
+  "x-atlantid-shape-a-exclusion-set": [
+    "address",
+    "parcel_id",
+    "county_building_id",
+    "ownership",
+    "legal_structure_identity",
+    "county_enrichment"
+  ],
+  "required": [
+    "schema_version",
+    "package_id",
+    "usgs_tile_id",
+    "feature_namespace",
+    "primary_key",
+    "feature_count",
+    "coordinate_reference",
+    "shape_b_exclusions",
+    "features"
+  ],
+  "properties": {
+    "schema_version": { "const": "atlantid.one_perfect_tile.feature_metadata.v1" },
+    "package_id": { "type": "string", "pattern": "^atl_sobe_318455_shapeA(_[a-z0-9]+)?$" },
+    "usgs_tile_id": { "type": "string", "minLength": 1 },
+    "feature_namespace": {
+      "const": "atlantid.lidar_segment.shapeA.v1",
+      "description": "Identity-neutral namespace. Scopes feature_id values. A feature_id is a tile-scoped segment index, NOT a global identity and NOT a building identity."
+    },
+    "primary_key": { "const": "feature_id" },
+    "feature_count": { "type": "integer", "minimum": 0 },
+    "coordinate_reference": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["scene_horizontal_crs", "local_origin", "units"],
+      "properties": {
+        "scene_horizontal_crs": { "type": "string", "pattern": "^EPSG:[0-9]+$" },
+        "local_origin": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["x", "y", "z", "crs"],
+          "properties": { "x": { "type": "number" }, "y": { "type": "number" }, "z": { "type": "number" }, "crs": { "type": "string", "pattern": "^EPSG:[0-9]+$" } }
+        },
+        "units": { "const": "meters" }
+      }
+    },
+    "shape_b_exclusions": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["address", "parcel_id", "county_building_id", "ownership", "legal_structure_identity", "county_enrichment"],
+      "description": "P3-F-003 remediation (feature-metadata face): every Shape B / county / legal identity concept is declared EXCLUDED at the document level, using the exact canonical Shape A exclusion identifiers, consistent with the manifest excluded_fields and the receipt exclusions. This is the verified-negative record. Per-feature these fields must not appear at all; their meaning is fixed here as 'not present in Shape A', not 'unknown'.",
+      "properties": {
+        "address": { "const": "EXCLUDED_SHAPE_A" },
+        "parcel_id": { "const": "EXCLUDED_SHAPE_A" },
+        "county_building_id": { "const": "EXCLUDED_SHAPE_A" },
+        "ownership": { "const": "EXCLUDED_SHAPE_A" },
+        "legal_structure_identity": { "const": "EXCLUDED_SHAPE_A" },
+        "county_enrichment": { "const": "EXCLUDED_SHAPE_A" }
+      }
+    },
+    "features": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "feature_id",
+          "usgs_tile_id",
+          "segment_index",
+          "centroid_local",
+          "bbox_local",
+          "measurements",
+          "geometry_confidence",
+          "claim_tiers",
+          "glb_node"
+        ],
+        "properties": {
+          "feature_id": {
+            "type": "string",
+            "pattern": "^sb_318455_[0-9]+$",
+            "description": "Identity-neutral tile-scoped feature id, e.g. sb_318455_0. Prefix sb_318455 encodes tile scope, not any address or building identity."
+          },
+          "usgs_tile_id": { "type": "string", "minLength": 1 },
+          "segment_index": { "type": "integer", "minimum": 0, "description": "Deterministic segment ordinal within this tile." },
+          "centroid_local": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["x", "y"],
+            "properties": { "x": { "type": "number" }, "y": { "type": "number" } },
+            "description": "Centroid in tile-local scene meters (add local_origin to recover global)."
+          },
+          "bbox_local": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["min", "max"],
+            "properties": {
+              "min": { "type": "array", "items": { "type": "number" }, "minItems": 3, "maxItems": 3 },
+              "max": { "type": "array", "items": { "type": "number" }, "minItems": 3, "maxItems": 3 }
+            }
+          },
+          "measurements": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["estimated_height_m", "footprint_area_m2", "ground_z_m", "point_count_inside"],
+            "description": "Geometry-derived measurements. These are DERIVED from LiDAR geometry, not authoritative survey values. Each may be null only when genuinely not computable, and null here means 'not computable', which is itself a value. P3-F-004 remediation: whenever ANY of the four measurements is null, measurement_null_meaning is REQUIRED by the allOf below.",
+            "properties": {
+              "estimated_height_m": { "type": ["number", "null"], "minimum": 0 },
+              "footprint_area_m2": { "type": ["number", "null"], "minimum": 0 },
+              "ground_z_m": { "type": ["number", "null"] },
+              "point_count_inside": { "type": ["integer", "null"], "minimum": 0 },
+              "measurement_null_meaning": {
+                "type": "string",
+                "minLength": 1,
+                "description": "States why a measurement is null (e.g. 'insufficient points'). REQUIRED (schema-enforced below) whenever any measurement is null. A blank string is not compliance (minLength 1)."
+              }
+            },
+            "allOf": [
+              {
+                "$comment": "P3-F-004: estimated_height_m null requires measurement_null_meaning.",
+                "if": { "required": ["estimated_height_m"], "properties": { "estimated_height_m": { "type": "null" } } },
+                "then": { "required": ["measurement_null_meaning"] }
+              },
+              {
+                "$comment": "P3-F-004: footprint_area_m2 null requires measurement_null_meaning.",
+                "if": { "required": ["footprint_area_m2"], "properties": { "footprint_area_m2": { "type": "null" } } },
+                "then": { "required": ["measurement_null_meaning"] }
+              },
+              {
+                "$comment": "P3-F-004: ground_z_m null requires measurement_null_meaning.",
+                "if": { "required": ["ground_z_m"], "properties": { "ground_z_m": { "type": "null" } } },
+                "then": { "required": ["measurement_null_meaning"] }
+              },
+              {
+                "$comment": "P3-F-004: point_count_inside null requires measurement_null_meaning.",
+                "if": { "required": ["point_count_inside"], "properties": { "point_count_inside": { "type": "null" } } },
+                "then": { "required": ["measurement_null_meaning"] }
+              }
+            ]
+          },
+          "geometry_confidence": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["source_quality", "footprint_provenance"],
+            "properties": {
+              "source_quality": {
+                "enum": ["good", "sparse", "fallback"],
+                "description": "Geometry quality tier from LiDAR density/segmentation, matching the existing pipeline vocabulary."
+              },
+              "footprint_provenance": {
+                "enum": ["lidar_convex_hull", "lidar_rotated_bbox", "lidar_alpha_shape"],
+                "description": "P3-F-001 remediation: geometry derivation method. Shape A permits ONLY LiDAR-derived methods. The value unknown_unsafe_source has been REMOVED from the accepted enum; any unknown/unsafe/non-LiDAR provenance is a nonconforming state and fails closed here. open_county_footprint / open_city_footprint values are Shape B and are likewise prohibited in a Shape A package."
+              }
+            }
+          },
+          "claim_tiers": {
+            "type": "array",
+            "uniqueItems": true,
+            "description": "P3-F-002 remediation: per-feature claim tiers must include the closed mandatory Shape A set {T2,T3,T4,N1,N2,N3,N4}. Enforced by the allOf/contains constraints below; a feature missing any mandatory tier fails validation. Only these seven identifiers are permitted at the per-feature level.",
+            "items": {
+              "enum": [
+                "T2_LIDAR_DERIVED_GEOMETRY",
+                "T3_GEOMETRY_DERIVED_MEASUREMENT",
+                "T4_ALGORITHMIC_STRUCTURE_SEGMENT",
+                "N1_EXTERNAL_BUILDING_IDENTITY_NOT_VERIFIED",
+                "N2_ADDRESS_NOT_PRESENT",
+                "N3_PARCEL_NOT_PRESENT",
+                "N4_COUNTY_ENRICHMENT_NOT_INCLUDED"
+              ]
+            },
+            "allOf": [
+              { "contains": { "const": "T2_LIDAR_DERIVED_GEOMETRY" } },
+              { "contains": { "const": "T3_GEOMETRY_DERIVED_MEASUREMENT" } },
+              { "contains": { "const": "T4_ALGORITHMIC_STRUCTURE_SEGMENT" } },
+              { "contains": { "const": "N1_EXTERNAL_BUILDING_IDENTITY_NOT_VERIFIED" } },
+              { "contains": { "const": "N2_ADDRESS_NOT_PRESENT" } },
+              { "contains": { "const": "N3_PARCEL_NOT_PRESENT" } },
+              { "contains": { "const": "N4_COUNTY_ENRICHMENT_NOT_INCLUDED" } }
+            ]
+          },
+          "glb_node": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["has_glb_node", "node_name"],
+            "properties": {
+              "has_glb_node": { "type": "boolean", "description": "Whether this feature maps to an independently selectable GLB node. False if the export is tile-scoped-single-node." },
+              "node_name": { "type": ["string", "null"], "description": "P3-F-005: GLB node name when has_glb_node is true. It MUST equal this feature's feature_id (necessary pattern narrowing below plus mandatory cross-field gate CF-05); null otherwise." }
+            },
+            "allOf": [
+              {
+                "$comment": "P3-F-005: when has_glb_node is true, node_name must be a nonempty string constrained to the feature_id pattern (necessary condition). Exact equality node_name == feature_id is enforced by mandatory gate CF-05 (x-atlantid-conformance-gates), which a conforming validator MUST run and fail closed on.",
+                "if": { "required": ["has_glb_node"], "properties": { "has_glb_node": { "const": true } } },
+                "then": { "properties": { "node_name": { "type": "string", "minLength": 1, "pattern": "^sb_318455_[0-9]+$" } } }
+              },
+              {
+                "$comment": "P3-F-005: when has_glb_node is false, node_name must be null (no phantom node).",
+                "if": { "required": ["has_glb_node"], "properties": { "has_glb_node": { "const": false } } },
+                "then": { "properties": { "node_name": { "type": "null" } } }
+              }
+            ]
+          }
+        }
+      }
+    }
+  }
+}

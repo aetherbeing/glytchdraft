@@ -1,0 +1,135 @@
+{
+  "schema_version": "atlantid.one_perfect_tile.provenance_receipt.v1",
+  "receipt_id": "ATL-RCPT-318455-SYNTH-001",
+  "issued_at": "2026-07-15T00:00:00Z",
+  "issuer": "atlantid_schema_fixture_author",
+  "lot_id": "ATL-SOUTH-BEACH-BEACHHEAD-001",
+  "package_id": "atl_sobe_318455_shapeA_synthfix001",
+  "package_version": "v001",
+  "package_nature": {
+    "kind": "SYNTHETIC_FIXTURE",
+    "is_synthetic": true
+  },
+  "source_shape": "A_USGS_ONLY",
+  "tile_identity": {
+    "usgs_tile_number": "318455",
+    "usgs_tile_id": "USGS_LPC_FL_MiamiDade_D23_LID2024_318455_0901",
+    "region_name": "South Beach, Miami Beach, FL",
+    "anchor": "Ocean Drive / 10th Street",
+    "geography_verified": true
+  },
+  "source_file": {
+    "file_name": "SYNTHETIC_FIXTURE_318455_0901.laz",
+    "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+    "size_bytes": 1024,
+    "header_point_count": 1000,
+    "identity_match": "synthetic_placeholder"
+  },
+  "crs_and_transforms": {
+    "source_horizontal_crs": "EPSG:6438",
+    "source_vertical_crs": "EPSG:6360",
+    "scene_horizontal_crs": "EPSG:32617",
+    "display_geographic_crs": "EPSG:4326",
+    "z_to_meters_factor": 0.3048006096012192,
+    "origin_mode": "tile_local",
+    "local_origin": {
+      "x": 0.0,
+      "y": 0.0,
+      "z": 0.0,
+      "crs": "EPSG:32617"
+    },
+    "transform_steps": [
+      {
+        "step": "z_to_meters_scale",
+        "occurs_exactly_once": true
+      }
+    ]
+  },
+  "software_identities": {
+    "pipeline_repo": "glytchdraft",
+    "pipeline_commit_sha": "0000000000000000000000000000000000000000",
+    "design_identities": [
+      {
+        "design_id": "synthetic_fixture_design",
+        "manifest_sha256": "1111111111111111111111111111111111111111111111111111111111111111"
+      }
+    ]
+  },
+  "algorithm_config": {
+    "segmentation": "synthetic_fixture_segmentation_v0",
+    "height_estimation": "synthetic_fixture_height_v0",
+    "algorithm_revision": "v0.0.0-synthetic"
+  },
+  "outputs": [
+    {
+      "role": "glb",
+      "uri": "tile.glb",
+      "sha256": "1111111111111111111111111111111111111111111111111111111111111111",
+      "size_bytes": 2048
+    }
+  ],
+  "validation_suite": {
+    "producer_conformance": "NOT_RUN",
+    "results": []
+  },
+  "claim_tiers": [
+    "T0_SOURCE_IDENTITY_VERIFIED",
+    "A1_SYNTHETIC_FIXTURE"
+  ],
+  "warnings": [],
+  "exclusions": [
+    {
+      "excluded": "address",
+      "meaning": "NOT_PRESENT_IN_SHAPE_A_VERIFIED_NEGATIVE"
+    },
+    {
+      "excluded": "parcel_id",
+      "meaning": "NOT_PRESENT_IN_SHAPE_A_VERIFIED_NEGATIVE"
+    },
+    {
+      "excluded": "county_building_id",
+      "meaning": "NOT_PRESENT_IN_SHAPE_A_VERIFIED_NEGATIVE"
+    },
+    {
+      "excluded": "ownership",
+      "meaning": "NOT_PRESENT_IN_SHAPE_A_VERIFIED_NEGATIVE"
+    },
+    {
+      "excluded": "legal_structure_identity",
+      "meaning": "NOT_PRESENT_IN_SHAPE_A_VERIFIED_NEGATIVE"
+    },
+    {
+      "excluded": "county_enrichment",
+      "meaning": "NOT_PRESENT_IN_SHAPE_A_VERIFIED_NEGATIVE"
+    }
+  ],
+  "accuracy_status": {
+    "status": "PENDING",
+    "statement": "Quantitative RMSE and formal ASPRS Ed2 / ISO 19157 evaluation have not been completed for this synthetic fixture; no measured-accuracy claim is made.",
+    "method_vocabulary": [
+      "ASPRS_ED2_2023_RMSE"
+    ],
+    "gating_posture": "PRESENT_NON_GATING_FIRST_TILE_GATES_DESIGN_EDITION",
+    "rmse_horizontal_m": null,
+    "rmse_vertical_m": null,
+    "evidence_ref": null
+  },
+  "unresolved_questions": [
+    "Customer discovery is not yet bound.",
+    "Counsel question 9 (ODbL derivative-database status) remains open."
+  ],
+  "independent_acceptance": {
+    "status": "NOT_YET_ACCEPTED",
+    "accepted_by": null,
+    "accepted_at": null
+  },
+  "standards_posture": {
+    "claims_external_standard_compliance": false,
+    "mappings": [
+      {
+        "standard": "CityGML LOD1.2 extrusion",
+        "relationship": "maps_to"
+      }
+    ]
+  }
+}

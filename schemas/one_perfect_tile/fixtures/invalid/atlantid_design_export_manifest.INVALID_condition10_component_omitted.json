@@ -1,0 +1,61 @@
+{
+  "schema_version": "atlantid.one_perfect_tile.design_export_manifest.v1",
+  "edition": "DESIGN_EDITION",
+  "lot_id": "ATL-SOUTH-BEACH-BEACHHEAD-001",
+  "package_id": "atl_sobe_318455_shapeA_synthfix001",
+  "package_version": "v001",
+  "linking_key": {
+    "primary_key": "feature_id",
+    "feature_namespace": "atlantid.lidar_segment.shapeA.v1",
+    "links_both_tracks": true
+  },
+  "core_glb_ref": {
+    "uri": "tile.glb",
+    "sha256": "1111111111111111111111111111111111111111111111111111111111111111",
+    "size_bytes": 2048
+  },
+  "mesh_track": {
+    "d1_obj": {
+      "uri": "mesh.obj",
+      "sha256": "4444444444444444444444444444444444444444444444444444444444444444",
+      "size_bytes": 512
+    },
+    "d1_mtl": {
+      "uri": "mesh.mtl",
+      "sha256": "5555555555555555555555555555555555555555555555555555555555555555",
+      "size_bytes": 128
+    },
+    "discrete_building_grouping": true,
+    "attributes_on_mesh": false
+  },
+  "vector_track": {
+    "d3_format": "geojson",
+    "d3_file": {
+      "uri": "vectors.geojson",
+      "sha256": "6666666666666666666666666666666666666666666666666666666666666666",
+      "size_bytes": 1024
+    },
+    "attributes_present": [
+      "stable_id",
+      "height",
+      "derivation_method",
+      "claim_tier"
+    ]
+  },
+  "rights_and_provenance_refs": {
+    "layer_license_matrix_ref": {
+      "uri": "layer_license_matrix.json",
+      "sha256": "8888888888888888888888888888888888888888888888888888888888888888",
+      "schema_version": "atlantid.one_perfect_tile.layer_license_matrix.v1"
+    },
+    "provenance_receipt_ref": {
+      "uri": "provenance_receipt.json",
+      "sha256": "3333333333333333333333333333333333333333333333333333333333333333",
+      "schema_version": "atlantid.one_perfect_tile.provenance_receipt.v1"
+    }
+  },
+  "viewer_access": {
+    "route": "/tile/atl_sobe_318455_shapeA_v001/design",
+    "role": "DEMONSTRATION_INSPECTION_TRUST"
+  }
+}

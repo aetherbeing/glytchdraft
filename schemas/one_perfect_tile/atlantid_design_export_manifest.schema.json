@@ -1,0 +1,156 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "atlantid.one_perfect_tile.design_export_manifest.v1",
+  "title": "Atlantid Design Edition — Dual-Track Design Export Manifest — REPLACEMENT CANDIDATE",
+  "description": "REPLACEMENT_CANDIDATE (awaiting Gate B). Net-new Design Edition schema binding the dual-track export set that is the invoiceable delivery surface and the content of rescoped completion Condition 10 (design-partner delivery packet): D1 editable mesh (triangulated OBJ + MTL, discrete building grouping) alongside the Core GLB (P3-REQ-ADD-001); D2 SKP native or documented SKP-importable path (P3-REQ-ADD-003); D3 attributed footprint vectors GeoJSON/GeoPackage/SHP carrying stable_id/heights/derivation/claim-tier (P3-REQ-ADD-002); plus the specified GeoTIFF terrain. Attributes ride the GIS/vector side, not the mesh side. Both tracks are linked by the stable feature_id from the generic join contract. Fail-closed. This is a Design Edition artifact; a web derivative (glTF tiling / 3D Tiles, P3-REQ-ADD-004) is NOT part of the first tile and is not bound here.",
+  "type": "object",
+  "additionalProperties": false,
+  "x-atlantid-requirements": ["P3-REQ-ADD-001", "P3-REQ-ADD-002", "P3-REQ-ADD-003"],
+  "x-atlantid-completion-condition": "Condition 10 (rescoped): dual-track export set.",
+  "required": [
+    "schema_version",
+    "edition",
+    "lot_id",
+    "package_id",
+    "package_version",
+    "linking_key",
+    "core_glb_ref",
+    "mesh_track",
+    "vector_track",
+    "terrain",
+    "rights_and_provenance_refs",
+    "viewer_access"
+  ],
+  "properties": {
+    "schema_version": { "const": "atlantid.one_perfect_tile.design_export_manifest.v1" },
+    "edition": { "const": "DESIGN_EDITION" },
+    "lot_id": { "type": "string", "pattern": "^ATL-[A-Z0-9\\-]+$" },
+    "package_id": { "type": "string", "pattern": "^atl_sobe_318455_shapeA(_[a-z0-9]+)?$" },
+    "package_version": { "type": "string", "pattern": "^v[0-9]{3}$" },
+    "linking_key": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["primary_key", "feature_namespace", "links_both_tracks"],
+      "description": "Both tracks are linked by the stable feature_id from the generic join contract (C3). The mesh track's node names and the vector track's stable_id attribute both equal feature_id.",
+      "properties": {
+        "primary_key": { "const": "feature_id" },
+        "feature_namespace": { "const": "atlantid.lidar_segment.shapeA.v1" },
+        "links_both_tracks": { "const": true }
+      }
+    },
+    "core_glb_ref": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["uri", "sha256", "size_bytes"],
+      "description": "The Core canonical GLB the editable exports accompany. GLB remains the Core canonical geometry payload/viewer format; the export set is the delivery surface.",
+      "properties": {
+        "uri": { "type": "string", "minLength": 1, "not": { "pattern": "(?i)(^|[/_.\\-])(latest|current|final-final)([/_.\\-]|$)" } },
+        "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+        "size_bytes": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "mesh_track": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["d1_obj", "d1_mtl", "discrete_building_grouping", "attributes_on_mesh"],
+      "description": "D1 editable mesh (P3-REQ-ADD-001): triangulated OBJ + MTL with discrete building grouping per the Boston primary-source precedent. Attribute loss at mesh export is accepted current practice; attributes live on the vector track.",
+      "properties": {
+        "d1_obj": { "$ref": "#/definitions/bound_file" },
+        "d1_mtl": { "$ref": "#/definitions/bound_file" },
+        "d2_skp": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "D2 (P3-REQ-ADD-003): SKP native OR documented SKP-importable path. The disjunction is preserved, not resolved.",
+          "required": ["mode"],
+          "properties": {
+            "mode": { "enum": ["skp_native", "documented_skp_importable_path"] },
+            "skp_file": { "$ref": "#/definitions/bound_file" },
+            "importable_path_doc": { "$ref": "#/definitions/bound_file" }
+          },
+          "allOf": [
+            { "if": { "properties": { "mode": { "const": "skp_native" } }, "required": ["mode"] }, "then": { "required": ["skp_file"] } },
+            { "if": { "properties": { "mode": { "const": "documented_skp_importable_path" } }, "required": ["mode"] }, "then": { "required": ["importable_path_doc"] } }
+          ]
+        },
+        "discrete_building_grouping": { "const": true, "description": "Each building-like feature is a discrete group/node named by feature_id (matches per_feature_nodes)." },
+        "attributes_on_mesh": { "const": false, "description": "Attributes are NOT carried on the mesh track (accepted attribute loss at mesh export); they ride the vector track." }
+      }
+    },
+    "vector_track": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["d3_format", "d3_file", "attributes_present"],
+      "description": "D3 attributed footprint vectors (P3-REQ-ADD-002): GeoJSON / GeoPackage / SHP carrying stable_id, heights, derivation method, and claim-tier codes. The buyer-side join surface.",
+      "properties": {
+        "d3_format": { "enum": ["geojson", "geopackage", "shapefile"] },
+        "d3_file": { "$ref": "#/definitions/bound_file" },
+        "attributes_present": {
+          "type": "array",
+          "minItems": 4,
+          "uniqueItems": true,
+          "description": "Required per-feature attributes on the vector track. Must include stable_id, height, derivation_method, claim_tier.",
+          "items": { "enum": ["stable_id", "height", "derivation_method", "claim_tier"] },
+          "allOf": [
+            { "contains": { "const": "stable_id" } },
+            { "contains": { "const": "height" } },
+            { "contains": { "const": "derivation_method" } },
+            { "contains": { "const": "claim_tier" } }
+          ]
+        }
+      }
+    },
+    "terrain": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["geotiff", "crs", "aligned_to_tile"],
+      "description": "Specified GeoTIFF terrain (DTM). S3 environmental-design analyses require it.",
+      "properties": {
+        "geotiff": { "$ref": "#/definitions/bound_file" },
+        "crs": { "type": "string", "pattern": "^EPSG:[0-9]+$" },
+        "aligned_to_tile": { "const": true, "description": "Terrain elevation is consistent with the tile's declared coordinate contract and features' ground_z_m." }
+      }
+    },
+    "rights_and_provenance_refs": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["layer_license_matrix_ref", "provenance_receipt_ref"],
+      "description": "The Design Edition packet carries the machine-readable rights matrix (C11) and the provenance receipt.",
+      "properties": {
+        "layer_license_matrix_ref": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["uri", "sha256", "schema_version"],
+          "properties": { "uri": { "type": "string", "minLength": 1 }, "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" }, "schema_version": { "const": "atlantid.one_perfect_tile.layer_license_matrix.v1" } }
+        },
+        "provenance_receipt_ref": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["uri", "sha256", "schema_version"],
+          "properties": { "uri": { "type": "string", "minLength": 1 }, "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" }, "schema_version": { "const": "atlantid.one_perfect_tile.provenance_receipt.v1" } }
+        }
+      }
+    },
+    "viewer_access": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["route", "role"],
+      "description": "Viewer access for inspection and demonstration is part of the design-partner packet (Condition 10). The viewer is the demonstration/inspection/trust surface, not the sole deliverable.",
+      "properties": {
+        "route": { "type": "string", "minLength": 1 },
+        "role": { "const": "DEMONSTRATION_INSPECTION_TRUST" }
+      }
+    }
+  },
+  "definitions": {
+    "bound_file": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["uri", "sha256", "size_bytes"],
+      "properties": {
+        "uri": { "type": "string", "minLength": 1 },
+        "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+        "size_bytes": { "type": "integer", "minimum": 1 }
+      }
+    }
+  }
+}

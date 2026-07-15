@@ -1,0 +1,63 @@
+{
+  "schema_version": "atlantid.one_perfect_tile.join_contract.v1",
+  "contract_class": "GENERIC_CORE_JOIN_CONTRACT",
+  "lot_id": "ATL-SOUTH-BEACH-BEACHHEAD-001",
+  "stable_identifiers": {
+    "primary_key": "feature_id",
+    "feature_namespace": "atlantid.lidar_segment.shapeA.v1",
+    "feature_id_pattern": "^sb_318455_[0-9]+$",
+    "identity_neutral": true,
+    "prohibited_identity_implications": [
+      "street_address",
+      "parcel_identity",
+      "county_building_identity",
+      "ownership",
+      "legal_structure_identity"
+    ]
+  },
+  "coordinate_reference_behavior": {
+    "source_horizontal_crs": "EPSG:6438",
+    "source_vertical_crs": "EPSG:6360",
+    "scene_horizontal_crs": "EPSG:32617",
+    "display_geographic_crs": "EPSG:4326",
+    "horizontal_units": "meters",
+    "vertical_units": "meters",
+    "vertical_datum": "NAVD88 (EPSG:6360 realization)",
+    "z_to_meters_factor": 0.3048006096012192,
+    "origin_mode": "tile_local",
+    "local_origin": {
+      "x": 0.0,
+      "y": 0.0,
+      "z": 0.0,
+      "crs": "EPSG:32617"
+    },
+    "transforms": [
+      {
+        "step": "z_to_meters_scale",
+        "occurs_exactly_once": true,
+        "derived_from_usgs_only": true
+      }
+    ]
+  },
+  "generic_join_semantics": {
+    "join_model": "STABLE_ID_PLUS_DECLARED_COORDINATES_AND_TRANSFORMS",
+    "buyer_supplies_domain_layer": true,
+    "join_direction": "BUYER_JOINS_TO_ATLANTID_SUBSTRATE"
+  },
+  "deterministic_compatibility": {
+    "deterministic_ordering": true,
+    "reproducible_across_identical_runs": true,
+    "compatibility_expectation": "feature_id stable within a (geometry_revision, algorithm_revision) pair; a join computed against version v is valid for that version and re-validated on version bump."
+  },
+  "version_continuity": {
+    "id_stability_scope": "stable within a (geometry_revision, algorithm_revision) pair",
+    "id_change_conditions": "feature_id may change only if geometry or algorithm revision changes; on change, package_version bumps and the receipt records prior->new revision.",
+    "continuity_rule": "Identifiers are never mutated in place under a fixed version."
+  },
+  "core_boundary": {
+    "contains_source_specific_join_recipe": false,
+    "contains_externally_derived_join_table": false,
+    "source_specific_recipes_location": "EXTERNAL_DATA_PACKS_ONLY",
+    "counsel_question_9_status": "OPEN_NOT_LEGAL_CONCLUSION"
+  }
+}

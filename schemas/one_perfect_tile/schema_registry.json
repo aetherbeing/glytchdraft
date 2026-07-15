@@ -1,0 +1,97 @@
+{
+  "registry_version": "atlantid.one_perfect_tile.schema_registry.v1",
+  "registry_role": "MACHINE_READABLE_SCHEMA_INDEX_ONLY",
+  "registry_disposition_note": "This registry indexes the six accepted frozen One-Perfect-Tile JSON Schemas and their repository implementation footprint. It does NOT claim product-condition acceptance, contract freeze, Gate B review outcome, or PRODUCT_COMPLETE status. Product state remains PRODUCT_INCOMPLETE (1 of 11) independent of this registry's contents.",
+  "frozen_contract_identity": {
+    "source_root": "designs/one_perfect_tile_asset_viewer_contract_v3_ACCEPTED_FROZEN_20260715T023757Z",
+    "manifest_relative_path": "manifest.sha256",
+    "manifest_size_bytes": 2719,
+    "manifest_sha256": "7239631b52f1b08e691dfd67cd9b5e365e32992f712825ca8f925bbb92415deb",
+    "contract_main_payload": "ATLANTID_ONE_PERFECT_TILE_ASSET_VIEWER_CONTRACT_20260715T003000Z_OPUS_RCA.md",
+    "condition1_acceptance_evidence_root": "evidence/one_perfect_tile_contract_v3_acceptance_freeze_20260715T023757Z_codex",
+    "condition1_acceptance_manifest_sha256": "187faa24cc96cab21f7a46ef6e1ed5a8cbeaacd2c57daec30e68c74c91a6be09",
+    "implementation_gap_audit_root": "evidence/one_perfect_tile_viewer_export_implementation_gap_audit_20260715T132818Z_sonnet",
+    "implementation_gap_audit_manifest_sha256": "901c85cfd86a15e5b2e87a004c271a4da62c385a2b1c6d4622f07a66d05d1c90"
+  },
+  "schemas": [
+    {
+      "canonical_filename": "atlantid_tile_package_manifest.schema.json",
+      "schema_id": "atlantid.one_perfect_tile.tile_package_manifest.v1",
+      "repository_path": "schemas/one_perfect_tile/atlantid_tile_package_manifest.schema.json",
+      "semantic_purpose": "Top-of-package customer-facing manifest: package identity, bound payload hashes (geometry, feature metadata, provenance receipt, optional design export / layer license matrix / join contract refs), product completeness state with eleven-condition evidence gate, synthetic-vs-real disambiguation, Shape A source posture, exact Shape A exclusion set.",
+      "sha256": "eda103d21ee4d6a2a95324c529e23a9bf925f2e24a8495536f396c63e9b6512f",
+      "draft": "http://json-schema.org/draft-07/schema#",
+      "depends_on": [
+        "atlantid.one_perfect_tile.feature_metadata.v1",
+        "atlantid.one_perfect_tile.provenance_receipt.v1",
+        "atlantid.one_perfect_tile.design_export_manifest.v1",
+        "atlantid.one_perfect_tile.layer_license_matrix.v1",
+        "atlantid.one_perfect_tile.join_contract.v1"
+      ],
+      "dependency_mechanism": "content-hash reference by const schema_version field in a nested *_ref object; no JSON Schema $ref crosses file boundaries",
+      "implementation_status": "IMPLEMENTED"
+    },
+    {
+      "canonical_filename": "atlantid_feature_metadata.schema.json",
+      "schema_id": "atlantid.one_perfect_tile.feature_metadata.v1",
+      "repository_path": "schemas/one_perfect_tile/atlantid_feature_metadata.schema.json",
+      "semantic_purpose": "Per-feature (per structure-segment) metadata: identity-neutral feature_id, geometry-derived measurements with conditional null-meaning, geometry confidence / footprint provenance (LiDAR-only), mandatory per-feature claim-tier set, GLB node binding with the CF-05 node_name==feature_id conformance gate, document-level Shape B exclusions.",
+      "sha256": "f0e4e694f29245a6624e2ee28b10c3091b54f382f825d41e8ee45026d4e50f97",
+      "draft": "http://json-schema.org/draft-07/schema#",
+      "depends_on": [],
+      "dependency_mechanism": "none (leaf schema); referenced BY tile_package_manifest via feature_metadata_ref",
+      "implementation_status": "IMPLEMENTED"
+    },
+    {
+      "canonical_filename": "atlantid_provenance_receipt.schema.json",
+      "schema_id": "atlantid.one_perfect_tile.provenance_receipt.v1",
+      "repository_path": "schemas/one_perfect_tile/atlantid_provenance_receipt.schema.json",
+      "semantic_purpose": "Customer-facing provenance receipt: source identity, rights posture, CRS/transforms, software/design identities, algorithm config, output hashes, validation suite, claim tiers, exact Shape A exclusions, C12 dataset-level accuracy status (PENDING honest-negative permitted, MEASURED requires bound RMSE evidence), unresolved questions, independent acceptance, standards posture.",
+      "sha256": "1d52f07c73c15e3203ce266739cc693e59ab0231143afee63628d43c8c3e1153",
+      "draft": "http://json-schema.org/draft-07/schema#",
+      "depends_on": [],
+      "dependency_mechanism": "none (leaf schema); referenced BY tile_package_manifest via provenance_receipt_ref and BY design_export_manifest via rights_and_provenance_refs.provenance_receipt_ref",
+      "implementation_status": "IMPLEMENTED"
+    },
+    {
+      "canonical_filename": "atlantid_design_export_manifest.schema.json",
+      "schema_id": "atlantid.one_perfect_tile.design_export_manifest.v1",
+      "repository_path": "schemas/one_perfect_tile/atlantid_design_export_manifest.schema.json",
+      "semantic_purpose": "Design Edition dual-track export manifest binding completion Condition 10: D1 editable mesh (OBJ+MTL), D2 SKP native/importable path, D3 attributed footprint vectors, GeoTIFF terrain, both tracks linked by stable feature_id, rights/provenance refs, viewer access. Net-new schema (not inherited from a prior contract revision).",
+      "sha256": "ca4472cde13882fe07ee11a2cf583c0095d1ff7ce92b0ae8f0e880552e87662d",
+      "draft": "http://json-schema.org/draft-07/schema#",
+      "depends_on": [
+        "atlantid.one_perfect_tile.layer_license_matrix.v1",
+        "atlantid.one_perfect_tile.provenance_receipt.v1"
+      ],
+      "dependency_mechanism": "content-hash reference by const schema_version field in rights_and_provenance_refs.*",
+      "implementation_status": "IMPLEMENTED"
+    },
+    {
+      "canonical_filename": "atlantid_layer_license_matrix.schema.json",
+      "schema_id": "atlantid.one_perfect_tile.layer_license_matrix.v1",
+      "repository_path": "schemas/one_perfect_tile/atlantid_layer_license_matrix.schema.json",
+      "semantic_purpose": "Machine-readable rights matrix (artifact C11): per-layer source, rights holder, license/terms, permitted uses, redistribution/attribution/share-alike/modification posture, unresolved legal questions (including open counsel question 9), and Core-vs-outside-Core relationship. Records rights facts only; draws no legal conclusion. Net-new schema.",
+      "sha256": "f932aea94ea8598d64aa02672a7f0cb418585aba9b69ff371c859796d0f3afdc",
+      "draft": "http://json-schema.org/draft-07/schema#",
+      "depends_on": [],
+      "dependency_mechanism": "none (leaf schema); referenced BY tile_package_manifest via layer_license_matrix_ref and BY design_export_manifest via rights_and_provenance_refs.layer_license_matrix_ref",
+      "implementation_status": "IMPLEMENTED"
+    },
+    {
+      "canonical_filename": "atlantid_join_contract.schema.json",
+      "schema_id": "atlantid.one_perfect_tile.join_contract.v1",
+      "repository_path": "schemas/one_perfect_tile/atlantid_join_contract.schema.json",
+      "semantic_purpose": "Generic Core join contract (artifact C3): stable identifiers, coordinate-reference behavior, horizontal/vertical units and datum, generic join semantics (buyer joins to Atlantid substrate), deterministic compatibility expectations, version/continuity rules, and a machine-asserted core_boundary block prohibiting source-specific join recipes or externally derived join tables inside Core. Net-new schema.",
+      "sha256": "b1883cb20e68f42a6d1b692c7fbc94c26fb37e6b97119346227b423f2662723c",
+      "draft": "http://json-schema.org/draft-07/schema#",
+      "depends_on": [],
+      "dependency_mechanism": "none (leaf schema); referenced BY tile_package_manifest via join_contract_ref",
+      "implementation_status": "IMPLEMENTED"
+    }
+  ],
+  "schema_count": 6,
+  "generic_join_separation_verified": true,
+  "condition_10_dual_track_export_unity_verified": true,
+  "c12_accuracy_semantics_verified": true
+}

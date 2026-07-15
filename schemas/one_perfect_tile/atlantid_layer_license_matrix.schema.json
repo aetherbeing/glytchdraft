@@ -1,0 +1,65 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "atlantid.one_perfect_tile.layer_license_matrix.v1",
+  "title": "Atlantid Core — Layer License Matrix (C11) — REPLACEMENT CANDIDATE",
+  "description": "REPLACEMENT_CANDIDATE (awaiting Gate B). Net-new Core schema for artifact C11 (requirement P3-REQ-ADD-006): a machine-readable rights matrix required in the customer package. For each layer it identifies source, rights holder or publisher, license or terms, permitted uses, redistribution posture, attribution requirement, share-alike requirement, modification posture, unresolved legal questions, and relationship to Atlantid Core. It records rights facts and declared unresolved questions; it draws NO legal conclusion. Counsel question 9 (ODbL derivative-database status) remains open and must be recorded, never resolved. Externally derived join tables and source-specific packs are marked as outside Core. Fail-closed.",
+  "type": "object",
+  "additionalProperties": false,
+  "x-atlantid-requirements": ["P3-REQ-ADD-006", "P3-REQ-ADD-007"],
+  "required": ["schema_version", "lot_id", "package_id", "draws_legal_conclusion", "layers"],
+  "properties": {
+    "schema_version": { "const": "atlantid.one_perfect_tile.layer_license_matrix.v1" },
+    "lot_id": { "type": "string", "pattern": "^ATL-[A-Z0-9\\-]+$" },
+    "package_id": { "type": "string", "pattern": "^atl_sobe_318455_shapeA(_[a-z0-9]+)?$" },
+    "draws_legal_conclusion": { "const": false, "description": "This matrix records rights facts and open questions only; it draws no legal conclusion (Ruling 2, counsel Q9 open)." },
+    "layers": {
+      "type": "array",
+      "minItems": 1,
+      "description": "One entry per layer present in or associated with the package. The Core Shape A geometry layer is always present and always relationship_to_core = IS_CORE.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "layer_id",
+          "source",
+          "rights_holder_or_publisher",
+          "license_or_terms",
+          "permitted_uses",
+          "redistribution_posture",
+          "attribution_required",
+          "share_alike_required",
+          "modification_posture",
+          "unresolved_legal_questions",
+          "relationship_to_core"
+        ],
+        "properties": {
+          "layer_id": { "type": "string", "minLength": 1 },
+          "source": { "type": "string", "minLength": 1 },
+          "rights_holder_or_publisher": { "type": "string", "minLength": 1 },
+          "license_or_terms": { "type": "string", "minLength": 1 },
+          "permitted_uses": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } },
+          "redistribution_posture": { "enum": ["redistributable", "redistributable_with_conditions", "not_redistributable", "needs_review"] },
+          "attribution_required": { "type": "boolean" },
+          "share_alike_required": { "type": "boolean" },
+          "modification_posture": { "enum": ["modification_permitted", "modification_permitted_with_conditions", "modification_restricted", "needs_review"] },
+          "unresolved_legal_questions": {
+            "type": "array",
+            "description": "Open questions recorded verbatim, never resolved here. For any layer implicating ODbL derivative-database status this MUST include counsel question 9.",
+            "items": { "type": "string", "minLength": 1 }
+          },
+          "relationship_to_core": {
+            "enum": ["IS_CORE", "OUTSIDE_CORE_EXTERNAL_PACK", "OUTSIDE_CORE_EXTERNALLY_DERIVED_JOIN_TABLE", "OUTSIDE_CORE_BUYER_SUPPLIED"],
+            "description": "Ruling 2 boundary: only rights-clean Core layers are IS_CORE. Source-specific packs and externally derived join tables are OUTSIDE_CORE."
+          }
+        },
+        "allOf": [
+          {
+            "$comment": "A layer that is an externally derived join table may never be IS_CORE.",
+            "if": { "properties": { "relationship_to_core": { "const": "OUTSIDE_CORE_EXTERNALLY_DERIVED_JOIN_TABLE" } }, "required": ["relationship_to_core"] },
+            "then": { "properties": { "relationship_to_core": { "not": { "const": "IS_CORE" } } } }
+          }
+        ]
+      }
+    }
+  }
+}
